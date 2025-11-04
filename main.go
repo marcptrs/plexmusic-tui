@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	clientIdentifier = "plex-tui-v1"
+	clientIdentifier = "plexmusic-tui-v1"
 	plexTVURL        = "https://plex.tv"
 )
 
@@ -320,7 +320,7 @@ func getConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	configDir := filepath.Join(homeDir, ".config", "plex-tui")
+	configDir := filepath.Join(homeDir, ".config", "plexmusic-tui")
 	return filepath.Join(configDir, "config.json"), nil
 }
 
