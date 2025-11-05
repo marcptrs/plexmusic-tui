@@ -27,6 +27,7 @@ import (
 	"github.com/faiface/beep/wav"
 
 	"plexmusic-tui/internal/auth"
+	"plexmusic-tui/internal/plex"
 	"plexmusic-tui/internal/ui"
 )
 
@@ -83,6 +84,7 @@ type model struct {
 	token            string
 	err              error
 	authenticator    *auth.Authenticator // Auth handler
+	plexClient       *plex.Client        // Plex API client
 	servers          []plexServer
 	selectedServer   int
 	selectedHome     int // For home menu selection
@@ -713,6 +715,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == mainAppView {
 				return m, nil
 			}
+
+		case "-":
+			// Decrease volume (only in main app view)
+			if m.state == mainAppView && m.volume != nil {
+				newVolume := m.volume.Volume - 0.05
+				if newVolume < 0 {
+					newVolume = 0
+				}
+				m.volume.Volume = newVolume
+			}
+			return m, nil
+
+		case "+", "=":
+			// Increase volume (only in main app view)
+			// "=" because Shift+= is + on US keyboards
+			if m.state == mainAppView && m.volume != nil {
+				newVolume := m.volume.Volume + 0.05
+				if newVolume > 1 {
+					newVolume = 1
+				}
+				m.volume.Volume = newVolume
+			}
+			return m, nil
 
 		case "enter":
 			if m.state == loginView && m.focusIndex == 2 {
@@ -2129,6 +2154,39 @@ func (m model) detailPaneView() string {
 	}
 }
 
+// renderVolumeBar creates a visual volume indicator
+// Returns a string like "Volume: ████░░░░░░ 50%"
+func (m model) renderVolumeBar(width int) string {
+	if m.volume == nil {
+		return ""
+	}
+
+	// Clamp width to reasonable range
+	if width < 10 {
+		width = 10
+	}
+	if width > 30 {
+		width = 30
+	}
+
+	volumePercent := m.volume.Volume * 100
+	filledWidth := int(float64(width) * m.volume.Volume)
+	if filledWidth > width {
+		filledWidth = width
+	}
+
+	bar := ""
+	for i := 0; i < width; i++ {
+		if i < filledWidth {
+			bar += "█"
+		} else {
+			bar += "░"
+		}
+	}
+
+	return fmt.Sprintf("Volume: %s %.0f%%", bar, volumePercent)
+}
+
 // playbackControlPane renders the bottom playback control pane
 func (m *model) playbackControlPane() string {
 	if m.currentTrack == nil || m.playbackState == playbackStopped {
@@ -2262,12 +2320,16 @@ func (m *model) playbackControlPane() string {
 	} else {
 		controlsHint += "[Space]Play"
 	}
-	controlsHint += " [N]ext"
+	controlsHint += " [N]ext [-/+]Volume"
+
+	// Volume indicator
+	volumeDisplay := m.renderVolumeBar(15)
 
 	// Build the display
 	line1 := fmt.Sprintf("%s %s", statusIcon, trackInfo)
 	line2 := fmt.Sprintf("%s %s %s / %s", elapsedStr, progressBar, formatTime(elapsed), totalStr)
 	line3 := controlsHint
+	line4 := volumeDisplay
 
 	// Truncate track info if too long
 	maxTrackInfoWidth := availableWidth - 5
@@ -2286,7 +2348,7 @@ func (m *model) playbackControlPane() string {
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00")).Bold(true).Render(line1),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(line2),
 			lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(line3),
-			"",
+			lipgloss.NewStyle().Foreground(lipgloss.Color("#00AA00")).Render(line4),
 			"",
 		}
 
@@ -2317,10 +2379,11 @@ func (m *model) playbackControlPane() string {
 		return "\n" + strings.Join(combined, "\n")
 	}
 
-	result := fmt.Sprintf("\n%s\n%s\n%s",
+	result := fmt.Sprintf("\n%s\n%s\n%s\n%s",
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#FF8C00")).Bold(true).Render(line1),
 		lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")).Render(line2),
-		lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(line3))
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#888888")).Render(line3),
+		lipgloss.NewStyle().Foreground(lipgloss.Color("#00AA00")).Render(line4))
 
 	return result
 }
