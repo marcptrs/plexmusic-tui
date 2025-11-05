@@ -609,7 +609,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case " ", "p":
-			// Space or 'p' for play/pause
+			// Space or 'p' for play/pause (only in main app view)
 			if m.state == mainAppView {
 				if m.playbackState == playbackPlaying {
 					// Pause
@@ -641,11 +641,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.startPlayback(track)
 					}
 				}
+				return m, nil
 			}
-			return m, nil
 
 		case "s":
-			// Stop playback
+			// Stop playback (only in main app view)
 			if m.state == mainAppView && m.playbackState != playbackStopped {
 				if m.streamer != nil {
 					speaker.Clear()
@@ -655,10 +655,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.playbackState = playbackStopped
 				m.currentTrack = nil
 			}
-			return m, nil
+			// Only consume 's' if we're in mainAppView; otherwise let it pass to text input
+			if m.state == mainAppView {
+				return m, nil
+			}
 
 		case "n":
-			// Next track
+			// Next track (only in main app view)
 			if m.state == mainAppView && len(m.tracks) > 0 {
 				// Stop current playback
 				if m.streamer != nil {
@@ -679,10 +682,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.playbackState = playbackStopped // Will be set to playing when stream loads
 				return m, m.startPlayback(track)
 			}
-			return m, nil
+			// Only consume 'n' if we're in mainAppView; otherwise let it pass to text input
+			if m.state == mainAppView {
+				return m, nil
+			}
 
 		case "b":
-			// Previous track
+			// Previous track (only in main app view)
 			if m.state == mainAppView && len(m.tracks) > 0 {
 				// Stop current playback
 				if m.streamer != nil {
@@ -703,7 +709,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.playbackState = playbackStopped // Will be set to playing when stream loads
 				return m, m.startPlayback(track)
 			}
-			return m, nil
+			// Only consume 'b' if we're in mainAppView; otherwise let it pass to text input
+			if m.state == mainAppView {
+				return m, nil
+			}
 
 		case "enter":
 			if m.state == loginView && m.focusIndex == 2 {
