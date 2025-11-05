@@ -10,7 +10,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,12 +26,8 @@ import (
 	"github.com/faiface/beep/vorbis"
 	"github.com/faiface/beep/wav"
 
+	"plexmusic-tui/internal/auth"
 	"plexmusic-tui/internal/ui"
-)
-
-const (
-	clientIdentifier = "plexmusic-tui-v1"
-	plexTVURL        = "https://plex.tv"
 )
 
 type sessionState int
@@ -87,6 +82,7 @@ type model struct {
 	focusIndex       int
 	token            string
 	err              error
+	authenticator    *auth.Authenticator // Auth handler
 	servers          []plexServer
 	selectedServer   int
 	selectedHome     int // For home menu selection
@@ -131,12 +127,6 @@ type authResult struct {
 	err   error
 }
 
-type plexAuthResponse struct {
-	User struct {
-		AuthToken string `json:"authToken"`
-	} `json:"user"`
-}
-
 type config struct {
 	AuthToken          string `json:"authToken"`
 	LastSelectedServer string `json:"lastSelectedServer,omitempty"` // Server name
@@ -149,19 +139,6 @@ type plexServer struct {
 	AccessToken  string `json:"accessToken"`
 	LocalAddress string `json:"localAddresses"`
 	Scheme       string `json:"scheme"`
-}
-
-type plexResourceResponse struct {
-	Name        string `json:"name"`
-	Provides    string `json:"provides"`
-	AccessToken string `json:"accessToken"`
-	Owned       bool   `json:"owned"`
-	Connections []struct {
-		Protocol string `json:"protocol"`
-		Address  string `json:"address"`
-		Port     int    `json:"port"`
-		Local    bool   `json:"local"`
-	} `json:"connections"`
 }
 
 type serverListResult struct {
@@ -363,40 +340,15 @@ func saveConfig(cfg *config) error {
 	return os.WriteFile(configPath, data, 0600)
 }
 
+// Style aliases for convenience - these are defined in internal/ui/styles.go
 var (
-	titleStyle = lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("#FF8C00")).
-			MarginBottom(1)
-
-	focusedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF8C00")).
-			Bold(true)
-
-	blurredStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#666666"))
-
-	buttonStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Background(lipgloss.Color("#FF8C00")).
-			Padding(0, 3).
-			MarginTop(1)
-
-	buttonBlurredStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color("#FFFFFF")).
-				Background(lipgloss.Color("#666666")).
-				Padding(0, 3).
-				MarginTop(1)
-
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000")).
-			Bold(true).
-			MarginTop(1)
-
-	successStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#00FF00")).
-			Bold(true).
-			MarginTop(1)
+	titleStyle         = ui.TitleStyle
+	focusedStyle       = ui.FocusedStyle
+	blurredStyle       = ui.BlurredStyle
+	buttonStyle        = ui.ButtonStyle
+	buttonBlurredStyle = ui.ButtonBlurredStyle
+	errorStyle         = ui.ErrorStyle
+	successStyle       = ui.SuccessStyle
 )
 
 func initialModel() model {
@@ -418,6 +370,7 @@ func initialModel() model {
 		usernameInput: usernameInput,
 		passwordInput: passwordInput,
 		focusIndex:    0,
+		authenticator: auth.NewAuthenticator(),
 	}
 }
 
@@ -1034,126 +987,35 @@ func (m model) authenticate() tea.Cmd {
 		username := m.usernameInput.Value()
 		password := m.passwordInput.Value()
 
-		// Debug: Check for common issues
-		if username == "" || password == "" {
-			return authResult{err: fmt.Errorf("username or password is empty")}
-		}
-
-		// Use form encoding with user[login] and user[password] format
-		formData := url.Values{}
-		formData.Set("user[login]", username)
-		formData.Set("user[password]", password)
-
-		requestURL := plexTVURL + "/users/sign_in.json"
-		req, err := http.NewRequest("POST", requestURL, strings.NewReader(formData.Encode()))
+		token, err := m.authenticator.AuthenticateUser(username, password)
 		if err != nil {
-			return authResult{err: fmt.Errorf("failed to create request: %w", err)}
+			return authResult{err: err}
 		}
 
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("X-Plex-Product", "Plex TUI")
-		req.Header.Set("X-Plex-Version", "1.0")
-		req.Header.Set("X-Plex-Client-Identifier", clientIdentifier)
-		req.Header.Set("X-Plex-Platform", "Linux")
-		req.Header.Set("X-Plex-Device", "PC")
-		req.Header.Set("X-Plex-Device-Name", "Plex TUI")
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return authResult{err: fmt.Errorf("authentication request failed: %w", err)}
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusCreated {
-			body, _ := io.ReadAll(resp.Body)
-			// Add more helpful error message
-			return authResult{err: fmt.Errorf("authentication failed (status %d): %s\nUsername length: %d",
-				resp.StatusCode, string(body), len(username))}
-		}
-
-		var authResp plexAuthResponse
-		if err := json.NewDecoder(resp.Body).Decode(&authResp); err != nil {
-			return authResult{err: fmt.Errorf("failed to decode response: %w", err)}
-		}
-
-		if authResp.User.AuthToken == "" {
-			return authResult{err: fmt.Errorf("no auth token received")}
-		}
-
-		return authResult{token: authResp.User.AuthToken}
+		return authResult{token: token}
 	}
 }
 
 func (m model) fetchServers() tea.Cmd {
 	return func() tea.Msg {
-		url := plexTVURL + "/api/v2/resources?includeHttps=1&includeRelay=0"
-		req, err := http.NewRequest("GET", url, nil)
+		servers, err := m.authenticator.FetchServers(m.token)
 		if err != nil {
-			return serverListResult{err: fmt.Errorf("failed to create request: %w", err)}
+			return serverListResult{err: err}
 		}
 
-		req.Header.Set("Accept", "application/json")
-		req.Header.Set("X-Plex-Token", m.token)
-		req.Header.Set("X-Plex-Product", "Plex TUI")
-		req.Header.Set("X-Plex-Version", "1.0")
-		req.Header.Set("X-Plex-Client-Identifier", clientIdentifier)
-
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		if err != nil {
-			return serverListResult{err: fmt.Errorf("failed to fetch servers: %w", err)}
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
-			return serverListResult{err: fmt.Errorf("server fetch failed (status %d): %s", resp.StatusCode, string(body))}
+		// Convert domain.PlexServer to plexServer
+		var result []plexServer
+		for _, server := range servers {
+			result = append(result, plexServer{
+				Name:        server.Name,
+				Host:        server.Host,
+				Port:        server.Port,
+				AccessToken: server.AccessToken,
+				Scheme:      server.Scheme,
+			})
 		}
 
-		var resources []plexResourceResponse
-		if err := json.NewDecoder(resp.Body).Decode(&resources); err != nil {
-			return serverListResult{err: fmt.Errorf("failed to decode response: %w", err)}
-		}
-
-		var servers []plexServer
-		for _, resource := range resources {
-			// Only include actual Plex Media Servers (not clients or other devices)
-			// The "provides" field contains "server" for Plex Media Servers
-			if !strings.Contains(resource.Provides, "server") {
-				continue
-			}
-
-			if len(resource.Connections) > 0 {
-				// Prefer local connections
-				var bestConn *struct {
-					Protocol string `json:"protocol"`
-					Address  string `json:"address"`
-					Port     int    `json:"port"`
-					Local    bool   `json:"local"`
-				}
-
-				for i := range resource.Connections {
-					conn := &resource.Connections[i]
-					if bestConn == nil || (conn.Local && !bestConn.Local) {
-						bestConn = conn
-					}
-				}
-
-				if bestConn != nil {
-					servers = append(servers, plexServer{
-						Name:        resource.Name,
-						Host:        bestConn.Address,
-						Port:        fmt.Sprintf("%d", bestConn.Port),
-						AccessToken: resource.AccessToken,
-						Scheme:      bestConn.Protocol,
-					})
-				}
-			}
-		}
-
-		return serverListResult{servers: servers}
+		return serverListResult{servers: result}
 	}
 }
 
@@ -1680,39 +1542,31 @@ func (m model) loginView() string {
 }
 
 func (m model) authenticatingView() string {
-	title := titleStyle.Render("Plex Music Player - Authenticating...")
-	return fmt.Sprintf("\n%s\n\n  Please wait...\n", title)
+	vb := ui.NewViewBuilder()
+	return vb.RenderLoadingView("Plex Music Player - Authenticating...")
 }
 
 func (m model) successView() string {
-	title := titleStyle.Render("Authentication Successful!")
+	vb := ui.NewViewBuilder()
 	tokenPreview := m.token
 	if len(tokenPreview) > 40 {
 		tokenPreview = tokenPreview[:40] + "..."
 	}
-
-	msg := successStyle.Render(fmt.Sprintf("\n  Your Plex token: %s", tokenPreview))
-	help := blurredStyle.Render("\n\n  Press Enter or Ctrl+C to exit\n")
-
-	return fmt.Sprintf("\n%s\n%s%s", title, msg, help)
+	return vb.RenderSuccessMessage("Authentication Successful!", fmt.Sprintf("Your Plex token: %s", tokenPreview))
 }
 
 func (m model) errorView() string {
-	title := titleStyle.Render("Authentication Failed")
-	errMsg := errorStyle.Render(fmt.Sprintf("\n  Error: %s", m.err.Error()))
-	help := blurredStyle.Render("\n\n  Press Enter or Ctrl+C to exit\n")
-
-	return fmt.Sprintf("\n%s\n%s%s", title, errMsg, help)
+	vb := ui.NewViewBuilder()
+	return vb.RenderErrorMessage("Authentication Failed", m.err.Error())
 }
 
 func (m model) serverSelectionView() string {
 	if len(m.servers) == 0 {
-		title := titleStyle.Render("Loading Servers...")
-		return fmt.Sprintf("\n%s\n\n  Please wait...\n", title)
+		vb := ui.NewViewBuilder()
+		return vb.RenderLoadingView("Loading Servers...")
 	}
 
-	title := titleStyle.Render("Select Plex Server")
-	var serverList string
+	vb := ui.NewViewBuilder()
 
 	// Check if there's a last selected server
 	cfg, _ := loadConfig()
@@ -1721,30 +1575,23 @@ func (m model) serverSelectionView() string {
 		lastServerName = cfg.LastSelectedServer
 	}
 
+	// Build list of servers with last used indicator
+	serverNames := make([]string, len(m.servers))
 	for i, server := range m.servers {
-		cursor := "  "
 		serverName := server.Name
-
-		// Add indicator for last used server
 		if lastServerName != "" && server.Name == lastServerName {
 			serverName += " (last used)"
 		}
-
-		if i == m.selectedServer {
-			cursor = focusedStyle.Render("> ")
-			serverList += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(serverName))
-		} else {
-			serverList += fmt.Sprintf("%s%s\n", cursor, blurredStyle.Render(serverName))
-		}
+		serverNames[i] = serverName
 	}
 
-	help := blurredStyle.Render("\n  Up/Down: Navigate • Enter: Select • Ctrl+C: Quit\n")
-
-	return fmt.Sprintf("\n%s\n\n%s%s", title, serverList, help)
+	serverList := vb.RenderList(serverNames, m.selectedServer)
+	help := "\n  Up/Down: Navigate • Enter: Select • Ctrl+C: Quit\n"
+	return vb.RenderFrame("Select Plex Server", serverList, help)
 }
 
 func (m model) homeView() string {
-	title := titleStyle.Render(fmt.Sprintf("Plex Music Player - %s", m.servers[m.selectedServer].Name))
+	vb := ui.NewViewBuilder()
 
 	menuItems := []string{
 		"Recently Added",
@@ -1754,26 +1601,16 @@ func (m model) homeView() string {
 		"Exit",
 	}
 
-	var menu string
-	for i, item := range menuItems {
-		cursor := "  "
-		if i == m.selectedHome {
-			cursor = focusedStyle.Render("> ")
-			menu += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(item))
-		} else {
-			menu += fmt.Sprintf("%s%s\n", cursor, blurredStyle.Render(item))
-		}
-	}
-
-	help := blurredStyle.Render("\n  Up/Down: Navigate • Enter: Select • Esc: Back • Ctrl+C: Quit\n")
-
-	return fmt.Sprintf("\n%s\n\n%s%s", title, menu, help)
+	menu := vb.RenderList(menuItems, m.selectedHome)
+	help := "\n  Up/Down: Navigate • Enter: Select • Esc: Back • Ctrl+C: Quit\n"
+	title := fmt.Sprintf("Plex Music Player - %s", m.servers[m.selectedServer].Name)
+	return vb.RenderFrame(title, menu, help)
 }
 
 func (m model) recentlyAddedView() string {
 	if len(m.albums) == 0 {
-		title := titleStyle.Render("Loading Recently Added...")
-		return fmt.Sprintf("\n%s\n\n  Please wait...\n", title)
+		vb := ui.NewViewBuilder()
+		return vb.RenderLoadingView("Loading Recently Added...")
 	}
 
 	title := titleStyle.Render("Recently Added Albums")
@@ -2594,8 +2431,9 @@ func main() {
 	if err == nil && cfg.AuthToken != "" {
 		// Token exists, skip login and go to server selection
 		initialState = model{
-			state: serverSelectionView,
-			token: cfg.AuthToken,
+			state:         serverSelectionView,
+			token:         cfg.AuthToken,
+			authenticator: auth.NewAuthenticator(),
 		}
 	} else {
 		// No token, show login
