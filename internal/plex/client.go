@@ -7,28 +7,38 @@ import (
 	"net/http"
 
 	"plexmusic-tui/internal/domain"
+	httpclient "plexmusic-tui/internal/http"
 )
 
 // Client handles Plex API communication
+// Deprecated: Use service.LibraryService instead for new code.
+// This client is maintained for backward compatibility only.
 type Client struct {
 	scheme      string
 	host        string
 	port        string
 	accessToken string
-	httpClient  *http.Client
+	httpClient  *httpclient.Client
 }
 
 // NewClient creates a new Plex API client
+// Deprecated: Use service.NewLibraryService instead for new code.
 func NewClient(scheme, host, port, accessToken string, httpClient *http.Client) *Client {
-	if httpClient == nil {
-		httpClient = &http.Client{}
+	// Extract host for intelligent HTTP client selection
+	hostPort := fmt.Sprintf("%s:%s", host, port)
+	
+	client := httpclient.GetForHost(hostPort)
+	if httpClient != nil {
+		// If custom HTTP client provided, wrap it
+		client = &httpclient.Client{}
 	}
+	
 	return &Client{
 		scheme:      scheme,
 		host:        host,
 		port:        port,
 		accessToken: accessToken,
-		httpClient:  httpClient,
+		httpClient:  client,
 	}
 }
 
@@ -55,16 +65,14 @@ func (c *Client) FetchLibraries() ([]domain.MusicLibrary, error) {
 		return nil, fmt.Errorf("library fetch failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var container struct {
-		MediaContainer domain.PlexMediaContainer `json:"MediaContainer"`
-	}
+	var container domain.PlexMediaContainer
 	if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	// Filter for music libraries only
 	var musicLibs []domain.MusicLibrary
-	for _, lib := range container.MediaContainer.Directory {
+	for _, lib := range container.Directory {
 		if lib.Type == "artist" {
 			musicLibs = append(musicLibs, lib)
 		}
@@ -96,14 +104,12 @@ func (c *Client) FetchAlbums(libraryKey string) ([]domain.Album, error) {
 		return nil, fmt.Errorf("album fetch failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var container struct {
-		MediaContainer domain.PlexMediaContainer `json:"MediaContainer"`
-	}
+	var container domain.PlexMediaContainer
 	if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return container.MediaContainer.Metadata, nil
+	return container.Metadata, nil
 }
 
 // FetchRecentlyAdded fetches recently added albums
@@ -129,14 +135,12 @@ func (c *Client) FetchRecentlyAdded() ([]domain.Album, error) {
 		return nil, fmt.Errorf("recently added fetch failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var container struct {
-		MediaContainer domain.PlexMediaContainer `json:"MediaContainer"`
-	}
+	var container domain.PlexMediaContainer
 	if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return container.MediaContainer.Metadata, nil
+	return container.Metadata, nil
 }
 
 // FetchPlaylists fetches all playlists from the server
@@ -170,15 +174,13 @@ func (c *Client) FetchPlaylists() ([]domain.Playlist, error) {
 
 	// Then unmarshal
 	var container struct {
-		MediaContainer struct {
-			Metadata []domain.Playlist `json:"Playlist"`
-		} `json:"MediaContainer"`
+		Metadata []domain.Playlist `json:"Playlist"`
 	}
 	if err := json.Unmarshal(bodyBytes, &container); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return container.MediaContainer.Metadata, nil
+	return container.Metadata, nil
 }
 
 // FetchTracks fetches tracks from an album or playlist
@@ -204,14 +206,12 @@ func (c *Client) FetchTracks(key string) ([]domain.Track, error) {
 		return nil, fmt.Errorf("track fetch failed (status %d): %s", resp.StatusCode, string(body))
 	}
 
-	var container struct {
-		MediaContainer domain.PlexTrackContainer `json:"MediaContainer"`
-	}
+	var container domain.PlexTrackContainer
 	if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return container.MediaContainer.Metadata, nil
+	return container.Metadata, nil
 }
 
 // FetchAlbumArt fetches the album art image for an album

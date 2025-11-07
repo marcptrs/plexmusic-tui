@@ -26,6 +26,7 @@ import (
 	"github.com/faiface/beep/vorbis"
 	"github.com/faiface/beep/wav"
 
+	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/auth"
 	termimg "plexmusic-tui/internal/image"
 	"plexmusic-tui/internal/plex"
@@ -130,6 +131,9 @@ type model struct {
 	// Image renderers
 	imgRenderer         *termimg.Renderer // Renderer for general views (auto-detect protocol)
 	playbackImgRenderer *termimg.Renderer // Renderer for playback pane (Unicode blocks)
+
+	// Coordinator for centralized state management (Phase 3b integration)
+	coordinator *app.Coordinator
 }
 
 type authResult struct {
@@ -388,6 +392,7 @@ func initialModel() model {
 		passwordInput: passwordInput,
 		focusIndex:    0,
 		authenticator: auth.NewAuthenticator(),
+		coordinator:   app.NewCoordinator(),
 	}
 	
 	// Initialize renderers
@@ -740,6 +745,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				// Reset scroll when switching tabs
 				m.contentScroll = 0
+
+				// Lazy-load playlists when switching to playlists tab
+				if m.activeTab == playlistsTab && len(m.playlists) == 0 {
+					return m, m.fetchPlaylistsWithCoordinator()
+				}
 				return m, nil
 			}
 
@@ -1027,6 +1037,145 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case app.CoordinatorMsg:
+		// Handle coordinator messages
+		handled := m.coordinator.Dispatch(msg)
+		if !handled {
+			return m, nil
+		}
+		
+		// After dispatching to coordinator, sync state based on message type
+		switch msg.Type {
+		case app.MessageSetServers:
+			// Convert coordinator servers back to main model
+			if servers, ok := msg.Data.([]app.PlexServer); ok {
+				var result []plexServer
+				for _, s := range servers {
+					result = append(result, plexServer{
+						Name:         s.Name,
+						Host:         s.Host,
+						Port:         s.Port,
+						AccessToken:  s.AccessToken,
+						LocalAddress: s.LocalAddress,
+						Scheme:       s.Scheme,
+					})
+				}
+				m.servers = result
+				
+				if len(m.servers) == 0 {
+					m.state = errorView
+					m.err = fmt.Errorf("no Plex servers found")
+				} else {
+					// Try to auto-select the last used server
+					cfg, _ := loadConfig()
+					if cfg != nil && cfg.LastSelectedServer != "" {
+						for i, server := range m.servers {
+							if server.Name == cfg.LastSelectedServer {
+								m.selectedServer = i
+								// Auto-navigate to main app view
+								m.state = mainAppView
+								m.currentContent = recentlyAddedContent
+								// Fetch recently added on startup
+								return m, m.fetchRecentlyAdded()
+							}
+						}
+					}
+				}
+			}
+
+		case app.MessageSetLibraries:
+			// Convert coordinator libraries back to main model
+			if libs, ok := msg.Data.([]app.MusicLibrary); ok {
+				var result []musicLibrary
+				for _, l := range libs {
+					result = append(result, musicLibrary{
+						Key:   l.Key,
+						Title: l.Title,
+						Type:  l.Type,
+					})
+				}
+				m.libraries = result
+				
+				if len(m.libraries) == 0 {
+					m.state = errorView
+					m.err = fmt.Errorf("no music libraries found on server")
+				}
+			}
+
+		case app.MessageSetAlbums:
+			// Convert coordinator albums back to main model
+			if albums, ok := msg.Data.([]app.Album); ok {
+				var result []album
+				for _, a := range albums {
+					result = append(result, album{
+						Title:  a.Title,
+						Artist: a.Artist,
+						Year:   a.Year,
+						Key:    a.Key,
+						Thumb:  a.Thumb,
+					})
+				}
+				m.albums = result
+			}
+
+		case app.MessageSetTracks:
+			// Convert coordinator tracks back to main model
+			if tracks, ok := msg.Data.([]app.Track); ok {
+				var result []track
+				for _, t := range tracks {
+					// Convert app.Track.Media back to track.Media type
+					media := make([]struct {
+						Part []struct {
+							Key string `json:"key"`
+						} `json:"Part"`
+					}, len(t.Media))
+					for i, m := range t.Media {
+						media[i].Part = make([]struct {
+							Key string `json:"key"`
+						}, len(m.Part))
+						for j, p := range m.Part {
+							media[i].Part[j].Key = p.Key
+						}
+					}
+
+					result = append(result, track{
+						Title:          t.Title,
+						Artist:         t.Artist,
+						Album:          t.Album,
+						Duration:       t.Duration,
+						TrackNumber:    t.TrackNumber,
+						PlaylistItemID: t.PlaylistItemID,
+						Key:            t.Key,
+						RatingKey:      t.RatingKey,
+						Thumb:          t.Thumb,
+						Media:          media,
+					})
+				}
+				m.tracks = result
+				// Fetch album art asynchronously if we have tracks with thumbnails
+				if len(result) > 0 && result[0].Thumb != "" {
+					return m, m.fetchAlbumArtAsync(result[0].Thumb, false)
+				}
+			}
+
+		case app.MessageSetPlaylists:
+			// Convert coordinator playlists back to main model
+			if playlists, ok := msg.Data.([]app.Playlist); ok {
+				var result []playlist
+				for _, p := range playlists {
+					result = append(result, playlist{
+						Title:        p.Title,
+						Key:          p.Key,
+						LeafCount:    p.LeafCount,
+						Duration:     p.Duration,
+						PlaylistType: p.PlaylistType,
+					})
+				}
+				m.playlists = result
+			}
+		}
+		return m, nil
+
 	case tickMsg:
 		// Update playback position and schedule next tick
 		if m.playbackState == playbackPlaying {
@@ -1081,6 +1230,31 @@ func (m model) authenticate() tea.Cmd {
 	}
 }
 
+func (m model) fetchServersWithCoordinator() tea.Cmd {
+	// Create a closure that fetches servers and converts them to app.PlexServer
+	fetchFn := func() ([]app.PlexServer, error) {
+		servers, err := m.authenticator.FetchServers(m.token)
+		if err != nil {
+			return nil, err
+		}
+
+		// Convert domain.PlexServer to app.PlexServer
+		var result []app.PlexServer
+		for _, server := range servers {
+			result = append(result, app.PlexServer{
+				Name:        server.Name,
+				Host:        server.Host,
+				Port:        server.Port,
+				AccessToken: server.AccessToken,
+				Scheme:      server.Scheme,
+			})
+		}
+		return result, nil
+	}
+
+	return m.coordinator.FetchServersCmd(fetchFn)
+}
+
 func (m model) fetchServers() tea.Cmd {
 	return func() tea.Msg {
 		servers, err := m.authenticator.FetchServers(m.token)
@@ -1102,6 +1276,56 @@ func (m model) fetchServers() tea.Cmd {
 
 		return serverListResult{servers: result}
 	}
+}
+
+func (m model) fetchLibrariesWithCoordinator() tea.Cmd {
+	fetchFn := func() ([]app.MusicLibrary, error) {
+		server := m.servers[m.selectedServer]
+		url := fmt.Sprintf("%s://%s:%s/library/sections", server.Scheme, server.Host, server.Port)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Token", server.AccessToken)
+
+		client := getHTTPClient(server.Host)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch libraries: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("library fetch failed (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		var container struct {
+			MediaContainer plexMediaContainer `json:"MediaContainer"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		// Filter for music libraries only
+		var musicLibs []app.MusicLibrary
+		for _, lib := range container.MediaContainer.Directory {
+			if lib.Type == "artist" {
+				musicLibs = append(musicLibs, app.MusicLibrary{
+					Key:   lib.Key,
+					Title: lib.Title,
+					Type:  lib.Type,
+				})
+			}
+		}
+
+		return musicLibs, nil
+	}
+
+	return m.coordinator.FetchLibrariesCmd(fetchFn)
 }
 
 func (m model) fetchLibraries() tea.Cmd {
@@ -1146,6 +1370,57 @@ func (m model) fetchLibraries() tea.Cmd {
 
 		return libraryListResult{libraries: musicLibs}
 	}
+}
+
+func (m model) fetchAlbumsWithCoordinator() tea.Cmd {
+	fetchFn := func() ([]app.Album, error) {
+		server := m.servers[m.selectedServer]
+		library := m.libraries[m.selectedLibrary]
+		url := fmt.Sprintf("%s://%s:%s/library/sections/%s/albums", server.Scheme, server.Host, server.Port, library.Key)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Token", server.AccessToken)
+
+		client := getHTTPClient(server.Host)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch albums: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("album fetch failed (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		var container struct {
+			MediaContainer plexMediaContainer `json:"MediaContainer"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		// Convert albums to app.Album
+		var result []app.Album
+		for _, a := range container.MediaContainer.Metadata {
+			result = append(result, app.Album{
+				Title:  a.Title,
+				Artist: a.Artist,
+				Year:   a.Year,
+				Key:    a.Key,
+				Thumb:  a.Thumb,
+			})
+		}
+
+		return result, nil
+	}
+
+	return m.coordinator.FetchAlbumsCmd(fetchFn)
 }
 
 func (m model) fetchAlbums() tea.Cmd {
@@ -1265,6 +1540,135 @@ func (m model) fetchPlaylists() tea.Cmd {
 	}
 }
 
+// Common function to fetch tracks from a Plex key (album or playlist) via Coordinator
+func (m model) fetchTracksWithCoordinator(key string, source string) tea.Cmd {
+	fetchFn := func() ([]app.Track, error) {
+		server := m.servers[m.selectedServer]
+		url := fmt.Sprintf("%s://%s:%s%s", server.Scheme, server.Host, server.Port, key)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Token", server.AccessToken)
+
+		client := getHTTPClient(server.Host)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch %s tracks: %w", source, err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("%s tracks fetch failed (status %d): %s", source, resp.StatusCode, string(body))
+		}
+
+		var container struct {
+			MediaContainer plexTrackContainer `json:"MediaContainer"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w", err)
+		}
+
+		// Convert tracks to app.Track
+		var result []app.Track
+		for _, t := range container.MediaContainer.Metadata {
+			// Convert Media field from track type to app.Track type
+			media := make([]struct {
+				Part []struct {
+					Key string
+				}
+			}, len(t.Media))
+			for i, m := range t.Media {
+				media[i].Part = make([]struct {
+					Key string
+				}, len(m.Part))
+				for j, p := range m.Part {
+					media[i].Part[j].Key = p.Key
+				}
+			}
+
+			result = append(result, app.Track{
+				Title:          t.Title,
+				Artist:         t.Artist,
+				Album:          t.Album,
+				Duration:       t.Duration,
+				TrackNumber:    t.TrackNumber,
+				PlaylistItemID: t.PlaylistItemID,
+				Key:            t.Key,
+				RatingKey:      t.RatingKey,
+				Thumb:          t.Thumb,
+				Media:          media,
+			})
+		}
+
+		return result, nil
+	}
+
+	return m.coordinator.FetchTracksCmd(fetchFn)
+}
+
+// Fetch playlists from the Plex server via Coordinator
+func (m model) fetchPlaylistsWithCoordinator() tea.Cmd {
+	fetchFn := func() ([]app.Playlist, error) {
+		server := m.servers[m.selectedServer]
+		// Fetch all playlists from the server
+		url := fmt.Sprintf("%s://%s:%s/playlists", server.Scheme, server.Host, server.Port)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("X-Plex-Token", server.AccessToken)
+
+		client := getHTTPClient(server.Host)
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch playlists: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("playlist fetch failed (status %d): %s", resp.StatusCode, string(body))
+		}
+
+		// Read the response body
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response: %w", err)
+		}
+
+		var container struct {
+			MediaContainer plexPlaylistContainer `json:"MediaContainer"`
+		}
+		if err := json.Unmarshal(body, &container); err != nil {
+			return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(body))
+		}
+
+		// Convert playlists to app.Playlist
+		var result []app.Playlist
+		for _, p := range container.MediaContainer.Metadata {
+			result = append(result, app.Playlist{
+				Title:        p.Title,
+				Key:          p.Key,
+				LeafCount:    p.LeafCount,
+				Duration:     p.Duration,
+				PlaylistType: p.PlaylistType,
+			})
+		}
+
+		return result, nil
+	}
+
+	return m.coordinator.FetchPlaylistsCmd(fetchFn)
+}
+
 // Common function to fetch tracks from a Plex key (album or playlist)
 func (m model) fetchTracks(key string, source string) tea.Cmd {
 	return func() tea.Msg {
@@ -1304,12 +1708,12 @@ func (m model) fetchTracks(key string, source string) tea.Cmd {
 
 func (m model) fetchPlaylistTracks() tea.Cmd {
 	playlist := m.playlists[m.selectedPlaylist]
-	return m.fetchTracks(playlist.Key, "playlist")
+	return m.fetchTracksWithCoordinator(playlist.Key, "playlist")
 }
 
 func (m model) fetchAlbumTracks() tea.Cmd {
 	album := m.albums[m.selectedAlbum]
-	return m.fetchTracks(album.Key, "album")
+	return m.fetchTracksWithCoordinator(album.Key, "album")
 }
 
 // startPlayback fetches and decodes audio from Plex server
@@ -1652,13 +2056,17 @@ func (m *model) renderTrackListView(title string, tracks []track, selectedTrack 
 		// Calculate album art size (consistent whether we have art or not)
 		detailWidth := m.width - 8  // Account for padding/borders
 		artWidth := detailWidth - 4 // Leave some padding
-		if artWidth > 80 {
-			artWidth = 80 // Cap at 80 for reasonable quality
+		if artWidth > 60 {
+			artWidth = 60 // Cap at 60 for reasonable quality (reduced from 80)
 		}
-		if artWidth < 40 {
-			artWidth = 40 // Minimum size
+		if artWidth < 30 {
+			artWidth = 30 // Minimum size (reduced from 40)
 		}
 		artHeight := artWidth / 2 // Maintain 2:1 ratio for square
+		// Further cap height to prevent UI overflow
+		if artHeight > 20 {
+			artHeight = 20 // Max 20 lines for album art
+		}
 
 		// Render album art from cache or placeholder
 		if m.currentAlbumArt != nil && m.currentAlbumArtThumb == thumbURL && detailWidth >= 50 {
@@ -1689,7 +2097,7 @@ func (m *model) renderTrackListView(title string, tracks []track, selectedTrack 
 	// Scrolling window: show up to 15 tracks (or fewer if we have album art)
 	visibleCount := 15
 	if albumArt != "" {
-		visibleCount = 10 // Reduce to make room for album art
+		visibleCount = 6 // Reduce to make room for album art (reduced from 10)
 	}
 	totalCount := len(tracks)
 
@@ -2331,6 +2739,7 @@ func main() {
 			state:         serverSelectionView,
 			token:         cfg.AuthToken,
 			authenticator: auth.NewAuthenticator(),
+			coordinator:   app.NewCoordinator(),
 		}
 		// Initialize renderers for fast-path
 		initialState.imgRenderer = termimg.NewRenderer()
