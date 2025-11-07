@@ -37,3 +37,6 @@ go.work.sum
 # Serena metadata
 .serena/
 
+# Local analysis and planning notes
+thoughts/
+
