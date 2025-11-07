@@ -27,6 +27,7 @@ import (
 	"github.com/faiface/beep/wav"
 
 	"plexmusic-tui/internal/auth"
+	termimg "plexmusic-tui/internal/image"
 	"plexmusic-tui/internal/plex"
 	"plexmusic-tui/internal/ui"
 )
@@ -39,22 +40,7 @@ const (
 	successView
 	errorView
 	serverSelectionView
-	homeView
-	recentlyAddedView
-	playlistsView
-	searchView
-	settingsView
-	librarySelectionView
-	albumListView
-	mainAppView // New unified view with panes
-)
-
-type paneType int
-
-const (
-	navigationPane paneType = iota
-	contentPane
-	detailPane
+	mainAppView // Unified view with tab-based navigation
 )
 
 type contentViewType int
@@ -66,6 +52,19 @@ const (
 	playlistTracksContent
 	searchContent
 	settingsContent
+	queueContent // New: queue view
+)
+
+// New tab-based navigation
+type tabType int
+
+const (
+	homeTab tabType = iota
+	libraryTab
+	playlistsTab
+	searchTab
+	queueTab
+	settingsTab
 )
 
 type playbackState int
@@ -97,10 +96,15 @@ type model struct {
 	tracks           []track
 	selectedTrack    int
 
-	// Multi-pane UI state
-	focusedPane    paneType
+	// Content view tracking
 	currentContent contentViewType
-	navMenuIndex   int // Index in navigation menu
+
+	// New tab-based UI state
+	activeTab      tabType
+	showQueueModal bool
+	queue          []track
+	queueIndex     int
+	contentScroll  int // Scroll position within current tab content
 
 	// Terminal dimensions
 	width  int
@@ -122,6 +126,10 @@ type model struct {
 	currentAlbumArtThumb  string      // Thumb URL of cached art (to avoid re-fetching)
 	playbackAlbumArt      image.Image // Cached album art for playback control
 	playbackAlbumArtThumb string      // Thumb URL of cached playback art
+
+	// Image renderers
+	imgRenderer         *termimg.Renderer // Renderer for general views (auto-detect protocol)
+	playbackImgRenderer *termimg.Renderer // Renderer for playback pane (Unicode blocks)
 }
 
 type authResult struct {
@@ -224,6 +232,13 @@ type playbackStartResult struct {
 	streamer beep.StreamSeekCloser
 	format   beep.Format
 	err      error
+}
+
+type albumArtResult struct {
+	img       image.Image
+	thumbURL  string
+	isPlayback bool // true if this is for playback pane, false if for track list
+	err       error
 }
 
 type playbackMsg int
@@ -367,13 +382,19 @@ func initialModel() model {
 	passwordInput.CharLimit = 100
 	passwordInput.Width = 40
 
-	return model{
+	m := model{
 		state:         loginView,
 		usernameInput: usernameInput,
 		passwordInput: passwordInput,
 		focusIndex:    0,
 		authenticator: auth.NewAuthenticator(),
 	}
+	
+	// Initialize renderers
+	m.imgRenderer = termimg.NewRenderer()
+	m.playbackImgRenderer = termimg.NewRendererWithProtocol(termimg.ProtocolUnicodeBlocks)
+	
+	return m
 }
 
 func (m model) Init() tea.Cmd {
@@ -407,32 +428,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// From server selection, go back to login or quit
 				return m, tea.Quit
 			case mainAppView:
-				// Handle back navigation within panes
+				// NEW: Close queue modal if it's open
+				if m.showQueueModal {
+					m.showQueueModal = false
+					return m, nil
+				}
+				// Handle back navigation within tabs
 				if m.currentContent == playlistTracksContent {
 					// Go back from tracks to playlists
 					m.currentContent = playlistsContent
 					m.tracks = nil // Clear tracks
 					m.selectedTrack = 0
-					m.focusedPane = contentPane
 					return m, nil
 				} else if m.currentContent == albumTracksContent {
 					// Go back from tracks to albums
 					m.currentContent = recentlyAddedContent
 					m.tracks = nil // Clear tracks
 					m.selectedTrack = 0
-					m.focusedPane = contentPane
 					return m, nil
 				}
 				// From main app, go back to server selection
 				m.state = serverSelectionView
-			case homeView:
-				m.state = serverSelectionView
-			case recentlyAddedView, playlistsView, searchView, settingsView:
-				m.state = homeView
-			case librarySelectionView:
-				m.state = homeView
-			case albumListView:
-				m.state = librarySelectionView
 			}
 			return m, nil
 
@@ -463,57 +479,57 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.state == mainAppView {
 				s := msg.String()
 				if s == "tab" || s == "shift+tab" {
-					// Cycle through panes
+					// Cycle through horizontal tabs
 					if s == "tab" {
-						// Forward: nav -> content -> detail -> nav
-						if m.focusedPane == navigationPane {
-							m.focusedPane = contentPane
-						} else if m.focusedPane == contentPane {
-							m.focusedPane = detailPane
-						} else {
-							m.focusedPane = navigationPane
+						// Forward through tabs
+						m.activeTab++
+						if m.activeTab > settingsTab {
+							m.activeTab = homeTab
 						}
 					} else {
-						// Backward: nav -> detail -> content -> nav
-						if m.focusedPane == navigationPane {
-							m.focusedPane = detailPane
-						} else if m.focusedPane == detailPane {
-							m.focusedPane = contentPane
-						} else {
-							m.focusedPane = navigationPane
+						// Backward through tabs
+						m.activeTab--
+						if m.activeTab < homeTab {
+							m.activeTab = settingsTab
 						}
 					}
+					// Reset scroll when switching tabs
+					m.contentScroll = 0
+					return m, nil
 				} else if s == "up" || s == "down" {
-					// Navigate within panes
-					if m.focusedPane == navigationPane {
-						// Navigate menu
+					// Navigate within current tab content
+					switch m.activeTab {
+				case libraryTab:
+					if m.currentContent == recentlyAddedContent {
+						// Navigate albums
 						if s == "up" {
-							m.navMenuIndex--
-							if m.navMenuIndex < 0 {
-								m.navMenuIndex = 3 // 4 menu items (0-3)
+							m.selectedAlbum--
+							if m.selectedAlbum < 0 {
+								m.selectedAlbum = len(m.albums) - 1
 							}
 						} else {
-							m.navMenuIndex++
-							if m.navMenuIndex > 3 {
-								m.navMenuIndex = 0
+							m.selectedAlbum++
+							if m.selectedAlbum >= len(m.albums) {
+								m.selectedAlbum = 0
 							}
 						}
-					} else if m.focusedPane == contentPane {
-						// Navigate content pane (playlists, albums, etc.)
-						if m.currentContent == recentlyAddedContent {
-							if s == "up" {
-								m.selectedAlbum--
-								if m.selectedAlbum < 0 {
-									m.selectedAlbum = len(m.albums) - 1
-								}
-							} else {
-								m.selectedAlbum++
-								if m.selectedAlbum >= len(m.albums) {
-									m.selectedAlbum = 0
-								}
+					} else if m.currentContent == albumTracksContent {
+						// Navigate tracks in album
+						if s == "up" {
+							m.selectedTrack--
+							if m.selectedTrack < 0 {
+								m.selectedTrack = len(m.tracks) - 1
 							}
-						} else if m.currentContent == playlistsContent || m.currentContent == playlistTracksContent {
-							// Navigate playlists (even when viewing tracks)
+						} else {
+							m.selectedTrack++
+							if m.selectedTrack >= len(m.tracks) {
+								m.selectedTrack = 0
+							}
+						}
+					}
+					case playlistsTab:
+						if m.currentContent == playlistsContent {
+							// Navigate playlists
 							if s == "up" {
 								m.selectedPlaylist--
 								if m.selectedPlaylist < 0 {
@@ -525,10 +541,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 									m.selectedPlaylist = 0
 								}
 							}
-						}
-					} else if m.focusedPane == detailPane {
-						// Navigate detail pane (tracks)
-						if m.currentContent == playlistTracksContent || m.currentContent == albumTracksContent {
+						} else if m.currentContent == playlistTracksContent {
+							// Navigate tracks in playlist
 							if s == "up" {
 								m.selectedTrack--
 								if m.selectedTrack < 0 {
@@ -541,6 +555,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								}
 							}
 						}
+					case queueTab:
+						// Navigate queue items
+						if s == "up" {
+							m.queueIndex--
+							if m.queueIndex < 0 {
+								m.queueIndex = len(m.queue) - 1
+							}
+						} else {
+							m.queueIndex++
+							if m.queueIndex >= len(m.queue) {
+								m.queueIndex = 0
+							}
+						}
+					// homeTab, searchTab, settingsTab don't need navigation yet
 					}
 				}
 			} else if m.state == serverSelectionView {
@@ -554,58 +582,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedServer++
 					if m.selectedServer >= len(m.servers) {
 						m.selectedServer = 0
-					}
-				}
-			} else if m.state == homeView {
-				s := msg.String()
-				if s == "up" || s == "shift+tab" {
-					m.selectedHome--
-					if m.selectedHome < 0 {
-						m.selectedHome = 4 // 5 menu items (0-4)
-					}
-				} else {
-					m.selectedHome++
-					if m.selectedHome > 4 {
-						m.selectedHome = 0
-					}
-				}
-			} else if m.state == librarySelectionView {
-				s := msg.String()
-				if s == "up" || s == "shift+tab" {
-					m.selectedLibrary--
-					if m.selectedLibrary < 0 {
-						m.selectedLibrary = len(m.libraries) - 1
-					}
-				} else {
-					m.selectedLibrary++
-					if m.selectedLibrary >= len(m.libraries) {
-						m.selectedLibrary = 0
-					}
-				}
-			} else if m.state == albumListView || m.state == recentlyAddedView {
-				s := msg.String()
-				if s == "up" || s == "shift+tab" {
-					m.selectedAlbum--
-					if m.selectedAlbum < 0 {
-						m.selectedAlbum = len(m.albums) - 1
-					}
-				} else {
-					m.selectedAlbum++
-					if m.selectedAlbum >= len(m.albums) {
-						m.selectedAlbum = 0
-					}
-				}
-			} else if m.state == playlistsView {
-				s := msg.String()
-				if s == "up" || s == "shift+tab" {
-					m.selectedPlaylist--
-					if m.selectedPlaylist < 0 {
-						m.selectedPlaylist = len(m.playlists) - 1
-					}
-				} else {
-					m.selectedPlaylist++
-					if m.selectedPlaylist >= len(m.playlists) {
-						m.selectedPlaylist = 0
 					}
 				}
 			}
@@ -643,6 +619,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, m.startPlayback(track)
 					}
 				}
+				return m, nil
+			}
+
+		case "q":
+			// Toggle queue modal (only in main app view)
+			if m.state == mainAppView {
+				m.showQueueModal = !m.showQueueModal
 				return m, nil
 			}
 
@@ -739,6 +722,91 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		case "left", "right":
+			// NEW: Left/Right arrow keys for tab navigation (only in main app view)
+			if m.state == mainAppView && !m.showQueueModal {
+				if msg.String() == "left" {
+					// Previous tab
+					m.activeTab--
+					if m.activeTab < homeTab {
+						m.activeTab = settingsTab
+					}
+				} else {
+					// Next tab
+					m.activeTab++
+					if m.activeTab > settingsTab {
+						m.activeTab = homeTab
+					}
+				}
+				// Reset scroll when switching tabs
+				m.contentScroll = 0
+				return m, nil
+			}
+
+		case "a":
+			// Add current track to queue (only in main app view)
+			if m.state == mainAppView {
+				// Can add from playlist tracks or album tracks
+				if (m.currentContent == playlistTracksContent || m.currentContent == albumTracksContent) && len(m.tracks) > 0 {
+					track := m.tracks[m.selectedTrack]
+					// Check if track is already in queue to avoid duplicates
+					alreadyInQueue := false
+					for _, queueTrack := range m.queue {
+						if queueTrack.Key == track.Key {
+							alreadyInQueue = true
+							break
+						}
+					}
+					if !alreadyInQueue {
+						m.queue = append(m.queue, track)
+					}
+				}
+				return m, nil
+			}
+
+		case "d":
+			// Remove selected item from queue (only when on queue tab)
+			if m.state == mainAppView && m.activeTab == queueTab && len(m.queue) > 0 {
+				// Remove the selected queue item
+				if m.queueIndex < len(m.queue) {
+					m.queue = append(m.queue[:m.queueIndex], m.queue[m.queueIndex+1:]...)
+					// Adjust queue index if necessary
+					if m.queueIndex >= len(m.queue) && len(m.queue) > 0 {
+						m.queueIndex = len(m.queue) - 1
+					}
+					if len(m.queue) == 0 {
+						m.queueIndex = 0
+					}
+				}
+				return m, nil
+			}
+
+		case "c":
+			// Clear entire queue (only when on queue tab)
+			if m.state == mainAppView && m.activeTab == queueTab && len(m.queue) > 0 {
+				m.queue = []track{}
+				m.queueIndex = 0
+				return m, nil
+			}
+
+		case "j", "ctrl+j":
+			// Move queue item down (only when on queue tab)
+			if m.state == mainAppView && m.activeTab == queueTab && len(m.queue) > 1 && m.queueIndex < len(m.queue)-1 {
+				// Swap current item with the one below
+				m.queue[m.queueIndex], m.queue[m.queueIndex+1] = m.queue[m.queueIndex+1], m.queue[m.queueIndex]
+				m.queueIndex++
+				return m, nil
+			}
+
+		case "k", "ctrl+k":
+			// Move queue item up (only when on queue tab)
+			if m.state == mainAppView && m.activeTab == queueTab && len(m.queue) > 1 && m.queueIndex > 0 {
+				// Swap current item with the one above
+				m.queue[m.queueIndex], m.queue[m.queueIndex-1] = m.queue[m.queueIndex-1], m.queue[m.queueIndex]
+				m.queueIndex--
+				return m, nil
+			}
+
 		case "enter":
 			if m.state == loginView && m.focusIndex == 2 {
 				m.state = authenticatingView
@@ -749,9 +817,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if m.state == serverSelectionView && len(m.servers) > 0 {
 				m.state = mainAppView
-				m.focusedPane = navigationPane
+				m.activeTab = homeTab  // Start at home tab
 				m.currentContent = recentlyAddedContent
-				m.navMenuIndex = 0
 				// Save the selected server to config
 				cfg, _ := loadConfig()
 				if cfg == nil {
@@ -764,79 +831,41 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, m.fetchRecentlyAdded()
 			}
 			if m.state == mainAppView {
-				if m.focusedPane == navigationPane {
-					// Switch content based on navigation menu selection
-					switch m.navMenuIndex {
-					case 0: // Recently Added
-						m.currentContent = recentlyAddedContent
-						m.selectedAlbum = 0
-						if len(m.albums) == 0 {
-							return m, m.fetchRecentlyAdded()
-						}
-					case 1: // Playlists
-						m.currentContent = playlistsContent
-						m.selectedPlaylist = 0
-						if len(m.playlists) == 0 {
-							return m, m.fetchPlaylists()
-						}
-					case 2: // Search
-						m.currentContent = searchContent
-					case 3: // Settings
-						m.currentContent = settingsContent
-					}
-					// Switch focus to content pane after selection
-					m.focusedPane = contentPane
-				} else if m.focusedPane == contentPane {
-					// Content pane - handle item selection
+				// Handle Enter key based on active tab
+				switch m.activeTab {
+				case libraryTab:
 					if m.currentContent == recentlyAddedContent && len(m.albums) > 0 {
-						// Switch to album tracks view and fetch tracks
+						// Select album and view tracks
 						m.currentContent = albumTracksContent
 						m.selectedTrack = 0
-						m.focusedPane = detailPane // Move focus to detail pane
 						return m, m.fetchAlbumTracks()
-					} else if m.currentContent == playlistsContent && len(m.playlists) > 0 {
-						// Switch to playlist tracks view and fetch tracks
-						m.currentContent = playlistTracksContent
-						m.selectedTrack = 0
-						m.focusedPane = detailPane // Move focus to detail pane
-						return m, m.fetchPlaylistTracks()
-					}
-				} else if m.focusedPane == detailPane {
-					// Detail pane - play selected track
-					if (m.currentContent == playlistTracksContent || m.currentContent == albumTracksContent) && len(m.tracks) > 0 {
+					} else if m.currentContent == albumTracksContent && len(m.tracks) > 0 {
+						// Play selected track
 						track := m.tracks[m.selectedTrack]
 						m.currentTrack = &track
 						return m, m.startPlayback(track)
 					}
+				case playlistsTab:
+					if m.currentContent == playlistsContent && len(m.playlists) > 0 {
+						// Switch to playlist tracks view and fetch tracks
+						m.currentContent = playlistTracksContent
+						m.selectedTrack = 0
+						return m, m.fetchPlaylistTracks()
+					} else if m.currentContent == playlistTracksContent && len(m.tracks) > 0 {
+						// Play selected track
+						track := m.tracks[m.selectedTrack]
+						m.currentTrack = &track
+						return m, m.startPlayback(track)
+					}
+				case queueTab:
+					// Play selected queue item
+					if len(m.queue) > 0 && m.queueIndex < len(m.queue) {
+						track := m.queue[m.queueIndex]
+						m.currentTrack = &track
+						return m, m.startPlayback(track)
+					}
+				// homeTab, searchTab, settingsTab don't have selection actions yet
 				}
-			}
-			if m.state == homeView {
-				switch m.selectedHome {
-				case 0: // Recently Added
-					m.state = recentlyAddedView
-					return m, m.fetchRecentlyAdded()
-				case 1: // Playlists
-					m.state = playlistsView
-					m.selectedPlaylist = 0
-					return m, m.fetchPlaylists()
-				case 2: // Search
-					m.state = searchView
-					// TODO: Implement search UI
-					return m, nil
-				case 3: // Settings
-					m.state = settingsView
-					return m, nil
-				case 4: // Exit
-					return m, tea.Quit
-				}
-			}
-			if m.state == librarySelectionView && len(m.libraries) > 0 {
-				m.state = albumListView
-				return m, m.fetchAlbums()
-			}
-			if m.state == albumListView && len(m.albums) > 0 {
-				// TODO: Show album details/tracks
-				return m, nil
 			}
 		}
 
@@ -874,9 +903,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.selectedServer = i
 							// Auto-navigate to main app view
 							m.state = mainAppView
-							m.focusedPane = navigationPane
 							m.currentContent = recentlyAddedContent
-							m.navMenuIndex = 0
 							// Fetch recently added on startup
 							return m, m.fetchRecentlyAdded()
 						}
@@ -923,6 +950,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err
 		} else {
 			m.tracks = msg.tracks
+			// Fetch album art asynchronously if we have tracks with thumbnails
+			if len(msg.tracks) > 0 && msg.tracks[0].Thumb != "" {
+				return m, m.fetchAlbumArtAsync(msg.tracks[0].Thumb, false)
+			}
+		}
+		return m, nil
+
+	case albumArtResult:
+		// Update cached album art if fetch was successful
+		if msg.err == nil && msg.img != nil {
+			if msg.isPlayback {
+				// Update playback album art
+				m.playbackAlbumArt = msg.img
+				m.playbackAlbumArtThumb = msg.thumbURL
+			} else {
+				// Update track list album art
+				m.currentAlbumArt = msg.img
+				m.currentAlbumArtThumb = msg.thumbURL
+			}
 		}
 		return m, nil
 
@@ -973,8 +1019,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		speaker.Play(m.volume)
 		m.playbackState = playbackPlaying
 
-		// Start ticker to update position
-		return m, tickCmd()
+		// Fetch album art asynchronously for playback pane
+		var cmds []tea.Cmd
+		cmds = append(cmds, tickCmd())
+		if m.currentTrack != nil && m.currentTrack.Thumb != "" {
+			cmds = append(cmds, m.fetchAlbumArtAsync(m.currentTrack.Thumb, true))
+		}
+		return m, tea.Batch(cmds...)
 
 	case tickMsg:
 		// Update playback position and schedule next tick
@@ -1402,108 +1453,18 @@ func (m model) fetchAlbumArt(thumbURL string) (image.Image, error) {
 	return img, nil
 }
 
-// imageProtocol represents the supported terminal image protocols
-type imageProtocol int
-
-const (
-	protocolUnicodeBlocks imageProtocol = iota // Fallback using Unicode half-blocks
-	protocolKitty                              // Kitty graphics protocol
-	protocolITerm2                             // iTerm2 inline images
-	protocolSixel                              // Sixel graphics
-)
-
-// detectImageProtocol detects which image protocol the terminal supports
-func detectImageProtocol() imageProtocol {
-	// Check for Kitty terminal
-	if os.Getenv("TERM") == "xterm-kitty" || os.Getenv("KITTY_WINDOW_ID") != "" {
-		return protocolKitty
-	}
-
-	// Check for iTerm2
-	if strings.Contains(os.Getenv("TERM_PROGRAM"), "iTerm") {
-		return protocolITerm2
-	}
-
-	// Check for Sixel support via TERM environment variable
-	term := os.Getenv("TERM")
-	if strings.Contains(term, "sixel") || term == "mlterm" || term == "yaft-256color" {
-		return protocolSixel
-	}
-
-	// Check for xterm with sixel support (some modern xterms)
-	if strings.Contains(term, "xterm") {
-		// Could query terminal capabilities here, but for simplicity
-		// we'll default to Unicode blocks for xterm
-		return protocolUnicodeBlocks
-	}
-
-	// Default to Unicode blocks for maximum compatibility
-	return protocolUnicodeBlocks
-}
-
-// createPlaceholderImage creates a simple placeholder image for when no album art is available
-func createPlaceholderImage(width, height int, text string) image.Image {
-	// Create a simple gray image with a music note symbol
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-
-	// Fill with dark gray background
-	gray := uint8(40)
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			img.Set(x, y, image.NewRGBA(image.Rect(0, 0, 1, 1)).At(0, 0))
-			img.SetRGBA(x, y, struct{ R, G, B, A uint8 }{gray, gray, gray, 255})
+// fetchAlbumArtAsync fetches album art asynchronously
+func (m model) fetchAlbumArtAsync(thumbURL string, isPlayback bool) tea.Cmd {
+	return func() tea.Msg {
+		img, err := m.fetchAlbumArt(thumbURL)
+		return albumArtResult{
+			img:        img,
+			thumbURL:   thumbURL,
+			isPlayback: isPlayback,
+			err:        err,
 		}
 	}
-
-	return img
 }
-
-// renderPlaceholder renders a text-based placeholder at a fixed size
-func renderPlaceholder(width, height int, message string) string {
-	return ui.RenderPlaceholder(width, height, message)
-}
-
-// renderImageKitty renders an image using the Kitty graphics protocol
-func renderImageKitty(img image.Image, width, height int) string {
-	return ui.RenderImageKitty(img, width, height)
-}
-
-// renderImageITerm2 renders an image using iTerm2's inline image protocol
-func renderImageITerm2(img image.Image, width, height int) string {
-	return ui.RenderImageITerm2(img, width, height)
-}
-
-// renderImageSixel renders an image using the Sixel protocol
-func renderImageSixel(img image.Image, width, height int) string {
-	return ui.RenderImageSixel(img, width, height)
-}
-
-// renderImageUnicodeBlocks renders an image using Unicode half-block characters (fallback)
-func renderImageUnicodeBlocks(img image.Image, width, height int) string {
-	return ui.RenderImageUnicodeBlocks(img, width, height)
-}
-
-// renderImageToTerminal converts an image to terminal output using the best available protocol
-// Returns a string that can be displayed in the terminal
-func renderImageToTerminal(img image.Image, width, height int) string {
-	if img == nil {
-		return ""
-	}
-
-	protocol := detectImageProtocol()
-
-	switch protocol {
-	case protocolKitty:
-		return renderImageKitty(img, width, height)
-	case protocolITerm2:
-		return renderImageITerm2(img, width, height)
-	case protocolSixel:
-		return renderImageSixel(img, width, height)
-	default:
-		return renderImageUnicodeBlocks(img, width, height)
-	}
-}
-
 func (m model) View() string {
 	switch m.state {
 	case loginView:
@@ -1518,20 +1479,6 @@ func (m model) View() string {
 		return m.serverSelectionView()
 	case mainAppView:
 		return m.mainAppView()
-	case homeView:
-		return m.homeView()
-	case recentlyAddedView:
-		return m.recentlyAddedView()
-	case playlistsView:
-		return m.playlistsView()
-	case searchView:
-		return m.searchView()
-	case settingsView:
-		return m.settingsView()
-	case librarySelectionView:
-		return m.librarySelectionView()
-	case albumListView:
-		return m.albumListView()
 	default:
 		return ""
 	}
@@ -1624,89 +1571,6 @@ func (m model) serverSelectionView() string {
 	return vb.RenderFrame("Select Plex Server", serverList, help)
 }
 
-func (m model) homeView() string {
-	vb := ui.NewViewBuilder()
-
-	menuItems := []string{
-		"Recently Added",
-		"Playlists",
-		"Search",
-		"Settings",
-		"Exit",
-	}
-
-	menu := vb.RenderList(menuItems, m.selectedHome)
-	help := "\n  Up/Down: Navigate • Enter: Select • Esc: Back • Ctrl+C: Quit\n"
-	title := fmt.Sprintf("Plex Music Player - %s", m.servers[m.selectedServer].Name)
-	return vb.RenderFrame(title, menu, help)
-}
-
-func (m model) recentlyAddedView() string {
-	if len(m.albums) == 0 {
-		vb := ui.NewViewBuilder()
-		return vb.RenderLoadingView("Loading Recently Added...")
-	}
-
-	title := titleStyle.Render("Recently Added Albums")
-	var albumList string
-
-	// Calculate max width for album info
-	maxWidth := m.getContentPaneWidth() - 4
-	if maxWidth < 30 {
-		maxWidth = 30
-	}
-
-	// Scrolling window: show up to 15 albums
-	visibleCount := 15
-	totalCount := len(m.albums)
-
-	// Calculate scroll offset to keep selected item visible
-	startIdx := 0
-	if totalCount > visibleCount {
-		// Keep selected item in view with some context
-		if m.selectedAlbum >= visibleCount {
-			startIdx = m.selectedAlbum - visibleCount + 1
-		}
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-
-	endIdx := startIdx + visibleCount
-	if endIdx > totalCount {
-		endIdx = totalCount
-	}
-
-	for i := startIdx; i < endIdx; i++ {
-		album := m.albums[i]
-		cursor := "  "
-		albumInfo := fmt.Sprintf("%s - %s", album.Artist, album.Title)
-		if album.Year > 0 {
-			albumInfo += fmt.Sprintf(" (%d)", album.Year)
-		}
-
-		// Truncate if too long
-		if len(albumInfo) > maxWidth {
-			albumInfo = albumInfo[:maxWidth-3] + "..."
-		}
-
-		if i == m.selectedAlbum && m.focusedPane == contentPane {
-			cursor = focusedStyle.Render("> ")
-			albumList += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(albumInfo))
-		} else {
-			albumList += fmt.Sprintf("%s%s\n", cursor, blurredStyle.Render(albumInfo))
-		}
-	}
-
-	// Show scroll indicators
-	if totalCount > visibleCount {
-		showing := fmt.Sprintf("Showing %d-%d of %d", startIdx+1, endIdx, totalCount)
-		albumList += blurredStyle.Render("\n" + showing)
-	}
-
-	return fmt.Sprintf("%s\n\n%s", title, albumList)
-}
-
 func (m model) playlistsContentView() string {
 	if len(m.playlists) == 0 {
 		return titleStyle.Render("Playlists") + "\n\nLoading..."
@@ -1716,7 +1580,7 @@ func (m model) playlistsContentView() string {
 	var playlistList string
 
 	// Calculate max width for playlist info
-	maxWidth := m.getContentPaneWidth() - 4
+	maxWidth := m.width - 8  // Account for padding/borders
 	if maxWidth < 30 {
 		maxWidth = 30
 	}
@@ -1754,7 +1618,7 @@ func (m model) playlistsContentView() string {
 			playlistInfo = playlistInfo[:maxWidth-3] + "..."
 		}
 
-		if i == m.selectedPlaylist && m.focusedPane == contentPane {
+		if i == m.selectedPlaylist {
 			cursor = focusedStyle.Render("> ")
 			playlistList += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(playlistInfo))
 		} else {
@@ -1780,21 +1644,13 @@ func (m *model) renderTrackListView(title string, tracks []track, selectedTrack 
 	titleText := titleStyle.Render(title)
 	var output strings.Builder
 
-	// Get album art if available and not already cached
+	// Get album art if available from cache
 	var albumArt string
 	if len(tracks) > 0 {
 		thumbURL := tracks[0].Thumb
-		// Check if we need to fetch/render the album art
-		if thumbURL != "" && thumbURL != m.currentAlbumArtThumb {
-			// Fetch and cache the album art
-			if img, err := m.fetchAlbumArt(thumbURL); err == nil {
-				m.currentAlbumArt = img
-				m.currentAlbumArtThumb = thumbURL
-			}
-		}
-
+		
 		// Calculate album art size (consistent whether we have art or not)
-		detailWidth := m.getDetailPaneWidth()
+		detailWidth := m.width - 8  // Account for padding/borders
 		artWidth := detailWidth - 4 // Leave some padding
 		if artWidth > 80 {
 			artWidth = 80 // Cap at 80 for reasonable quality
@@ -1804,12 +1660,12 @@ func (m *model) renderTrackListView(title string, tracks []track, selectedTrack 
 		}
 		artHeight := artWidth / 2 // Maintain 2:1 ratio for square
 
-		// Render album art or placeholder - always at consistent size
+		// Render album art from cache or placeholder
 		if m.currentAlbumArt != nil && m.currentAlbumArtThumb == thumbURL && detailWidth >= 50 {
-			albumArt = renderImageToTerminal(m.currentAlbumArt, artWidth, artHeight)
+			albumArt = m.imgRenderer.Render(m.currentAlbumArt, artWidth, artHeight)
 		} else if detailWidth >= 50 {
 			// Render placeholder at same size as album art would be
-			albumArt = renderPlaceholder(artWidth, artHeight, "Loading...")
+			albumArt = m.imgRenderer.RenderPlaceholder(artWidth, artHeight, "Loading...")
 		}
 	}
 
@@ -1825,7 +1681,7 @@ func (m *model) renderTrackListView(title string, tracks []track, selectedTrack 
 
 	// Calculate max width for track info
 	// Account for cursor (2 chars) and some padding
-	maxWidth := m.getDetailPaneWidth() - 4
+	maxWidth := m.width - 8  // Account for padding/borders
 	if maxWidth < 30 {
 		maxWidth = 30
 	}
@@ -1881,7 +1737,7 @@ func (m *model) renderTrackListView(title string, tracks []track, selectedTrack 
 			trackInfo = trackInfo[:maxWidth-3] + "..."
 		}
 
-		if i == selectedTrack && m.focusedPane == detailPane {
+		if i == selectedTrack {
 			cursor = focusedStyle.Render("> ")
 			output.WriteString(fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(trackInfo)))
 		} else {
@@ -1894,6 +1750,10 @@ func (m *model) renderTrackListView(title string, tracks []track, selectedTrack 
 		showing := fmt.Sprintf("Showing %d-%d of %d", startIdx+1, endIdx, totalCount)
 		output.WriteString(blurredStyle.Render("\n" + showing))
 	}
+
+	// Add help text for queue operations
+	help := blurredStyle.Render("\n  Enter: Play • a: Add to Queue")
+	output.WriteString(help)
 
 	return output.String()
 }
@@ -1918,167 +1778,232 @@ func (m model) settingsContentView() string {
 	return fmt.Sprintf("%s\n%s", title, content)
 }
 
-// Helper methods to calculate pane widths
-func (m model) getNavPaneWidth() int {
-	totalWidth := m.width
-	if totalWidth == 0 {
-		totalWidth = 120
-	}
-	usableWidth := totalWidth - 6
-	navWidth := usableWidth * 20 / 100
-	if navWidth < 20 {
-		navWidth = 20
-	}
-	return navWidth
-}
+// ========== NEW TAB-BASED VIEW FUNCTIONS (Phase 3) ==========
 
-func (m model) getContentPaneWidth() int {
-	totalWidth := m.width
-	if totalWidth == 0 {
-		totalWidth = 120
-	}
-	usableWidth := totalWidth - 6
-	contentWidth := usableWidth * 30 / 100
-	if contentWidth < 30 {
-		contentWidth = 30
-	}
-	return contentWidth
-}
-
-func (m model) getDetailPaneWidth() int {
-	totalWidth := m.width
-	if totalWidth == 0 {
-		totalWidth = 120
-	}
-	usableWidth := totalWidth - 6
-	detailWidth := usableWidth * 40 / 100
-	if detailWidth < 40 {
-		detailWidth = 40
-	}
-	return detailWidth
-}
-
-func (m model) mainAppView() string {
-	navPaneContent := m.navigationPaneView()
-	contentPaneContent := m.contentPaneView()
-	detailPaneContent := m.detailPaneView()
-
-	// Get pane widths using helper methods
-	navWidth := m.getNavPaneWidth()
-	contentWidth := m.getContentPaneWidth()
-	detailWidth := m.getDetailPaneWidth()
-
-	// Render playback control pane first to know its actual height
-	playbackControl := m.playbackControlPane()
-
-	// Reserve a fixed height for playback pane to prevent bumping
-	// Max album art is 20 lines tall (40 chars / 2), plus spacing
-	// Add extra buffer to be safe - always reserve this even when nothing is playing
-	playbackHeight := 28
-
-	// Render help text to count its lines too
-	help := blurredStyle.Render("\nSpace/P: Play/Pause • S: Stop • N: Next • B: Previous • Tab: Switch Pane • Up/Down: Navigate • Enter: Select • Esc: Back • Ctrl+C: Quit\n")
-	helpHeight := strings.Count(help, "\n")
-
-	// Calculate dynamic height - reserve space for all non-pane content
-	// +1 for the initial "\n" in the return statement
-	reservedHeight := 1 + playbackHeight + helpHeight
-
-	paneHeight := m.height - reservedHeight
-	if paneHeight < 20 {
-		paneHeight = 20
+// renderTabBar renders the horizontal tab navigation bar
+func (m model) renderTabBar() string {
+	tabs := []struct {
+		tab   tabType
+		label string
+	}{
+		{homeTab, "Home"},
+		{libraryTab, "Library"},
+		{playlistsTab, "Playlists"},
+		{searchTab, "Search"},
+		{queueTab, fmt.Sprintf("Queue (%d)", len(m.queue))},
+		{settingsTab, "Settings"},
 	}
 
-	// Create layout styles with dynamic sizes
-	navStyle := lipgloss.NewStyle().
-		Width(navWidth).
-		Height(paneHeight).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#444444"))
-
-	contentStyle := lipgloss.NewStyle().
-		Width(contentWidth).
-		Height(paneHeight).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#444444"))
-
-	detailStyle := lipgloss.NewStyle().
-		Width(detailWidth).
-		Height(paneHeight).
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("#444444"))
-
-	// Highlight focused pane
-	focusedColor := lipgloss.Color("#FF8C00")
-
-	if m.focusedPane == navigationPane {
-		navStyle = navStyle.BorderForeground(focusedColor)
-	} else if m.focusedPane == contentPane {
-		contentStyle = contentStyle.BorderForeground(focusedColor)
-	} else if m.focusedPane == detailPane {
-		detailStyle = detailStyle.BorderForeground(focusedColor)
-	}
-
-	// Render panes with styles
-	navRendered := navStyle.Render(navPaneContent)
-	contentRendered := contentStyle.Render(contentPaneContent)
-	detailRendered := detailStyle.Render(detailPaneContent)
-
-	// Join panes side by side
-	combined := lipgloss.JoinHorizontal(lipgloss.Top, navRendered, contentRendered, detailRendered)
-
-	return "\n" + combined + playbackControl + help
-}
-
-func (m model) navigationPaneView() string {
-	title := titleStyle.Render("Menu")
-	menuItems := []string{
-		"Recently Added",
-		"Playlists",
-		"Search",
-		"Settings",
-	}
-
-	var menu string
-	for i, item := range menuItems {
-		cursor := "  "
-		if i == m.navMenuIndex {
-			if m.focusedPane == navigationPane {
-				cursor = focusedStyle.Render("> ")
-				menu += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(item))
-			} else {
-				cursor = "> "
-				menu += fmt.Sprintf("%s%s\n", cursor, item)
-			}
+	var tabItems []string
+	for _, t := range tabs {
+		var rendered string
+		if t.tab == m.activeTab {
+			// Active tab - highlighted
+			rendered = focusedStyle.Render(fmt.Sprintf(" [%s] ", t.label))
 		} else {
-			menu += fmt.Sprintf("%s%s\n", cursor, blurredStyle.Render(item))
+			// Inactive tab
+			rendered = blurredStyle.Render(fmt.Sprintf("  %s  ", t.label))
+		}
+		tabItems = append(tabItems, rendered)
+	}
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, tabItems...)
+}
+
+// renderHomeContent renders the home tab content (recently added albums)
+func (m model) renderHomeContent() string {
+	// Show recently added albums as the home view
+	return m.recentlyAddedContentView()
+}
+
+// renderLibraryContent renders the library tab content (albums)
+func (m model) renderLibraryContent() string {
+	// Check if we're viewing album tracks or the album list
+	if m.currentContent == albumTracksContent {
+		// Show tracks from selected album
+		if len(m.albums) > 0 && m.selectedAlbum < len(m.albums) {
+			albumTitle := fmt.Sprintf("%s - %s", m.albums[m.selectedAlbum].Artist, m.albums[m.selectedAlbum].Title)
+			return m.renderTrackListView(albumTitle, m.tracks, m.selectedTrack, false)
+		}
+		return titleStyle.Render("Album Tracks") + "\n\nNo tracks available."
+	}
+	// Show album list (recently added)
+	return m.recentlyAddedContentView()
+}
+
+// renderPlaylistsTabContent renders the playlists tab content
+func (m model) renderPlaylistsTabContent() string {
+	// Check if we're viewing playlist tracks or the playlist list
+	if m.currentContent == playlistTracksContent {
+		// Show tracks from selected playlist
+		if len(m.playlists) > 0 && m.selectedPlaylist < len(m.playlists) {
+			playlistTitle := m.playlists[m.selectedPlaylist].Title
+			return m.renderTrackListView(playlistTitle, m.tracks, m.selectedTrack, true)
+		}
+		return titleStyle.Render("Playlist Tracks") + "\n\nNo tracks available."
+	}
+	// Show playlist list
+	return m.playlistsContentView()
+}
+
+// renderSearchContent renders the search tab content
+func (m model) renderSearchContent() string {
+	// Placeholder - will be implemented in Phase 6
+	return m.searchContentView()
+}
+
+// renderQueueContent renders the queue tab content
+func (m model) renderQueueContent() string {
+	if len(m.queue) == 0 {
+		emptyMsg := blurredStyle.Render("No tracks in queue.\n\nTip: Press 'a' while viewing tracks to add them to the queue.")
+		return titleStyle.Render("Queue") + "\n\n" + emptyMsg
+	}
+
+	title := titleStyle.Render(fmt.Sprintf("Queue (%d tracks)", len(m.queue)))
+	var trackList string
+
+	for i, track := range m.queue {
+		cursor := "  "
+		trackInfo := fmt.Sprintf("%d. %s - %s", i+1, track.Title, track.Artist)
+		
+		if i == m.queueIndex {
+			cursor = focusedStyle.Render("> ")
+			trackList += cursor + focusedStyle.Render(trackInfo) + "\n"
+		} else {
+			trackList += cursor + blurredStyle.Render(trackInfo) + "\n"
 		}
 	}
 
-	return fmt.Sprintf("%s\n\n%s", title, menu)
+	// Add helpful keyboard shortcuts hint
+	help := blurredStyle.Render("\n  Enter: Play • d: Remove • j/k: Move Down/Up • c: Clear All")
+
+	return fmt.Sprintf("%s\n\n%s%s", title, trackList, help)
 }
 
-func (m model) contentPaneView() string {
-	switch m.currentContent {
-	case recentlyAddedContent:
-		return m.recentlyAddedContentView()
-	case albumTracksContent:
-		// Show album list while tracks are in detail pane
-		return m.recentlyAddedContentView()
-	case playlistsContent:
-		return m.playlistsContentView()
-	case playlistTracksContent:
-		// Show playlists while tracks are in detail pane
-		return m.playlistsContentView()
-	case searchContent:
-		return m.searchContentView()
-	case settingsContent:
-		return m.settingsContentView()
-	default:
+// renderSettingsTabContent renders the settings tab content
+func (m model) renderSettingsTabContent() string {
+	// Placeholder - will be implemented in Phase 6
+	return m.settingsContentView()
+}
+
+// renderQueueModal renders the queue as a modal overlay
+func (m model) renderQueueModal() string {
+	if !m.showQueueModal {
 		return ""
 	}
+
+	modalWidth := 60
+	modalHeight := 20
+
+	queueContent := m.renderQueueContent()
+	
+	modalStyle := lipgloss.NewStyle().
+		Width(modalWidth).
+		Height(modalHeight).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#FF8C00")).
+		Background(lipgloss.Color("#1a1a1a")).
+		Padding(1).
+		Align(lipgloss.Center)
+
+	return modalStyle.Render(queueContent)
 }
 
+// overlayModal renders the modal on top of the base view
+func (m model) overlayModal(baseView string) string {
+	modal := m.renderQueueModal()
+	
+	// Split both views into lines
+	baseLines := strings.Split(baseView, "\n")
+	modalLines := strings.Split(modal, "\n")
+	
+	// Ensure base has enough lines
+	for len(baseLines) < m.height {
+		baseLines = append(baseLines, "")
+	}
+	
+	// Calculate center position for modal
+	modalHeight := len(modalLines)
+	
+	startRow := (m.height - modalHeight) / 2
+	if startRow < 0 {
+		startRow = 0
+	}
+	
+	// For each modal line, we need to overlay it onto the base
+	// We'll use lipgloss.PlaceHorizontal to center each line
+	for i := 0; i < modalHeight && (startRow+i) < len(baseLines); i++ {
+		rowIdx := startRow + i
+		// Place the modal line centered in the available width
+		baseLines[rowIdx] = lipgloss.PlaceHorizontal(m.width, lipgloss.Center, modalLines[i])
+	}
+	
+	return strings.Join(baseLines, "\n")
+}
+
+// ========== END NEW TAB-BASED VIEW FUNCTIONS ==========
+
+func (m model) mainAppView() string {
+	// ========== NEW TAB-BASED LAYOUT (Phase 4) ==========
+	
+	// Render tab bar
+	tabBar := m.renderTabBar()
+	
+	// Render content based on active tab
+	var mainContent string
+	switch m.activeTab {
+	case homeTab:
+		mainContent = m.renderHomeContent()
+	case libraryTab:
+		mainContent = m.renderLibraryContent()
+	case playlistsTab:
+		mainContent = m.renderPlaylistsTabContent()
+	case searchTab:
+		mainContent = m.renderSearchContent()
+	case queueTab:
+		mainContent = m.renderQueueContent()
+	case settingsTab:
+		mainContent = m.renderSettingsTabContent()
+	default:
+		mainContent = m.renderHomeContent()
+	}
+	
+	// Render playback control pane
+	playbackControl := m.playbackControlPane()
+	
+	// Calculate heights
+	playbackHeight := 28
+	tabBarHeight := 3 // Tab bar + borders
+	
+	help := blurredStyle.Render("\nTab/Left/Right: Switch Tabs • Q: Queue • Space/P: Play/Pause • S: Stop • N: Next • B: Previous • Esc: Back • Ctrl+C: Quit\n")
+	helpHeight := strings.Count(help, "\n")
+	
+	reservedHeight := 1 + tabBarHeight + playbackHeight + helpHeight
+	contentHeight := m.height - reservedHeight
+	if contentHeight < 20 {
+		contentHeight = 20
+	}
+	
+	// Style for main content area
+	contentStyle := lipgloss.NewStyle().
+		Width(m.width - 4).
+		Height(contentHeight).
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#444444")).
+		Padding(1)
+	
+	contentRendered := contentStyle.Render(mainContent)
+	
+	// Build the base view
+	baseView := "\n" + tabBar + "\n" + contentRendered + playbackControl + help
+	
+	// If queue modal is shown, overlay it on top of the base view
+	if m.showQueueModal {
+		return m.overlayModal(baseView)
+	}
+	
+	return baseView
+}
 func (m model) recentlyAddedContentView() string {
 	if len(m.albums) == 0 {
 		return titleStyle.Render("Recently Added") + "\n\nLoading..."
@@ -2088,7 +2013,7 @@ func (m model) recentlyAddedContentView() string {
 	var albumList string
 
 	// Calculate max width for album info
-	maxWidth := m.getContentPaneWidth() - 4
+	maxWidth := m.width - 8  // Account for padding/borders
 	if maxWidth < 30 {
 		maxWidth = 30
 	}
@@ -2126,7 +2051,7 @@ func (m model) recentlyAddedContentView() string {
 			albumInfo = albumInfo[:maxWidth-3] + "..."
 		}
 
-		if i == m.selectedAlbum && m.focusedPane == contentPane {
+		if i == m.selectedAlbum {
 			cursor = focusedStyle.Render("> ")
 			albumList += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(albumInfo))
 		} else {
@@ -2142,18 +2067,6 @@ func (m model) recentlyAddedContentView() string {
 
 	return fmt.Sprintf("%s\n\n%s", title, albumList)
 }
-
-func (m model) detailPaneView() string {
-	switch m.currentContent {
-	case playlistTracksContent:
-		return m.playlistTracksContentView()
-	case albumTracksContent:
-		return m.albumTracksContentView()
-	default:
-		return titleStyle.Render("Details") + "\n\n" + blurredStyle.Render("Select an item to view details")
-	}
-}
-
 // renderVolumeBar creates a visual volume indicator
 // Returns a string like "Volume: ████░░░░░░ 50%"
 func (m model) renderVolumeBar(width int) string {
@@ -2189,6 +2102,11 @@ func (m model) renderVolumeBar(width int) string {
 
 // playbackControlPane renders the bottom playback control pane
 func (m *model) playbackControlPane() string {
+	// Fixed height for playback pane to prevent UI bumping
+	const playbackPaneHeight = 28
+	
+	var content string
+	
 	if m.currentTrack == nil || m.playbackState == playbackStopped {
 		// Show "Nothing Playing" message when no active playback
 		nothingPlaying := lipgloss.NewStyle().
@@ -2198,20 +2116,34 @@ func (m *model) playbackControlPane() string {
 			Foreground(lipgloss.Color("#666666")).
 			Render("Select a track and press Enter to start playback")
 
-		// Return simple message - height will be managed by reserving space
-		return fmt.Sprintf("\n%s\n%s", nothingPlaying, hint)
+		// Simple message for no playback state
+		content = fmt.Sprintf("\n%s\n%s", nothingPlaying, hint)
+	} else {
+		// Generate full playback UI
+		content = m.renderActivePlayback()
 	}
-
-	// Fetch and cache album art if we don't have it or if track changed
-	var albumArt string
-	if m.currentTrack.Thumb != "" && m.playbackAlbumArtThumb != m.currentTrack.Thumb {
-		if img, err := m.fetchAlbumArt(m.currentTrack.Thumb); err == nil {
-			m.playbackAlbumArt = img
-			m.playbackAlbumArtThumb = m.currentTrack.Thumb
+	
+	// Manually pad content to fixed height (lipgloss Height doesn't work with graphics protocols)
+	contentLines := strings.Split(content, "\n")
+	currentHeight := len(contentLines)
+	
+	// Add empty lines to reach target height
+	if currentHeight < playbackPaneHeight {
+		paddingNeeded := playbackPaneHeight - currentHeight
+		for i := 0; i < paddingNeeded; i++ {
+			content += "\n"
 		}
 	}
+	
+	return content
+}
 
+// renderActivePlayback renders the playback UI when a track is playing
+func (m *model) renderActivePlayback() string {
 	// Render album art or placeholder - always show at consistent size
+	// NOTE: For playback pane, we force Unicode blocks to avoid issues with
+	// frequent re-renders clearing terminal graphics (Kitty/iTerm2/Sixel)
+	var albumArt string
 	var artWidth int
 	// Calculate art dimensions (same logic whether we have art or not)
 	if m.width >= 100 {
@@ -2233,11 +2165,11 @@ func (m *model) playbackControlPane() string {
 	artHeight := artWidth / 2 // Maintain 2:1 ratio for square
 
 	if m.playbackAlbumArt != nil && m.playbackAlbumArtThumb == m.currentTrack.Thumb && m.width >= 100 {
-		// Render actual album art
-		albumArt = renderImageToTerminal(m.playbackAlbumArt, artWidth, artHeight)
+		// Force Unicode blocks for playback pane to avoid re-render issues
+		albumArt = m.playbackImgRenderer.Render(m.playbackAlbumArt, artWidth, artHeight)
 	} else if m.width >= 100 {
 		// Render placeholder at same size as album art would be
-		albumArt = renderPlaceholder(artWidth, artHeight, "No Cover Art")
+		albumArt = m.playbackImgRenderer.RenderPlaceholder(artWidth, artHeight, "No Cover Art")
 	}
 
 	// Status icon
@@ -2388,113 +2320,6 @@ func (m *model) playbackControlPane() string {
 	return result
 }
 
-func (m model) playlistsView() string {
-	if len(m.playlists) == 0 {
-		title := titleStyle.Render("Loading Playlists...")
-		return fmt.Sprintf("\n%s\n\n  Please wait...\n", title)
-	}
-
-	title := titleStyle.Render("Playlists")
-	var playlistList string
-
-	for i, playlist := range m.playlists {
-		cursor := "  "
-		playlistInfo := playlist.Title
-		if playlist.LeafCount > 0 {
-			playlistInfo += fmt.Sprintf(" (%d)", playlist.LeafCount)
-		}
-
-		if i == m.selectedPlaylist {
-			cursor = focusedStyle.Render("> ")
-			playlistList += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(playlistInfo))
-		} else {
-			playlistList += fmt.Sprintf("%s%s\n", cursor, blurredStyle.Render(playlistInfo))
-		}
-	}
-
-	help := blurredStyle.Render("\n  Up/Down: Navigate • Enter: View Tracks • Esc: Back • Ctrl+C: Quit\n")
-
-	return fmt.Sprintf("\n%s\n\n%s%s", title, playlistList, help)
-}
-
-func (m model) searchView() string {
-	title := titleStyle.Render("Search")
-	content := blurredStyle.Render("\n  Coming soon...\n")
-	help := blurredStyle.Render("\n  Esc: Back • Ctrl+C: Quit\n")
-	return fmt.Sprintf("\n%s%s%s", title, content, help)
-}
-
-func (m model) settingsView() string {
-	title := titleStyle.Render("Settings")
-	content := blurredStyle.Render("\n  Coming soon...\n")
-	help := blurredStyle.Render("\n  Esc: Back • Ctrl+C: Quit\n")
-	return fmt.Sprintf("\n%s%s%s", title, content, help)
-}
-
-func (m model) librarySelectionView() string {
-	if len(m.libraries) == 0 {
-		title := titleStyle.Render("Loading Libraries...")
-		return fmt.Sprintf("\n%s\n\n  Please wait...\n", title)
-	}
-
-	title := titleStyle.Render("Select Music Library")
-	var libraryList string
-
-	for i, library := range m.libraries {
-		cursor := "  "
-		if i == m.selectedLibrary {
-			cursor = focusedStyle.Render("> ")
-			libraryList += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(library.Title))
-		} else {
-			libraryList += fmt.Sprintf("%s%s\n", cursor, blurredStyle.Render(library.Title))
-		}
-	}
-
-	help := blurredStyle.Render("\n  Up/Down: Navigate • Enter: Select • Esc: Back • Ctrl+C: Quit\n")
-
-	return fmt.Sprintf("\n%s\n\n%s%s", title, libraryList, help)
-}
-
-func (m model) albumListView() string {
-	if len(m.albums) == 0 {
-		title := titleStyle.Render("Loading Albums...")
-		return fmt.Sprintf("\n%s\n\n  Please wait...\n", title)
-	}
-
-	title := titleStyle.Render("Albums")
-	var albumList string
-
-	// Show up to 20 albums
-	displayCount := len(m.albums)
-	if displayCount > 20 {
-		displayCount = 20
-	}
-
-	for i := 0; i < displayCount; i++ {
-		album := m.albums[i]
-		cursor := "  "
-		albumInfo := fmt.Sprintf("%s - %s", album.Artist, album.Title)
-		if album.Year > 0 {
-			albumInfo += fmt.Sprintf(" (%d)", album.Year)
-		}
-
-		if i == m.selectedAlbum {
-			cursor = focusedStyle.Render("> ")
-			albumList += fmt.Sprintf("%s%s\n", cursor, focusedStyle.Render(albumInfo))
-		} else {
-			albumList += fmt.Sprintf("%s%s\n", cursor, blurredStyle.Render(albumInfo))
-		}
-	}
-
-	if len(m.albums) > 20 {
-		albumList += blurredStyle.Render(fmt.Sprintf("\n  ...and %d more albums\n", len(m.albums)-20))
-	}
-
-	help := blurredStyle.Render("\n  Up/Down: Navigate • Enter: View Tracks • Esc: Back • Ctrl+C: Quit\n")
-
-	return fmt.Sprintf("\n%s\n\n%s%s", title, albumList, help)
-}
-
 func main() {
 	// Try to load existing config
 	cfg, err := loadConfig()
@@ -2507,12 +2332,19 @@ func main() {
 			token:         cfg.AuthToken,
 			authenticator: auth.NewAuthenticator(),
 		}
+		// Initialize renderers for fast-path
+		initialState.imgRenderer = termimg.NewRenderer()
+		initialState.playbackImgRenderer = termimg.NewRendererWithProtocol(termimg.ProtocolUnicodeBlocks)
 	} else {
 		// No token, show login
 		initialState = initialModel()
 	}
 
-	p := tea.NewProgram(initialState)
+	p := tea.NewProgram(
+		initialState,
+		tea.WithAltScreen(),       // Use alternate screen buffer to prevent scrolling
+		tea.WithMouseCellMotion(), // Enable mouse support (optional)
+	)
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)

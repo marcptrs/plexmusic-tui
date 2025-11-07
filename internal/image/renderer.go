@@ -2,6 +2,7 @@ package image
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"image"
@@ -32,6 +33,16 @@ type Renderer struct {
 func NewRenderer() *Renderer {
 	protocol := DetectImageProtocol()
 	return &Renderer{protocol: protocol}
+}
+
+// NewRendererWithProtocol creates a new image renderer with a specific protocol
+func NewRendererWithProtocol(p Protocol) *Renderer {
+	return &Renderer{protocol: p}
+}
+
+// SetProtocol changes the protocol used by this renderer for runtime toggles
+func (r *Renderer) SetProtocol(p Protocol) {
+	r.protocol = p
 }
 
 // DetectImageProtocol detects the best image protocol supported by the terminal
@@ -135,12 +146,11 @@ func (r *Renderer) RenderPlaceholder(width, height int, message string) string {
 }
 
 // renderImageKitty renders an image using the Kitty graphics protocol
+// Uses virtual placement with content-hash based stable IDs
 func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 	// Resize image to desired pixel dimensions
-	// Terminal characters are roughly 1:2 (width:height) in aspect ratio
-	// Using 20 pixels per character width, 20 pixels per character height
-	pixelWidth := width * 20
-	pixelHeight := height * 20
+	pixelWidth := width * 10   // Reduced from 20 to 10 for better performance
+	pixelHeight := height * 10
 	resized := imaging.Fit(img, pixelWidth, pixelHeight, imaging.Lanczos)
 
 	// Encode image to PNG in memory
@@ -148,41 +158,62 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 	if err := png.Encode(&buf, resized); err != nil {
 		return "" // Fall back to empty on error
 	}
+	imageData := buf.Bytes()
+
+	// Generate a stable ID based on content hash
+	// This ensures the same image gets the same ID every time
+	hash := sha256.Sum256(imageData)
+	imageID := fmt.Sprintf("%x", hash[:4]) // Use first 4 bytes (8 hex chars) as ID
 
 	// Encode to base64
-	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+	encoded := base64.StdEncoding.EncodeToString(imageData)
 
-	// Kitty graphics protocol escape sequence
-	// Format: \x1b_Ga=T,f=100,t=d,m=1;<base64 data>\x1b\\
-	// a=T: transmit and display
-	// f=100: PNG format
-	// t=d: direct transmission
-	// m=1: single chunk
 	var output strings.Builder
 
 	// Split base64 data into chunks (Kitty has a 4096 byte limit per chunk)
 	chunkSize := 4096
+	numChunks := (len(encoded) + chunkSize - 1) / chunkSize
+	
 	for i := 0; i < len(encoded); i += chunkSize {
 		end := i + chunkSize
 		if end > len(encoded) {
 			end = len(encoded)
 		}
 		chunk := encoded[i:end]
+		chunkIndex := i / chunkSize
+		isLastChunk := chunkIndex == numChunks-1
 
 		if i == 0 {
-			// First chunk with metadata
-			output.WriteString("\x1b_Ga=T,f=100,t=d,m=1;")
+			// First chunk: transmit and display
+			// a=T: transmit and display immediately
+			// f=100: PNG format
+			// i=<id>: stable content-based ID
+			// c=<width>: columns (character width)
+			// r=<height>: rows (character height)
+			if isLastChunk {
+				output.WriteString(fmt.Sprintf("\x1b_Ga=T,f=100,i=%s,c=%d,r=%d;", imageID, width, height))
+			} else {
+				output.WriteString(fmt.Sprintf("\x1b_Ga=T,f=100,i=%s,c=%d,r=%d,m=1;", imageID, width, height))
+			}
 			output.WriteString(chunk)
 			output.WriteString("\x1b\\")
 		} else {
 			// Continuation chunks
-			output.WriteString("\x1b_Gm=1;")
+			if isLastChunk {
+				output.WriteString("\x1b_Gm=0;")
+			} else {
+				output.WriteString("\x1b_Gm=1;")
+			}
 			output.WriteString(chunk)
 			output.WriteString("\x1b\\")
 		}
 	}
-
-	output.WriteString("\n")
+	
+	// Add newlines to reserve vertical space (align with UI behavior)
+	for row := 0; row < height; row++ {
+		output.WriteString("\n")
+	}
+	
 	return output.String()
 }
 
