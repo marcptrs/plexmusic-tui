@@ -1,6 +1,7 @@
 package plex
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,13 +27,13 @@ type Client struct {
 func NewClient(scheme, host, port, accessToken string, httpClient *http.Client) *Client {
 	// Extract host for intelligent HTTP client selection
 	hostPort := fmt.Sprintf("%s:%s", host, port)
-	
+
 	client := httpclient.GetForHost(hostPort)
 	if httpClient != nil {
 		// If custom HTTP client provided, wrap it
 		client = &httpclient.Client{}
 	}
-	
+
 	return &Client{
 		scheme:      scheme,
 		host:        host,
@@ -46,7 +47,7 @@ func NewClient(scheme, host, port, accessToken string, httpClient *http.Client) 
 func (c *Client) FetchLibraries() ([]domain.MusicLibrary, error) {
 	url := fmt.Sprintf("%s://%s:%s/library/sections", c.scheme, c.host, c.port)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -85,7 +86,7 @@ func (c *Client) FetchLibraries() ([]domain.MusicLibrary, error) {
 func (c *Client) FetchAlbums(libraryKey string) ([]domain.Album, error) {
 	url := fmt.Sprintf("%s://%s:%s/library/sections/%s/albums", c.scheme, c.host, c.port, libraryKey)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -116,7 +117,7 @@ func (c *Client) FetchAlbums(libraryKey string) ([]domain.Album, error) {
 func (c *Client) FetchRecentlyAdded() ([]domain.Album, error) {
 	url := fmt.Sprintf("%s://%s:%s/library/recentlyAdded?type=9", c.scheme, c.host, c.port)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -147,7 +148,7 @@ func (c *Client) FetchRecentlyAdded() ([]domain.Album, error) {
 func (c *Client) FetchPlaylists() ([]domain.Playlist, error) {
 	url := fmt.Sprintf("%s://%s:%s/playlists", c.scheme, c.host, c.port)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -187,7 +188,7 @@ func (c *Client) FetchPlaylists() ([]domain.Playlist, error) {
 func (c *Client) FetchTracks(key string) ([]domain.Track, error) {
 	url := fmt.Sprintf("%s://%s:%s%s", c.scheme, c.host, c.port, key)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -218,7 +219,7 @@ func (c *Client) FetchTracks(key string) ([]domain.Track, error) {
 func (c *Client) FetchAlbumArt(thumbPath string) ([]byte, error) {
 	url := fmt.Sprintf("%s://%s:%s%s?X-Plex-Token=%s", c.scheme, c.host, c.port, thumbPath, c.accessToken)
 
-	resp, err := c.httpClient.Get(url)
+	resp, err := c.httpClient.Get(context.Background(), url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch album art: %w", err)
 	}

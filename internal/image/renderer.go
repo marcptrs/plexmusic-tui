@@ -24,20 +24,43 @@ const (
 	ProtocolSixel                         // Sixel graphics
 )
 
+// String returns the string representation of the protocol
+func (p Protocol) String() string {
+	switch p {
+	case ProtocolUnicodeBlocks:
+		return "UnicodeBlocks"
+	case ProtocolKitty:
+		return "Kitty"
+	case ProtocolITerm2:
+		return "iTerm2"
+	case ProtocolSixel:
+		return "Sixel"
+	default:
+		return "Unknown"
+	}
+}
+
 // Renderer handles image rendering to terminal with various protocols
 type Renderer struct {
 	protocol Protocol
+	cache    map[string]string // Cache rendered output by key
 }
 
 // NewRenderer creates a new image renderer, auto-detecting the best protocol
 func NewRenderer() *Renderer {
 	protocol := DetectImageProtocol()
-	return &Renderer{protocol: protocol}
+	return &Renderer{
+		protocol: protocol,
+		cache:    make(map[string]string),
+	}
 }
 
 // NewRendererWithProtocol creates a new image renderer with a specific protocol
 func NewRendererWithProtocol(p Protocol) *Renderer {
-	return &Renderer{protocol: p}
+	return &Renderer{
+		protocol: p,
+		cache:    make(map[string]string),
+	}
 }
 
 // SetProtocol changes the protocol used by this renderer for runtime toggles
@@ -81,16 +104,34 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		return ""
 	}
 
+	// Generate cache key based on image dimensions and requested size
+	bounds := img.Bounds()
+	cacheKey := fmt.Sprintf("%s_%d_%d_%dx%d_%dx%d",
+		r.protocol.String(),
+		width, height,
+		bounds.Dx(), bounds.Dy(),
+		bounds.Min.X, bounds.Min.Y)
+
+	// Check cache first
+	if cached, found := r.cache[cacheKey]; found {
+		return cached
+	}
+
+	var result string
 	switch r.protocol {
 	case ProtocolKitty:
-		return r.renderImageKitty(img, width, height)
+		result = r.renderImageKitty(img, width, height)
 	case ProtocolITerm2:
-		return r.renderImageITerm2(img, width, height)
+		result = r.renderImageITerm2(img, width, height)
 	case ProtocolSixel:
-		return r.renderImageSixel(img, width, height)
+		result = r.renderImageSixel(img, width, height)
 	default:
-		return r.renderImageUnicodeBlocks(img, width, height)
+		result = r.renderImageUnicodeBlocks(img, width, height)
 	}
+
+	// Cache the result
+	r.cache[cacheKey] = result
+	return result
 }
 
 // RenderPlaceholder renders a text-based placeholder when no image is available
@@ -115,7 +156,8 @@ func (r *Renderer) RenderPlaceholder(width, height int, message string) string {
 	// Draw middle rows
 	for y := 1; y < height-1; y++ {
 		output.WriteString("║")
-		if y == centerY {
+		switch y {
+		case centerY:
 			// Center the message
 			output.WriteString(strings.Repeat(" ", messagePadding))
 			output.WriteString(message)
@@ -123,7 +165,7 @@ func (r *Renderer) RenderPlaceholder(width, height int, message string) string {
 			if remaining > 0 {
 				output.WriteString(strings.Repeat(" ", remaining))
 			}
-		} else if y == centerY-2 {
+		case centerY - 2:
 			// Music note symbol
 			symbol := "♫"
 			symbolPadding := (width - 2 - len(symbol)) / 2
@@ -133,7 +175,7 @@ func (r *Renderer) RenderPlaceholder(width, height int, message string) string {
 			if remaining > 0 {
 				output.WriteString(strings.Repeat(" ", remaining))
 			}
-		} else {
+		default:
 			output.WriteString(strings.Repeat(" ", width-2))
 		}
 		output.WriteString("║\n")
@@ -146,10 +188,10 @@ func (r *Renderer) RenderPlaceholder(width, height int, message string) string {
 }
 
 // renderImageKitty renders an image using the Kitty graphics protocol
-// Uses virtual placement with content-hash based stable IDs
+// Uses a two-step process: transmit to memory, then place using virtual placements
 func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 	// Resize image to desired pixel dimensions
-	pixelWidth := width * 10   // Reduced from 20 to 10 for better performance
+	pixelWidth := width * 10
 	pixelHeight := height * 10
 	resized := imaging.Fit(img, pixelWidth, pixelHeight, imaging.Lanczos)
 
@@ -160,20 +202,20 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 	}
 	imageData := buf.Bytes()
 
-	// Generate a stable ID based on content hash
-	// This ensures the same image gets the same ID every time
+	// Generate a stable ID based on content hash (use numeric ID)
 	hash := sha256.Sum256(imageData)
-	imageID := fmt.Sprintf("%x", hash[:4]) // Use first 4 bytes (8 hex chars) as ID
+	// Convert first 4 bytes to a uint32 for numeric ID
+	imageID := uint32(hash[0])<<24 | uint32(hash[1])<<16 | uint32(hash[2])<<8 | uint32(hash[3])
 
 	// Encode to base64
 	encoded := base64.StdEncoding.EncodeToString(imageData)
 
 	var output strings.Builder
 
-	// Split base64 data into chunks (Kitty has a 4096 byte limit per chunk)
+	// Step 1: Transmit image data to Kitty's memory (a=t for transmit only, not display)
 	chunkSize := 4096
 	numChunks := (len(encoded) + chunkSize - 1) / chunkSize
-	
+
 	for i := 0; i < len(encoded); i += chunkSize {
 		end := i + chunkSize
 		if end > len(encoded) {
@@ -184,16 +226,14 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 		isLastChunk := chunkIndex == numChunks-1
 
 		if i == 0 {
-			// First chunk: transmit and display
-			// a=T: transmit and display immediately
+			// First chunk: transmit to memory (lowercase 'a=t', not 'a=T')
+			// a=t: transmit only (store in memory)
 			// f=100: PNG format
-			// i=<id>: stable content-based ID
-			// c=<width>: columns (character width)
-			// r=<height>: rows (character height)
+			// i=<id>: image ID for later reference
 			if isLastChunk {
-				output.WriteString(fmt.Sprintf("\x1b_Ga=T,f=100,i=%s,c=%d,r=%d;", imageID, width, height))
+				output.WriteString(fmt.Sprintf("\x1b_Ga=t,f=100,i=%d;", imageID))
 			} else {
-				output.WriteString(fmt.Sprintf("\x1b_Ga=T,f=100,i=%s,c=%d,r=%d,m=1;", imageID, width, height))
+				output.WriteString(fmt.Sprintf("\x1b_Ga=t,f=100,i=%d,m=1;", imageID))
 			}
 			output.WriteString(chunk)
 			output.WriteString("\x1b\\")
@@ -208,12 +248,31 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 			output.WriteString("\x1b\\")
 		}
 	}
-	
-	// Add newlines to reserve vertical space (align with UI behavior)
+
+	// Step 2: Place the transmitted image using virtual placement
+	// Creates a grid where each cell displays part of the image
+
 	for row := 0; row < height; row++ {
-		output.WriteString("\n")
+		for col := 0; col < width; col++ {
+			// a=p: place (display) previously transmitted image
+			// i=<id>: which image to place
+			// c=<cols>: total columns the image should occupy
+			// r=<rows>: total rows the image should occupy
+			// X=<col>: which column of the image this cell should show (0-based)
+			// Y=<row>: which row of the image this cell should show (0-based)
+			// C=1: do not move cursor
+			output.WriteString(fmt.Sprintf("\x1b_Ga=p,i=%d,c=%d,r=%d,X=%d,Y=%d,C=1;\x1b\\",
+				imageID, width, height, col, row))
+
+			// Output a space character as the placeholder
+			output.WriteString(" ")
+		}
+		// Newline after each row
+		if row < height-1 {
+			output.WriteString("\n")
+		}
 	}
-	
+
 	return output.String()
 }
 

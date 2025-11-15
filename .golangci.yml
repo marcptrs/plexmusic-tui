@@ -1,0 +1,39 @@
+version: "2"
+
+linters:
+  enable:
+    # Error handling
+    - bodyclose
+    - noctx
+    - rowserrcheck
+    
+    # Code quality
+    - goprintffuncname
+    - misspell
+    - nolintlint
+    - staticcheck
+    - whitespace
+    - tparallel
+    
+    # Database safety
+    - sqlclosecheck
+    
+  disable:
+    # Too strict for TUI application
+    - errcheck
+    - ineffassign
+    - unused
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  
+  exclude-rules:
+    # Allow log statements without context in TUI
+    - text: '(slog|log)\.\w+'
+      linters:
+        - noctx
+
+linters-settings:
+  gofumpt:
+    extra-rules: true

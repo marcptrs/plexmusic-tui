@@ -34,9 +34,10 @@ go.work.sum
 # .idea/
 # .vscode/
 
-# Serena metadata
+# Agent/MCP metadata
 .serena/
+.crush/
 
 # Local analysis and planning notes
 thoughts/
-
+tmp/

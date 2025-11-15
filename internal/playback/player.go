@@ -64,8 +64,9 @@ func (p *Player) IsInitialized() bool {
 
 // LoadStream loads an audio stream and prepares it for playback
 // contentType is used to determine the audio format
-func (p *Player) LoadStream(body io.ReadCloser, contentType string, format beep.Format) error {
+func (p *Player) LoadStream(body io.ReadCloser, contentType string, _ beep.Format) error {
 	var streamer beep.StreamSeekCloser
+	var format beep.Format
 	var err error
 
 	// Try to decode based on content type

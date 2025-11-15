@@ -75,7 +75,8 @@ func (k *KeyboardHandler) SetEnterHandler(f func() (interface{}, tea.Cmd)) {
 func (k *KeyboardHandler) HandleKey(keyStr string) (bool, interface{}, tea.Cmd) {
 	switch keyStr {
 	case "ctrl+c":
-		return false, nil, tea.Quit
+		// Let global key handling decide whether to quit.
+		return false, nil, nil
 
 	case "esc":
 		if k.onEscape != nil {

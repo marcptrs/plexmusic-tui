@@ -1,0 +1,31 @@
+name: build
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.24']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      
+      - name: Build
+        run: go build -v -o plexmusic-tui .
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plexmusic-tui-${{ matrix.go-version }}
+          path: plexmusic-tui

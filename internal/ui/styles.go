@@ -45,6 +45,11 @@ var (
 			Bold(true).
 			MarginTop(1)
 
+	// Help style - Gray italic text
+	HelpStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#666666")).
+			Italic(true)
+
 	// Primary text color - Orange
 	primaryColor = lipgloss.Color("#FF8C00")
 	// Secondary text color - White

@@ -9,7 +9,46 @@ import (
 // Config represents the application configuration
 type Config struct {
 	AuthToken          string `json:"authToken"`
-	LastSelectedServer string `json:"lastSelectedServer,omitempty"` // Server name
+	LastSelectedServer string `json:"lastSelectedServer,omitempty"` // Server canonical key in the form host/name
+}
+
+// Manager wraps Config with convenience methods
+type Manager struct {
+	cfg *Config
+}
+
+// NewManager creates a new config manager
+func NewManager() (*Manager, error) {
+	cfg, err := Load()
+	if err != nil {
+		return nil, err
+	}
+	return &Manager{cfg: cfg}, nil
+}
+
+// GetAuthToken returns the stored auth token
+func (m *Manager) GetAuthToken() string {
+	return m.cfg.AuthToken
+}
+
+// SetAuthToken sets the auth token
+func (m *Manager) SetAuthToken(token string) {
+	m.cfg.AuthToken = token
+}
+
+// GetLastSelectedServer returns the last selected server canonical key in the form host/name
+func (m *Manager) GetLastSelectedServer() string {
+	return m.cfg.LastSelectedServer
+}
+
+// SetLastSelectedServer sets the last selected server canonical key in the form host/name
+func (m *Manager) SetLastSelectedServer(serverName string) {
+	m.cfg.LastSelectedServer = serverName
+}
+
+// Save saves the configuration to disk
+func (m *Manager) Save() error {
+	return Save(m.cfg)
 }
 
 // GetConfigPath returns the path to the config file
@@ -52,7 +91,7 @@ func Save(cfg *Config) error {
 	}
 
 	configDir := filepath.Dir(configPath)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		return err
 	}
 
@@ -61,5 +100,5 @@ func Save(cfg *Config) error {
 		return err
 	}
 
-	return os.WriteFile(configPath, data, 0600)
+	return os.WriteFile(configPath, data, 0o600)
 }

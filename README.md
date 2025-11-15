@@ -164,11 +164,11 @@ Configuration is stored in `~/.config/plexmusic-tui/config.json`:
 ```json
 {
   "authToken": "your-plex-token",
-  "lastSelectedServer": "server-name"
+  "lastSelectedServer": "hostname/server-name"
 }
 ```
 
-The application automatically saves your authentication token and remembers your last selected server.
+The application automatically saves your authentication token and remembers your last selected server using a canonical host/name key (e.g., hostname/server-name).
 
 ## License
 

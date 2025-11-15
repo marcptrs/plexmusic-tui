@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,7 +31,7 @@ func NewAuthenticator() *Authenticator {
 
 // AuthenticateUser authenticates a user with Plex using username and password
 // Returns an auth token if successful, or an error
-func (a *Authenticator) AuthenticateUser(username, password string) (string, error) {
+func (a *Authenticator) AuthenticateUser(ctx context.Context, username, password string) (string, error) {
 	// Validate inputs
 	if username == "" || password == "" {
 		return "", fmt.Errorf("username or password is empty")
@@ -42,7 +43,7 @@ func (a *Authenticator) AuthenticateUser(username, password string) (string, err
 	formData.Set("user[password]", password)
 
 	requestURL := plexTVURL + "/users/sign_in.json"
-	req, err := http.NewRequest("POST", requestURL, strings.NewReader(formData.Encode()))
+	req, err := http.NewRequestWithContext(ctx, "POST", requestURL, strings.NewReader(formData.Encode()))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
@@ -83,13 +84,13 @@ func (a *Authenticator) AuthenticateUser(username, password string) (string, err
 
 // FetchServers fetches the list of Plex servers available to the user
 // Requires a valid authentication token
-func (a *Authenticator) FetchServers(token string) ([]domain.PlexServer, error) {
+func (a *Authenticator) FetchServers(ctx context.Context, token string) ([]domain.PlexServer, error) {
 	if token == "" {
 		return nil, fmt.Errorf("authentication token is empty")
 	}
 
 	url := plexTVURL + "/api/v2/resources?includeHttps=1&includeRelay=0"
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
