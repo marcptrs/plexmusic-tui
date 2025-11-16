@@ -153,7 +153,14 @@ func drawerTickCmd() tea.Cmd {
 // initial fetches for Recently Added + Playlists.
 func (p *MainAppPage) Init() tea.Cmd {
 	server := p.coordinator.GetCurrentServer()
-	token := p.coordinator.GetToken()
+	// Prefer the server-specific access token (resource.AccessToken) when available;
+	// otherwise fall back to the user auth token stored on the coordinator.
+	token := ""
+	if server != nil && server.AccessToken != "" {
+		token = server.AccessToken
+	} else {
+		token = p.coordinator.GetToken()
+	}
 
 	// Only initialize services when a server is selected and we have an auth token.
 	// When returning early here, the router/pages will handle transitions until
@@ -174,6 +181,10 @@ func (p *MainAppPage) Init() tea.Cmd {
 	if p.libSvc == nil {
 		p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token)
 		p.libEvtCh = p.libSvc.Subscribe(p.ctx)
+	} else {
+		// Update base URL and token to reflect current selected server.
+		p.libSvc.SetBaseURL(baseURL)
+		p.libSvc.SetToken(token)
 	}
 
 	// Create (or reuse) playback service and subscribe to events.
@@ -192,10 +203,11 @@ func (p *MainAppPage) Init() tea.Cmd {
 	p.coordinator.SetSelectedTrack(0)
 	p.selectedTrackIndex = 0
 
-	// Kick off fetching of recently added and playlists, and begin subscriptions.
+	// Kick off fetching of libraries, recently added and playlists, and begin subscriptions.
 	return tea.Batch(
 		p.subscribeToLibraryEvents(),
 		p.subscribeToPlaybackEvents(),
+		p.fetchLibraries(),
 		p.fetchRecentlyAdded(),
 		p.fetchPlaylists(),
 	)
@@ -213,6 +225,15 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case service.LibraryEvent:
 		// Update coordinator state based on library events
 		switch msg.Type {
+		case "libraries.loaded":
+			appLibs := make([]app.MusicLibrary, len(msg.Libraries))
+			for i, l := range msg.Libraries {
+				appLibs[i] = app.MusicLibrary{Key: l.Key, Title: l.Title, Type: l.Type}
+			}
+			p.coordinator.SetLibraries(appLibs)
+			if len(appLibs) > 0 {
+				p.coordinator.SetSelectedLibrary(0)
+			}
 		case "recently_added.loaded":
 			// Convert domain.Album to app.Album and update coordinator
 			appAlbums := make([]app.Album, len(msg.Albums))
@@ -302,7 +323,13 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				p.coordinator.SetSelectedServer(0)
 				srv = p.coordinator.GetCurrentServer()
 			}
-			token := p.coordinator.GetToken()
+			// Prefer server-specific access token if available, otherwise fall back to coordinator token
+			token := ""
+			if srv != nil && srv.AccessToken != "" {
+				token = srv.AccessToken
+			} else {
+				token = p.coordinator.GetToken()
+			}
 			if p.libSvc == nil && srv != nil && token != "" {
 				baseURL := fmt.Sprintf("%s://%s", srv.Scheme, srv.Host)
 				if srv.Port != "" {
@@ -922,8 +949,8 @@ func (p *MainAppPage) View() string {
 		// Render drawer content and anchor to the bottom.
 		drawerContent := p.renderModalContent(p.width-6, "")
 		// Append a small help hint to the drawer so users know available keys while the overlay is focused.
-		drawerContent = lipgloss.JoinVertical(lipgloss.Left, drawerContent, ui.HelpStyle.Render("Enter: open • Space: play • Esc: close"))
-		drawerPane := ui.PaneStyle(p.width-6, drawerHeight).Render(drawerContent)
+		drawerPane := ui.PaneStyle(p.width-6, drawerHeight).Render(lipgloss.JoinVertical(lipgloss.Left, drawerContent, ui.HelpStyle.Render("Enter: open • Space: play • Esc: close")))
+
 		baseWithTabs := lipgloss.JoinVertical(lipgloss.Left, contentPaneDim, tabsPane)
 		overlayBottom := lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Bottom, drawerPane)
 
@@ -1039,6 +1066,19 @@ func (p *MainAppPage) subscribeToAuthEvents() tea.Cmd {
 				return ev.Payload
 			}
 		}
+		return nil
+	}
+}
+
+// fetchLibraries triggers the library service to fetch available libraries.
+func (p *MainAppPage) fetchLibraries() tea.Cmd {
+	if p.libSvc == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+		_, _ = p.libSvc.FetchLibraries(ctx)
 		return nil
 	}
 }
@@ -1261,7 +1301,6 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 
 	// Fallback: render info block only
 	return rightColumn
-
 }
 
 // renderWithModal composes the base view layout with the queue modal overlay.

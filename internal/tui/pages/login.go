@@ -122,8 +122,8 @@ func (p *LoginPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-
 		case "tab", "shift+tab", "up", "down":
+
 			s := msg.String()
 			if s == "up" || s == "shift+tab" {
 				p.focusIndex--

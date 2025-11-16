@@ -91,8 +91,8 @@ func (p *ServerSelectionPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-
 		case "up", "k":
+
 			if p.selectedIndex > 0 {
 				p.selectedIndex--
 			}
