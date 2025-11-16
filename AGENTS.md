@@ -74,9 +74,9 @@ A large `tmp/crush/` tree exists containing unrelated development tooling code (
 See `ARCHITECTURE.md` for detailed refactoring plan and migration strategy.
 
 ## Networking / Plex Access
-- Preferred abstraction: `service.LibraryService` for fetching libraries, albums, recently added, playlists, tracks.
+- Preferred abstraction: `service.LibraryService` for fetching libraries, albums, recently added (server-scoped and library-scoped), playlists, tracks. Recent changes added support for recentlyAdded scoped to a specific library via `FetchRecentlyAddedInLibrary`.
 - Deprecated: `plex.Client` (marked with comments at top). Retain for backward compatibility but do not add new features there.
-- Image and track URLs built using scheme/host/port plus media key with `X-Plex-Token` query/header.
+- Image and track URLs built using scheme/host/port plus media key with `X-Plex-Token` query/header. `BuildStreamURL` prefers media part keys when available and avoids duplicating `X-Plex-Token` query params.
 - HTTP client selection via `http.GetForHost(host)` that enables `InsecureSkipVerify` for local/private networks only.
 
 ## Audio Playback
@@ -97,10 +97,10 @@ See `ARCHITECTURE.md` for detailed refactoring plan and migration strategy.
 - `config.Load()` returns empty struct if file missing; saving ensures directory creation (0600 file permissions for security).
 
 ## UI / Layout
-- Pane width calculations in `internal/ui/views.go` allocate percentages (navigation 20%, content 30%, detail 40%) with minimal widths and total width adjustment subtracting 6 for borders/padding.
+- Pane width calculations in `internal/ui/views.go` allocate percentages (navigation 20%, content 30%, detail 40%) with minimal widths and total width adjustment subtracting 6 for borders/padding. Recent UI changes favor a Now Playing-first layout where Now Playing is the main content and the tabs draw a bottom drawer/modal overlay for Recently Added, Playlists, Search, and Settings.
 - Album art display uses dedicated renderer; playback pane keeps separate cached art.
-- Style definitions reside in `internal/ui/styles.go` (not inspected—future agents should read to follow naming and color patterns before altering styles).
-- Tab navigation logic lives in model and Coordinator (`NextTab`, `PreviousTab`) cycling enumerated tab values.
+- Style definitions reside in `internal/ui/styles.go` (not inspected—future agents should read to follow naming and color patterns before altering styles). A new ScrimStyle was added to dim the Now Playing content when a modal/drawer is active.
+- Tab navigation logic lives in model and Coordinator (`NextTab`, `PreviousTab`) cycling enumerated tab values. Enter now opens the active tab as a drawer; keys Enter/Space/Esc supported inside the drawer to respectively open, play, and close.
 
 ## Enumerations / Conventions
 - Enum groups implemented as typed int constants in each package (`SessionState`, `ContentViewType`, `PlaybackState`, `TabType`, etc.). Avoid scattering new enums in multiple packages; centralize to `internal/domain` unless strictly UI-specific.
@@ -120,7 +120,11 @@ See `ARCHITECTURE.md` for detailed refactoring plan and migration strategy.
 
 ## Testing
 - CI runs `go test -v -race -coverprofile=coverage.out ./...`.
-- No application-specific test helpers found in inspected main tree (tests mainly under `tmp/crush/` for unrelated code). When adding tests for core app, follow standard Go test layout (`*_test.go` alongside code). Include race-safety for concurrent playback/network manipulations.
+- Component tests exist for `internal/service` and `internal/tui/pages` demonstrating server response handling and UI behavior (library fetch, drawer/modal interactions, stream URL building). When adding tests for core app, follow standard Go test layout (`*_test.go` alongside code). Include race-safety for concurrent playback/network manipulations.
+- Tests now include coverage for:
+  - `LibraryService.FetchRecentlyAddedInLibrary` and default `FetchRecentlyAdded` decoding for wrapped Plex responses (MediaContainer, Response, Playlist arrays).
+  - `BuildStreamURL` ensuring media part keys are preferred and token duplication is avoided.
+  - UI page interactions ensuring drawer modal behavior and that the Now Playing-first layout renders expected content and help hints.
 
 ## Linting / Formatting
 `.golangci.yml` enables:
