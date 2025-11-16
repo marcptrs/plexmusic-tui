@@ -36,7 +36,7 @@ func buildAppModel() *tui.AppModel {
 		case tui.ServerSelectionPageID:
 			return pages.NewServerSelectionPage(coord, authSvc, cfgMgr)
 		case tui.MainAppPageID:
-			return pages.NewMainAppPage(coord)
+			return pages.NewMainAppPageWithAuth(coord, authSvc)
 		default:
 			return nil
 		}

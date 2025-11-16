@@ -120,6 +120,11 @@ func (p *ServerSelectionPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the server selection page
 func (p *ServerSelectionPage) View() string {
+	// If width isn't initialized yet, avoid rendering (matches login page behavior)
+	if p.width == 0 {
+		return ""
+	}
+
 	var content string
 
 	if p.loadingServers {
@@ -132,13 +137,13 @@ func (p *ServerSelectionPage) View() string {
 		content = p.renderServerList()
 	}
 
-	// Center the content
+	// Center the content and add padding like the login page
 	return lipgloss.Place(
 		p.width,
 		p.height,
 		lipgloss.Center,
 		lipgloss.Center,
-		content,
+		lipgloss.NewStyle().Padding(1, 2).Render(content),
 	)
 }
 
@@ -376,7 +381,7 @@ func (p *ServerSelectionPage) renderServerList() string {
 		lastIndicator := ""
 		// Build canonical key for this server
 		key := fmt.Sprintf("%s/%s", server.Host, server.Name)
-		if key == lastServer {
+		if key == lastServer || server.Name == lastServer {
 			lastIndicator = " (last used)"
 		}
 

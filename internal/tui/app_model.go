@@ -63,7 +63,21 @@ func (a *AppModel) Init() tea.Cmd {
 	if a.router == nil {
 		return nil
 	}
-	return a.router.Init()
+	initCmd := a.router.Init()
+
+	// If we already have a coordinator-provided terminal size, ensure the
+	// initial page receives it immediately so pages that rely on width/height
+	// don't render an empty layout while waiting for a WindowSize message.
+	if a.coord != nil {
+		sizeCmd := func() tea.Msg {
+			return tea.WindowSizeMsg{
+				Width:  a.coord.Width(),
+				Height: a.coord.Height(),
+			}
+		}
+		return tea.Batch(initCmd, sizeCmd)
+	}
+	return initCmd
 }
 
 // Update first checks for app-level/global keys. If none match it delegates
@@ -101,6 +115,15 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return a, tea.Quit
 
+	// Window size messages should update the coordinator state so it can be
+	// used when creating or initializing pages. We don't consume the message;
+	// we still forward it to the router so the active page receives it too.
+	case tea.WindowSizeMsg:
+		if a.coord != nil {
+			a.coord.SetWidth(msg.Width)
+			a.coord.SetHeight(msg.Height)
+		}
+
 	case PageChangeMsg:
 		// Create the requested page via the factory to avoid package cycles.
 		if a.pageFactory == nil {
@@ -110,7 +133,17 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if newPage == nil {
 			return a, nil
 		}
-		return a, a.router.NavigateTo(newPage, msg.ID)
+		// Ensure the newly-initialized page receives the current size immediately
+		// by returning a WindowSizeMsg (built from coordinator's dimensions) along
+		// with the router navigation command.
+		navCmd := a.router.NavigateTo(newPage, msg.ID)
+		sizeCmd := func() tea.Msg {
+			if a.coord == nil {
+				return nil
+			}
+			return tea.WindowSizeMsg{Width: a.coord.Width(), Height: a.coord.Height()}
+		}
+		return a, tea.Batch(navCmd, sizeCmd)
 	}
 
 	// Delegate to the router for page-level handling

@@ -50,6 +50,12 @@ var (
 			Foreground(lipgloss.Color("#666666")).
 			Italic(true)
 
+	// ScrimStyle - used to dim backgrounds when showing modals/drawers
+	ScrimStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#000000")).
+			Background(lipgloss.Color("#000000")).
+			Bold(false)
+
 	// Primary text color - Orange
 	primaryColor = lipgloss.Color("#FF8C00")
 	// Secondary text color - White
