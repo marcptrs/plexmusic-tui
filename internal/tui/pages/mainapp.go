@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	ansi "github.com/charmbracelet/x/ansi"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/domain"
@@ -867,10 +868,16 @@ func (p *MainAppPage) View() string {
 
 	contentWidth := ui.GetContentPaneWidth(p.width)
 	detailWidth := ui.GetDetailPaneWidth(p.width)
+	// Compute the Now Playing width and use that width for tab alignment.
+	// Start with the full available width and ensure it's at least wide enough
+	// for the content + detail pane split.
+	nowWidth := p.width - 6
+	if nowWidth < contentWidth+detailWidth {
+		nowWidth = contentWidth + detailWidth
+	}
 
 	// Build top tabs mapped by TabType to ensure consistent mapping
 	tabNames := []string{"Home", "Recently Added", "Playlists", "Search", "Queue", "Settings"}
-	var tabParts []string
 	active := p.coordinator.ActiveTab()
 	// Ensure active tab is valid. If it's out of the expected range, set Home
 	// as a safe default to ensure the UI renders content instead of an empty
@@ -888,25 +895,99 @@ func (p *MainAppPage) View() string {
 		navActive = p.tabForModal(p.modal)
 	}
 
-	for i, name := range tabNames {
-		tt := app.TabType(i)
-		style := ui.BlurredStyle
-		if tt == navActive {
-			style = ui.FocusedStyle
+	// Compute consistent tab widths and build boxes for each tab using a small helper
+	// to ensure tab labels fit and the tab row doesn't wrap.
+	buildTabs := func() (string, int) {
+		usable := nowWidth - 6
+		if usable < 0 {
+			usable = 0
 		}
-		tabParts = append(tabParts, style.Render(name))
+		count := len(tabNames)
+		if count == 0 {
+			return "", 0
+		}
+
+		// Determine the longest tab label in columns to avoid accidental wrapping.
+		maxLabel := 0
+		for _, n := range tabNames {
+			if w := lipgloss.Width(n); w > maxLabel {
+				maxLabel = w
+			}
+		}
+
+		// Preferred width gives room for label plus extra padding/border to avoid
+		// accidental wrapping for multi-word labels like "Recently Added".
+		preferred := maxLabel + 6
+
+		// Start with an even split and bias toward the preferred label size if possible.
+		tabW := usable / count
+		if tabW < preferred {
+			if preferred*count <= usable {
+				tabW = preferred
+			} else {
+				// Can't fit the preferred width for all tabs, shrink to fit and allow truncation.
+				tabW = usable / count
+			}
+		}
+		// Enforce a slightly larger minimum width which better accommodates
+		// short labels without causing the border to wrap labels.
+		if tabW < 6 {
+			tabW = 6
+		}
+
+		parts := make([]string, 0, count)
+		for i, name := range tabNames {
+			tt := app.TabType(i)
+			style := ui.BlurredStyle
+			if tt == navActive {
+				style = ui.FocusedStyle
+			}
+
+			// Truncate the label to fit inside the tab: use an ansi-aware truncation
+			// to preserve any embedded escape sequences (colors/styles) and avoid
+			// multi-line wrapping.
+			label := name
+			labelW := tabW - 6 // leave a little more breathing room inside tabs
+			if labelW < 1 {
+				labelW = 1
+			}
+			label = ansi.Truncate(label, labelW, "…")
+
+			// Single-line centered label rendering: enforce a Height(1) so the label
+			// remains a single-line and won't wrap inside the Pane.
+			tabLabel := lipgloss.NewStyle().Width(tabW-2).Height(1).MaxWidth(tabW-2).Align(lipgloss.Center, lipgloss.Center).Render(style.Render(label))
+			// Add a small horizontal padding so the text stays centered and we don't
+			// hit the border on small widths.
+			paneStyle := ui.PaneStyle(tabW, 3).Padding(0, 1).Align(lipgloss.Center, lipgloss.Center)
+			if tt == navActive {
+				paneStyle = paneStyle.BorderForeground(lipgloss.Color("#FF8C00"))
+			}
+			parts = append(parts, paneStyle.Render(tabLabel))
+		}
+
+		tabRow := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
+		// Force the computed width to the tabWidth*count so the row doesn't wrap.
+		tabsWidth := tabW * count
+		if tabsWidth > usable {
+			tabsWidth = usable
+		}
+		tabsPane := lipgloss.Place(nowWidth, 3, lipgloss.Center, lipgloss.Center, lipgloss.NewStyle().Width(tabsWidth).Render(tabRow))
+		return tabsPane, tabsWidth
 	}
-	tabRow := lipgloss.JoinHorizontal(lipgloss.Left, tabParts...)
-	tabsPane := ui.PaneStyle(p.width-6, 3).Render(tabRow)
+	tabsPane, tabsPaneWidth := buildTabs()
 
 	// Tabs are now displayed below the Now Playing area (left navigation removed).
 
 	// Main content — Now Playing becomes the primary content area.
 	// The Now Playing view will take the primary area. Tab selection is below,
 	// and pressing Enter opens the selected tab as an overlay drawer over Now Playing.
-	nowWidth := p.width - 6
-	if nowWidth < contentWidth+detailWidth {
-		nowWidth = contentWidth + detailWidth
+	// nowWidth was computed above — no need to recompute here. This ensures the
+	// tabs were created using the final Now Playing width and remain aligned.
+	// Make sure the Now Playing area is at least as wide as the tabs pane, with
+	// a small padding to give breathing room around the tab borders. This
+	// avoids tab overflow and ensures the tabs appear aligned beneath Now Playing.
+	if nowWidth < tabsPaneWidth+4 {
+		nowWidth = tabsPaneWidth + 4
 	}
 	mainContent := p.renderNowPlaying(nowWidth)
 	if p.libSvc != nil && len(p.coordinator.Albums()) == 0 && len(p.coordinator.Playlists()) == 0 {
@@ -914,11 +995,12 @@ func (p *MainAppPage) View() string {
 		// the library service is active but no content has been loaded yet.
 		mainContent = lipgloss.JoinVertical(lipgloss.Center, ui.BlurredStyle.Render("Loading library..."))
 	}
-	contentPane := ui.PaneStyle(p.width-6, p.height-6).Render(mainContent)
+	contentPane := ui.PaneStyle(nowWidth, p.height-6).Render(mainContent)
 
 	// Compose the two-pane layout: main content (Now Playing) and tabs.
-	// The right-hand detail pane that duplicated Now Playing was removed.
-	layout := lipgloss.JoinVertical(lipgloss.Left, contentPane, tabsPane)
+	// Center the main content and tabs horizontally so they appear visually centered
+	// on the screen.
+	layout := lipgloss.JoinVertical(lipgloss.Center, contentPane, tabsPane)
 
 	// If Queue modal is visible, overlay it
 	if p.coordinator.ShowQueueModal() {
@@ -944,21 +1026,21 @@ func (p *MainAppPage) View() string {
 	if drawerHeight > 0 {
 		// Dim the Now Playing area to indicate modal focus using the Scrim style.
 		dimNowPlaying := ui.ScrimStyle.Render(mainContent)
-		contentPaneDim := ui.PaneStyle(p.width-6, p.height-6).Render(dimNowPlaying)
+		contentPaneDim := ui.PaneStyle(nowWidth, p.height-6).Render(dimNowPlaying)
 
 		// Render drawer content and anchor to the bottom.
-		drawerContent := p.renderModalContent(p.width-6, "")
+		drawerContent := p.renderModalContent(nowWidth, "")
 		// Append a small help hint to the drawer so users know available keys while the overlay is focused.
-		drawerPane := ui.PaneStyle(p.width-6, drawerHeight).Render(lipgloss.JoinVertical(lipgloss.Left, drawerContent, ui.HelpStyle.Render("Enter: open • Space: play • Esc: close")))
+		drawerPane := ui.PaneStyle(nowWidth, drawerHeight).Render(lipgloss.JoinVertical(lipgloss.Left, drawerContent, ui.HelpStyle.Render("Enter: open • Space: play • Esc: close")))
 
-		baseWithTabs := lipgloss.JoinVertical(lipgloss.Left, contentPaneDim, tabsPane)
+		baseWithTabs := lipgloss.JoinVertical(lipgloss.Center, contentPaneDim, tabsPane)
 		overlayBottom := lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Bottom, drawerPane)
 
 		// If Queue modal is visible, overlay it on top of the drawer layout as before.
 		if p.coordinator.ShowQueueModal() {
 			return p.renderWithModal(baseWithTabs)
 		}
-		return lipgloss.JoinVertical(lipgloss.Left, baseWithTabs, overlayBottom)
+		return lipgloss.JoinVertical(lipgloss.Center, baseWithTabs, overlayBottom)
 	}
 	// If the drawer is not present and the (ancillary) modal was requested but
 	// the drawer offset is zero (maybe animation not yet started), fall back to the
@@ -994,10 +1076,11 @@ func (p *MainAppPage) View() string {
 	statusLine := ui.BlurredStyle.Render(fmt.Sprintf("Server: %s • %s • Albums: %d • Playlists: %d • Tracks: %d", serverName, authStatus, albumsCount, playlistsCount, tracksCount))
 	quitHint := ui.HelpStyle.Render("Ctrl+C: Quit")
 
+	centeredLayout := lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Top, layout)
 	return lipgloss.JoinVertical(lipgloss.Left,
 		ui.TitleStyle.Render(pageTitle),
 		lipgloss.JoinHorizontal(lipgloss.Left, statusLine, "  ", quitHint),
-		layout,
+		centeredLayout,
 	)
 }
 
