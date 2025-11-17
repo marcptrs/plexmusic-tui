@@ -55,6 +55,8 @@ The project uses the following main dependencies:
 
 All dependencies are managed via Go modules and will be automatically downloaded.
 
+UI / Styles: The canonical TUI styles are provided in `internal/tui/styles/styles.go`. This package is the single source of truth for TUI styling (color palette, named lipgloss styles such as `TitleStyle`, `FocusedStyle`, `BlurredStyle`, `PaneStyle`, and helpers like `PrimaryTextStyle`). The `internal/ui` package focuses on view/layout helpers (e.g., `GetContentPaneWidth`, `FormatTrackDuration`) and does not provide canonical style tokens. When adding or refactoring UI code, import `internal/tui/styles` for styles and `internal/ui` for view helpers.
+
 ### Installation
 
 1. **Clone the repository**:

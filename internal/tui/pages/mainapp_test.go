@@ -226,3 +226,40 @@ func TestMainAppPage_Init_UsesServerAccessTokenOverCoordinatorToken(t *testing.T
 		t.Fatalf("expected BuildStreamURL to include server AccessToken; got: %s", url)
 	}
 }
+
+func TestMainAppPage_Tabs_DoNotWrap_Settings(t *testing.T) {
+	// Setup a coordinator with a token and server so the tabs render.
+	coord := app.NewCoordinator()
+	coord.SetToken("test-token")
+
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetActiveTab(app.SettingsTab)
+
+	page := NewMainAppPage(coord)
+	page.width = 80
+	page.height = 20
+
+	// Initialize to ensure any services or state used by View are prepared.
+	_ = page.Init()
+
+	view := page.View()
+
+	// Sanity check: Settings tab must be present
+	if !strings.Contains(view, "Settings") {
+		t.Fatalf("expected view to include Settings tab, got: %q", view)
+	}
+
+	// Ensure the 'Settings' label is not broken up with newline characters
+	// (indicating wrapping). Check a few commonly observed split points:
+	if strings.Contains(view, "Set\n") || strings.Contains(view, "Sett\n") || strings.Contains(view, "Settings\n") || strings.Contains(view, "\nSettings") {
+		t.Fatalf("expected Settings to not be wrapped across lines, got view: %q", view)
+	}
+}

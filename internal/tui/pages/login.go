@@ -14,7 +14,7 @@ import (
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
-	"plexmusic-tui/internal/ui"
+	styles "plexmusic-tui/internal/tui/styles"
 )
 
 // LoginPage handles authentication UI
@@ -192,38 +192,38 @@ func (p *LoginPage) View() string {
 	}
 
 	var s string
-	s += ui.TitleStyle.Render("🎵 Plex Music TUI") + "\n\n"
+	s += styles.TitleStyle.Render("🎵 Plex Music TUI") + "\n\n"
 
 	if p.authenticating {
-		s += ui.SuccessStyle.Render("Authenticating...") + "\n\n"
+		s += styles.SuccessStyle.Render("Authenticating...") + "\n\n"
 	} else if p.errorMsg != "" {
-		s += ui.ErrorStyle.Render("❌ "+p.errorMsg) + "\n\n"
+		s += styles.ErrorStyle.Render("❌ "+p.errorMsg) + "\n\n"
 	} else {
 		s += "Please sign in to your Plex account\n\n"
 	}
 
 	// Username input
 	if p.focusIndex == 0 {
-		s += ui.FocusedStyle.Render(p.usernameInput.View())
+		s += styles.FocusedStyle.Render(p.usernameInput.View())
 	} else {
-		s += ui.BlurredStyle.Render(p.usernameInput.View())
+		s += styles.BlurredStyle.Render(p.usernameInput.View())
 	}
 	s += "\n\n"
 
 	// Password input
 	if p.focusIndex == 1 {
-		s += ui.FocusedStyle.Render(p.passwordInput.View())
+		s += styles.FocusedStyle.Render(p.passwordInput.View())
 	} else {
-		s += ui.BlurredStyle.Render(p.passwordInput.View())
+		s += styles.BlurredStyle.Render(p.passwordInput.View())
 	}
 	s += "\n\n"
 
 	// Submit button
 	submitButton := "[ Sign In ]"
 	if p.focusIndex == 2 {
-		s += ui.ButtonStyle.Render(submitButton)
+		s += styles.ButtonStyle.Render(submitButton)
 	} else {
-		s += ui.ButtonBlurredStyle.Render(submitButton)
+		s += styles.ButtonBlurredStyle.Render(submitButton)
 	}
 	s += "\n\n"
 

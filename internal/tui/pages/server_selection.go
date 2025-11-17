@@ -16,7 +16,7 @@ import (
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
-	"plexmusic-tui/internal/ui"
+	styles "plexmusic-tui/internal/tui/styles"
 )
 
 // ServerSelectionPage handles server selection UI
@@ -312,9 +312,9 @@ func (p *ServerSelectionPage) selectServer() tea.Cmd {
 
 // renderLoading renders the loading state
 func (p *ServerSelectionPage) renderLoading() string {
-	title := ui.TitleStyle.Render("Plex Music")
-	loading := ui.FocusedStyle.Render("Loading servers...")
-	help := ui.HelpStyle.Render("Press q to quit")
+	title := styles.TitleStyle.Render("Plex Music")
+	loading := styles.FocusedStyle.Render("Loading servers...")
+	help := styles.HelpStyle.Render("Press q to quit")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Center,
@@ -328,9 +328,9 @@ func (p *ServerSelectionPage) renderLoading() string {
 
 // renderError renders the error state
 func (p *ServerSelectionPage) renderError() string {
-	title := ui.TitleStyle.Render("Plex Music")
-	errorText := ui.ErrorStyle.Render(p.errorMsg)
-	help := ui.HelpStyle.Render("Press q to quit")
+	title := styles.TitleStyle.Render("Plex Music")
+	errorText := styles.ErrorStyle.Render(p.errorMsg)
+	help := styles.HelpStyle.Render("Press q to quit")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Center,
@@ -344,9 +344,9 @@ func (p *ServerSelectionPage) renderError() string {
 
 // renderNoServers renders the no servers state
 func (p *ServerSelectionPage) renderNoServers() string {
-	title := ui.TitleStyle.Render("Plex Music")
-	noServers := ui.ErrorStyle.Render("No Plex servers found")
-	help := ui.HelpStyle.Render("Press q to quit")
+	title := styles.TitleStyle.Render("Plex Music")
+	noServers := styles.ErrorStyle.Render("No Plex servers found")
+	help := styles.HelpStyle.Render("Press q to quit")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Center,
@@ -360,7 +360,7 @@ func (p *ServerSelectionPage) renderNoServers() string {
 
 // renderServerList renders the server selection list
 func (p *ServerSelectionPage) renderServerList() string {
-	title := ui.TitleStyle.Render("Select Plex Server")
+	title := styles.TitleStyle.Render("Select Plex Server")
 
 	// Build server list
 	var serverLines []string
@@ -370,7 +370,7 @@ func (p *ServerSelectionPage) renderServerList() string {
 
 		if i == p.selectedIndex {
 			prefix = "> "
-			style = ui.FocusedStyle
+			style = styles.FocusedStyle
 		}
 
 		// Show last selected indicator (safe when no config manager provided)
@@ -391,7 +391,7 @@ func (p *ServerSelectionPage) renderServerList() string {
 
 	serverList := lipgloss.JoinVertical(lipgloss.Left, serverLines...)
 
-	help := ui.HelpStyle.Render("↑/↓: navigate • enter: select • q: quit")
+	help := styles.HelpStyle.Render("↑/↓: navigate • enter: select • q: quit")
 
 	return lipgloss.JoinVertical(
 		lipgloss.Center,

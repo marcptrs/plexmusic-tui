@@ -16,7 +16,8 @@ import (
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
-	"plexmusic-tui/internal/ui"
+	styles "plexmusic-tui/internal/tui/styles"
+	views "plexmusic-tui/internal/ui" // view helpers: GetContentPaneWidth, GetDetailPaneWidth, FormatTrackDuration, FormatTimeDuration
 )
 
 // MainAppPage handles the main application UI with tab navigation,
@@ -845,7 +846,7 @@ func (p *MainAppPage) View() string {
 		token = p.coordinator.GetToken()
 	}
 	if server == nil || token == "" {
-		title := ui.TitleStyle.Render("Plex Music")
+		title := styles.TitleStyle.Render("Plex Music")
 		var msg string
 		if token == "" {
 			// No authentication token present
@@ -854,8 +855,8 @@ func (p *MainAppPage) View() string {
 			// Token exists but no server selected
 			msg = "No Plex server selected. Press Esc to choose a server from the server selection screen."
 		}
-		content := ui.BlurredStyle.Render(msg)
-		help := ui.HelpStyle.Render("Esc: Server Selection • Ctrl+C: Quit")
+		content := styles.BlurredStyle.Render(msg)
+		help := styles.HelpStyle.Render("Esc: Server Selection • Ctrl+C: Quit")
 
 		return lipgloss.Place(
 			p.width,
@@ -866,8 +867,8 @@ func (p *MainAppPage) View() string {
 		)
 	}
 
-	contentWidth := ui.GetContentPaneWidth(p.width)
-	detailWidth := ui.GetDetailPaneWidth(p.width)
+	contentWidth := views.GetContentPaneWidth(p.width)
+	detailWidth := views.GetDetailPaneWidth(p.width)
 	// Compute the Now Playing width and use that width for tab alignment.
 	// Start with the full available width and ensure it's at least wide enough
 	// for the content + detail pane split.
@@ -907,67 +908,177 @@ func (p *MainAppPage) View() string {
 			return "", 0
 		}
 
-		// Determine the longest tab label in columns to avoid accidental wrapping.
+		// Compute per-tab label widths and preferred/min sizes. We'll try to
+		// allocate preferred widths (label + padding) but reduce proportionally if necessary.
+		labelWidths := make([]int, count)
 		maxLabel := 0
-		for _, n := range tabNames {
-			if w := lipgloss.Width(n); w > maxLabel {
+		for i, n := range tabNames {
+			w := lipgloss.Width(n)
+			labelWidths[i] = w
+			if w > maxLabel {
 				maxLabel = w
 			}
 		}
 
-		// Preferred width gives room for label plus extra padding/border to avoid
-		// accidental wrapping for multi-word labels like "Recently Added".
-		preferred := maxLabel + 6
+		// Compute preferred width = label + padding (4 slots for border/padding + 2 extra)
+		preferred := make([]int, count)
+		minWidths := make([]int, count)
+		sumPreferred := 0
+		sumMin := 0
+		for i := 0; i < count; i++ {
+			preferred[i] = labelWidths[i] + 6
+			minWidths[i] = labelWidths[i] + 2
+			if minWidths[i] < 6 {
+				minWidths[i] = 6
+			}
+			sumPreferred += preferred[i]
+			sumMin += minWidths[i]
+		}
 
-		// Start with an even split and bias toward the preferred label size if possible.
-		tabW := usable / count
-		if tabW < preferred {
-			if preferred*count <= usable {
-				tabW = preferred
-			} else {
-				// Can't fit the preferred width for all tabs, shrink to fit and allow truncation.
-				tabW = usable / count
+		// If even the sum of minimum widths exceeds usable width, clamp to a smaller uniform minimum.
+		if sumMin > usable && usable > 0 {
+			uniformMin := usable / count
+			if uniformMin < 3 {
+				uniformMin = 3
+			}
+			sumMin = uniformMin * count
+			for i := 0; i < count; i++ {
+				minWidths[i] = uniformMin
 			}
 		}
-		// Enforce a slightly larger minimum width which better accommodates
-		// short labels without causing the border to wrap labels.
-		if tabW < 6 {
-			tabW = 6
+
+		// Prepare allocations
+		widths := make([]int, count)
+		if sumPreferred <= usable {
+			// Allocate preferred and spread leftover evenly.
+			for i := 0; i < count; i++ {
+				widths[i] = preferred[i]
+			}
+			remaining := usable - sumPreferred
+			for remaining > 0 {
+				for i := 0; i < count && remaining > 0; i++ {
+					widths[i]++
+					remaining--
+				}
+			}
+		} else {
+			// Reduce proportionally, respecting min widths.
+			// We'll perform iterative proportional reductions until total fits.
+			remainingExcess := sumPreferred - usable
+			reduced := make([]int, count) // how much each tab is reduced from preferred
+			active := make([]bool, count) // which tabs still can be reduced
+			activeCount := count
+			for i := 0; i < count; i++ {
+				active[i] = true
+			}
+
+			for remainingExcess > 0 && activeCount > 0 {
+				// Sum of preferred widths for active tabs.
+				sumPrefActive := 0
+				for i := 0; i < count; i++ {
+					if active[i] {
+						sumPrefActive += preferred[i]
+					}
+				}
+				if sumPrefActive == 0 {
+					// Fall back to uniform reduction across actives.
+					for i := 0; i < count && remainingExcess > 0; i++ {
+						if !active[i] {
+							continue
+						}
+						reduced[i]++
+						remainingExcess--
+						if preferred[i]-reduced[i] <= minWidths[i] {
+							// Cap out and mark inactive.
+							reduced[i] = preferred[i] - minWidths[i]
+							active[i] = false
+							activeCount--
+						}
+					}
+					continue
+				}
+
+				// Proportional pass.
+				allocatedThisPass := 0
+				for i := 0; i < count && remainingExcess > 0; i++ {
+					if !active[i] {
+						continue
+					}
+					share := (preferred[i] * remainingExcess) / sumPrefActive
+					if share <= 0 {
+						share = 1
+					}
+					if share > remainingExcess {
+						share = remainingExcess
+					}
+					reduced[i] += share
+					remainingExcess -= share
+					allocatedThisPass += share
+
+					// If we've reduced below min, fix that and re-add excess for distribution.
+					if preferred[i]-reduced[i] <= minWidths[i] {
+						excessOver := reduced[i] - (preferred[i] - minWidths[i])
+						if excessOver > 0 {
+							// Undo part of the reduction to cap at the min width.
+							reduced[i] -= excessOver
+							remainingExcess += excessOver
+						}
+						active[i] = false
+						activeCount--
+					}
+				}
+				if allocatedThisPass == 0 {
+					// As a safety: perform a uniform reduction of 1 across active tabs.
+					for i := 0; i < count && remainingExcess > 0; i++ {
+						if !active[i] {
+							continue
+						}
+						reduced[i]++
+						remainingExcess--
+						if preferred[i]-reduced[i] <= minWidths[i] {
+							reduced[i] = preferred[i] - minWidths[i]
+							active[i] = false
+							activeCount--
+						}
+					}
+				}
+			}
+
+			// Compute final widths (preferred minus reduction), but respect min width.
+			for i := 0; i < count; i++ {
+				w := preferred[i] - reduced[i]
+				if w < minWidths[i] {
+					w = minWidths[i]
+				}
+				widths[i] = w
+			}
 		}
 
+		// Build parts using the computed widths.
 		parts := make([]string, 0, count)
-		for i, name := range tabNames {
+		totalWidth := 0
+		for i := 0; i < count; i++ {
 			tt := app.TabType(i)
-			style := ui.BlurredStyle
+			style := styles.BlurredStyle
 			if tt == navActive {
-				style = ui.FocusedStyle
+				style = styles.FocusedStyle
 			}
-
-			// Truncate the label to fit inside the tab: use an ansi-aware truncation
-			// to preserve any embedded escape sequences (colors/styles) and avoid
-			// multi-line wrapping.
-			label := name
-			labelW := tabW - 6 // leave a little more breathing room inside tabs
-			if labelW < 1 {
-				labelW = 1
+			// Inner label width = pane width minus border & padding (2 + 2)
+			labelInner := widths[i] - 4
+			if labelInner < 1 {
+				labelInner = 1
 			}
-			label = ansi.Truncate(label, labelW, "…")
-
-			// Single-line centered label rendering: enforce a Height(1) so the label
-			// remains a single-line and won't wrap inside the Pane.
-			tabLabel := lipgloss.NewStyle().Width(tabW-2).Height(1).MaxWidth(tabW-2).Align(lipgloss.Center, lipgloss.Center).Render(style.Render(label))
-			// Add a small horizontal padding so the text stays centered and we don't
-			// hit the border on small widths.
-			paneStyle := ui.PaneStyle(tabW, 3).Padding(0, 1).Align(lipgloss.Center, lipgloss.Center)
+			label := ansi.Truncate(tabNames[i], labelInner, "…")
+			tabLabel := lipgloss.NewStyle().Width(widths[i]-2).Height(1).MaxWidth(widths[i]-2).Align(lipgloss.Center, lipgloss.Center).Render(style.Render(label))
+			paneStyle := styles.PaneStyle(widths[i], 3).Padding(0, 1).Align(lipgloss.Center, lipgloss.Center)
 			if tt == navActive {
 				paneStyle = paneStyle.BorderForeground(lipgloss.Color("#FF8C00"))
 			}
 			parts = append(parts, paneStyle.Render(tabLabel))
+			totalWidth += widths[i]
 		}
-
 		tabRow := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
-		// Force the computed width to the tabWidth*count so the row doesn't wrap.
-		tabsWidth := tabW * count
+		tabsWidth := totalWidth
 		if tabsWidth > usable {
 			tabsWidth = usable
 		}
@@ -993,9 +1104,9 @@ func (p *MainAppPage) View() string {
 	if p.libSvc != nil && len(p.coordinator.Albums()) == 0 && len(p.coordinator.Playlists()) == 0 {
 		// Show a friendly, centered loading placeholder in the content area when
 		// the library service is active but no content has been loaded yet.
-		mainContent = lipgloss.JoinVertical(lipgloss.Center, ui.BlurredStyle.Render("Loading library..."))
+		mainContent = lipgloss.JoinVertical(lipgloss.Center, styles.BlurredStyle.Render("Loading library..."))
 	}
-	contentPane := ui.PaneStyle(nowWidth, p.height-6).Render(mainContent)
+	contentPane := styles.PaneStyle(nowWidth, p.height-6).Render(mainContent)
 
 	// Compose the two-pane layout: main content (Now Playing) and tabs.
 	// Center the main content and tabs horizontally so they appear visually centered
@@ -1025,13 +1136,13 @@ func (p *MainAppPage) View() string {
 	drawerHeight := p.drawerOffset
 	if drawerHeight > 0 {
 		// Dim the Now Playing area to indicate modal focus using the Scrim style.
-		dimNowPlaying := ui.ScrimStyle.Render(mainContent)
-		contentPaneDim := ui.PaneStyle(nowWidth, p.height-6).Render(dimNowPlaying)
+		dimNowPlaying := styles.ScrimStyle.Render(mainContent)
+		contentPaneDim := styles.PaneStyle(nowWidth, p.height-6).Render(dimNowPlaying)
 
 		// Render drawer content and anchor to the bottom.
 		drawerContent := p.renderModalContent(nowWidth, "")
 		// Append a small help hint to the drawer so users know available keys while the overlay is focused.
-		drawerPane := ui.PaneStyle(nowWidth, drawerHeight).Render(lipgloss.JoinVertical(lipgloss.Left, drawerContent, ui.HelpStyle.Render("Enter: open • Space: play • Esc: close")))
+		drawerPane := styles.PaneStyle(nowWidth, drawerHeight).Render(lipgloss.JoinVertical(lipgloss.Left, drawerContent, styles.HelpStyle.Render("Enter: open • Space: play • Esc: close")))
 
 		baseWithTabs := lipgloss.JoinVertical(lipgloss.Center, contentPaneDim, tabsPane)
 		overlayBottom := lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Bottom, drawerPane)
@@ -1073,12 +1184,12 @@ func (p *MainAppPage) View() string {
 		tracksCount = len(p.coordinator.Tracks())
 	}
 
-	statusLine := ui.BlurredStyle.Render(fmt.Sprintf("Server: %s • %s • Albums: %d • Playlists: %d • Tracks: %d", serverName, authStatus, albumsCount, playlistsCount, tracksCount))
-	quitHint := ui.HelpStyle.Render("Ctrl+C: Quit")
+	statusLine := styles.BlurredStyle.Render(fmt.Sprintf("Server: %s • %s • Albums: %d • Playlists: %d • Tracks: %d", serverName, authStatus, albumsCount, playlistsCount, tracksCount))
+	quitHint := styles.HelpStyle.Render("Ctrl+C: Quit")
 
 	centeredLayout := lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Top, layout)
 	return lipgloss.JoinVertical(lipgloss.Left,
-		ui.TitleStyle.Render(pageTitle),
+		styles.TitleStyle.Render(pageTitle),
 		lipgloss.JoinHorizontal(lipgloss.Left, statusLine, "  ", quitHint),
 		centeredLayout,
 	)
@@ -1203,57 +1314,57 @@ func (p *MainAppPage) renderHome(width int) string {
 	right := p.renderNowPlaying(rightWidth)
 
 	return lipgloss.JoinHorizontal(lipgloss.Left,
-		ui.PaneStyle(leftWidth, p.height-2).Render(left),
-		ui.PaneStyle(rightWidth, p.height-2).Render(right),
+		styles.PaneStyle(leftWidth, p.height-2).Render(left),
+		styles.PaneStyle(rightWidth, p.height-2).Render(right),
 	)
 }
 
 // renderRecentlyAdded displays the current recently-added albums list.
 func (p *MainAppPage) renderRecentlyAdded(width int) string {
-	title := ui.TitleStyle.Render("Recently Added")
+	title := styles.TitleStyle.Render("Recently Added")
 
 	var lines []string
 	albums := p.coordinator.Albums()
 	if len(albums) == 0 {
-		lines = append(lines, ui.BlurredStyle.Render("No recently added albums"))
+		lines = append(lines, styles.BlurredStyle.Render("No recently added albums"))
 	} else {
 		for i, a := range albums {
 			prefix := "  "
-			style := ui.BlurredStyle
+			style := styles.BlurredStyle
 			if i == p.selectedAlbumIndex || i == p.coordinator.SelectedAlbum() {
 				prefix = "> "
-				style = ui.FocusedStyle
+				style = styles.FocusedStyle
 			}
 			lines = append(lines, style.Render(fmt.Sprintf("%s%s • %s (%d)", prefix, a.Title, a.Artist, a.Year)))
 		}
 	}
 
-	help := ui.HelpStyle.Render("↑/↓: navigate • enter: view • p/space: play • n: next • b: prev • +/-: volume • o: queue")
+	help := styles.HelpStyle.Render("↑/↓: navigate • enter: view • p/space: play • n: next • b: prev • +/-: volume • o: queue")
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...), "", help)
 }
 
 // renderPlaylists displays the playlists list.
 func (p *MainAppPage) renderPlaylists(width int) string {
-	title := ui.TitleStyle.Render("Playlists")
+	title := styles.TitleStyle.Render("Playlists")
 
 	var lines []string
 	playlists := p.coordinator.Playlists()
 	if len(playlists) == 0 {
-		lines = append(lines, ui.BlurredStyle.Render("No playlists"))
+		lines = append(lines, styles.BlurredStyle.Render("No playlists"))
 	} else {
 		for i, pl := range playlists {
 			prefix := "  "
-			style := ui.BlurredStyle
+			style := styles.BlurredStyle
 			if i == p.selectedPlaylistIndex || i == p.coordinator.SelectedPlaylist() {
 				prefix = "> "
-				style = ui.FocusedStyle
+				style = styles.FocusedStyle
 			}
 			lines = append(lines, style.Render(fmt.Sprintf("%s%s (%d)", prefix, pl.Title, pl.LeafCount)))
 		}
 	}
 
-	help := ui.HelpStyle.Render("↑/↓: navigate • enter: open • p/space: play selected • n: next • b: prev • +/-: volume")
+	help := styles.HelpStyle.Render("↑/↓: navigate • enter: open • p/space: play selected • n: next • b: prev • +/-: volume")
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...), "", help)
 }
@@ -1262,18 +1373,18 @@ func (p *MainAppPage) renderPlaylists(width int) string {
 // playback progress and volume controls.
 func (p *MainAppPage) renderNowPlaying(width int) string {
 	// Existing small/compact Right-hand Now Playing
-	title := ui.TitleStyle.Render("Now Playing")
+	title := styles.TitleStyle.Render("Now Playing")
 
 	// If no track is present, show a 'Nothing Playing' placeholder
 	if !p.coordinator.HasCurrentTrack() {
-		help := ui.NothingPlayingHintStyle()
-		return lipgloss.JoinVertical(lipgloss.Center, title, "", ui.NothingPlayingStyle(), "", help)
+		help := styles.NothingPlayingHintStyle()
+		return lipgloss.JoinVertical(lipgloss.Center, title, "", styles.NothingPlayingStyle(), "", help)
 	}
 
 	tr := p.coordinator.CurrentTrack()
-	trackTitle := ui.PrimaryTextStyle().Render(tr.Title)
-	artist := ui.SecondaryTextStyle().Render(tr.Artist)
-	album := ui.TertiaryTextStyle().Render(tr.Album)
+	trackTitle := styles.PrimaryTextStyle().Render(tr.Title)
+	artist := styles.SecondaryTextStyle().Render(tr.Artist)
+	album := styles.TertiaryTextStyle().Render(tr.Album)
 
 	// Use sample pos/length and sample rate (if available) to compute a time-based position.
 	posSamples := p.coordinator.StreamPosition()
@@ -1295,8 +1406,8 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 		lenMs = tr.Duration
 	}
 
-	posStr := ui.FormatTrackDuration(posMs)
-	lenStr := ui.FormatTrackDuration(lenMs)
+	posStr := views.FormatTrackDuration(posMs)
+	lenStr := views.FormatTrackDuration(lenMs)
 
 	// Build a progress bar roughly sized to the detail width
 	barWidth := width - 12
@@ -1325,8 +1436,8 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 	barFill := strings.Repeat("█", filled)
 	barEmpty := strings.Repeat(" ", barWidth-filled)
 	progressBar := fmt.Sprintf("[%s%s] %s / %s",
-		ui.FocusedStyle.Render(barFill),
-		ui.BlurredStyle.Render(barEmpty),
+		styles.FocusedStyle.Render(barFill),
+		styles.BlurredStyle.Render(barEmpty),
 		posStr,
 		lenStr,
 	)
@@ -1337,7 +1448,7 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 		volume = fmt.Sprintf("Vol: %.2f", vol.Volume)
 	}
 
-	controls := ui.HelpStyle.Render("Space/p: Play/Pause • n: Next • b: Prev • +/-: Volume • o: Queue")
+	controls := styles.HelpStyle.Render("Space/p: Play/Pause • n: Next • b: Prev • +/-: Volume • o: Queue")
 
 	// Render album art using the playback renderer (if available). Fall back to a thumb/url line.
 	art := p.coordinator.PlaybackAlbumArt()
@@ -1355,11 +1466,12 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 		}
 		artView = p.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
 	} else {
+		// Fallback to the thumbnail URL if image rendering is not available.
 		thumb := p.coordinator.PlaybackAlbumArtThumb()
 		if thumb != "" {
-			artView = ui.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
+			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
 		} else {
-			artView = ui.BlurredStyle.Render("(Album art)")
+			artView = styles.BlurredStyle.Render("(Album art)")
 		}
 	}
 
@@ -1368,8 +1480,8 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 		artist,
 		album,
 		"",
-		ui.BlurredStyle.Render(progressBar),
-		ui.BlurredStyle.Render(volume),
+		styles.BlurredStyle.Render(progressBar),
+		styles.BlurredStyle.Render(volume),
 		"",
 		controls,
 	)
@@ -1390,10 +1502,10 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 func (p *MainAppPage) renderWithModal(base string) string {
 	queue := p.coordinator.Queue()
 	var lines []string
-	lines = append(lines, ui.TitleStyle.Render("Queue"))
+	lines = append(lines, styles.TitleStyle.Render("Queue"))
 	lines = append(lines, "")
 	if len(queue) == 0 {
-		lines = append(lines, ui.BlurredStyle.Render("Queue is empty"))
+		lines = append(lines, styles.BlurredStyle.Render("Queue is empty"))
 	} else {
 		for i, t := range queue {
 			prefix := "  "
@@ -1421,14 +1533,14 @@ func (p *MainAppPage) renderWithModal(base string) string {
 func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 	// Build a large art presentation area plus metadata and controls below
 	if !p.coordinator.HasCurrentTrack() {
-		help := ui.NothingPlayingHintStyle()
-		return lipgloss.JoinVertical(lipgloss.Center, ui.TitleStyle.Render("Now Playing"), "", ui.NothingPlayingStyle(), "", help)
+		help := styles.NothingPlayingHintStyle()
+		return lipgloss.JoinVertical(lipgloss.Center, styles.TitleStyle.Render("Now Playing"), "", styles.NothingPlayingStyle(), "", help)
 	}
 
 	tr := p.coordinator.CurrentTrack()
-	title := ui.PrimaryTextStyle().Render(tr.Title)
-	artist := ui.SecondaryTextStyle().Render(tr.Artist)
-	album := ui.TertiaryTextStyle().Render(tr.Album)
+	title := styles.PrimaryTextStyle().Render(tr.Title)
+	artist := styles.SecondaryTextStyle().Render(tr.Artist)
+	album := styles.TertiaryTextStyle().Render(tr.Album)
 
 	art := p.coordinator.PlaybackAlbumArt()
 	var artView string
@@ -1446,9 +1558,9 @@ func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 	} else {
 		thumb := p.coordinator.PlaybackAlbumArtThumb()
 		if thumb != "" {
-			artView = ui.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
+			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
 		} else {
-			artView = ui.BlurredStyle.Render("(Album art)")
+			artView = styles.BlurredStyle.Render("(Album art)")
 		}
 	}
 
@@ -1464,8 +1576,8 @@ func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 		posMs = 0
 		lenMs = tr.Duration
 	}
-	posStr := ui.FormatTrackDuration(posMs)
-	lenStr := ui.FormatTrackDuration(lenMs)
+	posStr := views.FormatTrackDuration(posMs)
+	lenStr := views.FormatTrackDuration(lenMs)
 
 	// Simple, wide progress bar
 	barWidth := width - 10
@@ -1493,25 +1605,25 @@ func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 	barFill := strings.Repeat("█", filled)
 	barEmpty := strings.Repeat(" ", barWidth-filled)
 	progressBar := fmt.Sprintf("[%s%s] %s / %s",
-		ui.FocusedStyle.Render(barFill),
-		ui.BlurredStyle.Render(barEmpty),
+		styles.FocusedStyle.Render(barFill),
+		styles.BlurredStyle.Render(barEmpty),
 		posStr,
 		lenStr,
 	)
 
-	controls := ui.HelpStyle.Render("Space/p: Play/Pause • n: Next • b: Prev • +/-: Volume • o: Queue • f: Toggle Focus")
+	controls := styles.HelpStyle.Render("Space/p: Play/Pause • n: Next • b: Prev • +/-: Volume • o: Queue • f: Toggle Focus")
 
 	// Compose a top-to-bottom full-screen now playing view
 	info := lipgloss.JoinVertical(lipgloss.Left,
-		ui.TitleStyle.Render("Now Playing"),
+		styles.TitleStyle.Render("Now Playing"),
 		"",
 		title,
 		artist,
 		album,
 		"",
-		ui.BlurredStyle.Render(progressBar),
+		styles.BlurredStyle.Render(progressBar),
 		"",
-		ui.BlurredStyle.Render(fmt.Sprintf("Volume: %s", ui.BlurredStyle.Render(fmt.Sprintf("%.2f", func() float64 {
+		styles.BlurredStyle.Render(fmt.Sprintf("Volume: %s", styles.BlurredStyle.Render(fmt.Sprintf("%.2f", func() float64 {
 			if vol := p.coordinator.Volume(); vol != nil {
 				return vol.Volume
 			}
@@ -1546,7 +1658,7 @@ func (p *MainAppPage) renderWithCustomModal(base, content string) string {
 func (p *MainAppPage) renderModalContent(width int, baseContent string) string {
 	switch p.modal {
 	case ModalSearch:
-		title := ui.TitleStyle.Render("Search")
+		title := styles.TitleStyle.Render("Search")
 		// Display input and search results
 		results := []string{}
 		term := strings.TrimSpace(p.searchInput.Value())
@@ -1564,53 +1676,53 @@ func (p *MainAppPage) renderModalContent(width int, baseContent string) string {
 			}
 		}
 		if len(results) == 0 {
-			results = append(results, ui.BlurredStyle.Render("No matches"))
+			results = append(results, styles.BlurredStyle.Render("No matches"))
 		}
 		return lipgloss.JoinVertical(lipgloss.Left, title, "", p.searchInput.View(), "", lipgloss.JoinVertical(lipgloss.Left, results...), "")
 	case ModalRecently:
-		title := ui.TitleStyle.Render("Recently Added")
+		title := styles.TitleStyle.Render("Recently Added")
 		var lines []string
 		for i, a := range p.coordinator.Albums() {
 			prefix := "  "
-			style := ui.BlurredStyle
+			style := styles.BlurredStyle
 			if i == p.selectedAlbumIndex {
 				prefix = "> "
-				style = ui.FocusedStyle
+				style = styles.FocusedStyle
 			}
 			lines = append(lines, style.Render(fmt.Sprintf("%s%s • %s", prefix, a.Title, a.Artist)))
 		}
 		if len(lines) == 0 {
-			lines = append(lines, ui.BlurredStyle.Render("No recently added albums"))
+			lines = append(lines, styles.BlurredStyle.Render("No recently added albums"))
 		}
-		help := ui.HelpStyle.Render("Enter: open • Space: play • Esc: close")
+		help := styles.HelpStyle.Render("Enter: open • Space: play • Esc: close")
 		return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...), "", help)
 
 	case ModalPlaylists:
-		title := ui.TitleStyle.Render("Playlists")
+		title := styles.TitleStyle.Render("Playlists")
 		var lines []string
 		for i, pl := range p.coordinator.Playlists() {
 			prefix := "  "
-			style := ui.BlurredStyle
+			style := styles.BlurredStyle
 			if i == p.selectedPlaylistIndex {
 				prefix = "> "
-				style = ui.FocusedStyle
+				style = styles.FocusedStyle
 			}
 			lines = append(lines, style.Render(fmt.Sprintf("%s%s (%d)", prefix, pl.Title, pl.LeafCount)))
 		}
 		if len(lines) == 0 {
-			lines = append(lines, ui.BlurredStyle.Render("No playlists"))
+			lines = append(lines, styles.BlurredStyle.Render("No playlists"))
 		}
-		help := ui.HelpStyle.Render("Enter: open • Space: play • Esc: close")
+		help := styles.HelpStyle.Render("Enter: open • Space: play • Esc: close")
 		return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...), "", help)
 
 	case ModalSettings:
-		title := ui.TitleStyle.Render("Settings")
+		title := styles.TitleStyle.Render("Settings")
 		var lines []string
-		lines = append(lines, ui.BlurredStyle.Render("Settings are not yet available in a modal."))
-		lines = append(lines, ui.BlurredStyle.Render("Press Esc to close."))
+		lines = append(lines, styles.BlurredStyle.Render("Settings are not yet available in a modal."))
+		lines = append(lines, styles.BlurredStyle.Render("Press Esc to close."))
 		return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...))
 	default:
-		return ui.BlurredStyle.Render("Unknown modal")
+		return styles.BlurredStyle.Render("Unknown modal")
 	}
 }
 

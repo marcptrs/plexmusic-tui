@@ -108,6 +108,75 @@ var (
 				Padding(0, 1)
 )
 
+// Backwards-compatible aliases & new helper styles to mirror legacy UI naming.
+// The canonical source for TUI styling is `internal/tui/styles`. These aliases
+// maintain compatibility with code that referenced style names from older UI
+// helpers; prefer importing `internal/tui/styles` directly in new code.
+var (
+	// FocusedStyle (alias for ActiveTabStyle)
+	// Matches the semantic "focused" look used across the TUI.
+	FocusedStyle = ActiveTabStyle
+
+	// BlurredStyle (alias for MutedStyle)
+	// When a UI element is not focused it should use a muted color.
+	BlurredStyle = MutedStyle
+
+	// ButtonBlurredStyle (disabled/blurred variant for buttons).
+	ButtonBlurredStyle = DisabledButtonStyle
+
+	// Help text style (muted + italic)
+	HelpStyle = lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Italic(true)
+
+	// Scrim used when a modal/drawer is active - dims content
+	ScrimStyle = lipgloss.NewStyle().
+			Foreground(ColorMuted).
+			Background(lipgloss.Color("0"))
+)
+
+// PaneStyle returns a framed pane with rounded borders and the theme's border color.
+// This keeps behavior consistent with the previous pane styling helper and centralizes
+// border color and style, so all panes share a unified look.
+func PaneStyle(width, height int) lipgloss.Style {
+	return lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBorder)
+}
+
+// Primary/Secondary/Tertiary text styles to match the names used by `ui`.
+func PrimaryTextStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(ColorPrimary).
+		Bold(true)
+}
+
+func SecondaryTextStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(ColorSecondary)
+}
+
+func TertiaryTextStyle() lipgloss.Style {
+	return lipgloss.NewStyle().
+		Foreground(ColorMuted)
+}
+
+// Convenience textual helpers to match the old ui package contract.
+// These return rendered strings (matching existing use in the codebase).
+func NothingPlayingStyle() string {
+	return lipgloss.NewStyle().
+		Foreground(ColorMuted).
+		Render("♫ Nothing Playing")
+}
+
+func NothingPlayingHintStyle() string {
+	return lipgloss.NewStyle().
+		Foreground(ColorMuted).
+		Render("Select a track and press Enter to start playback")
+}
+
 // ApplyWidth applies a width to a style
 func ApplyWidth(style lipgloss.Style, width int) lipgloss.Style {
 	return style.Width(width)

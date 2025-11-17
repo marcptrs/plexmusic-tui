@@ -1,3 +1,17 @@
+/*
+Package ui contains view helpers and layout utilities.
+
+Deprecated: Styling definitions are canonical in `internal/tui/styles`. The ui package should be limited to view/layout helpers
+(e.g., GetContentPaneWidth, FormatTrackDuration, ViewBuilder) and not used as the source of styles.
+
+Migration notes:
+  - Replace usages of ui.* style references (e.g., ui.TitleStyle) with styles.* from
+    `plexmusic-tui/internal/tui/styles` (for example: `styles "plexmusic-tui/internal/tui/styles"` then `styles.TitleStyle`).
+  - Remove the compatibility wrapper `internal/ui/styles.go` once all code has migrated to `internal/tui/styles`.
+  - Update AGENTS.md and README to reflect that `internal/tui/styles` is the canonical style package.
+
+See AGENTS.md and ARCHITECTURE.md for more details on the migration plan.
+*/
 package ui
 
 import (
@@ -5,6 +19,8 @@ import (
 	"image"
 	"strings"
 	"time"
+
+	styles "plexmusic-tui/internal/tui/styles"
 )
 
 // ViewRenderingModel provides rendering capabilities for model views.
@@ -104,40 +120,40 @@ func NewViewBuilder() *ViewBuilder {
 
 // RenderMessageView creates a simple message view with title, content, and help text
 func (vb *ViewBuilder) RenderMessageView(title, content, help string) string {
-	titleRendered := TitleStyle.Render(title)
-	contentRendered := BlurredStyle.Render(content)
-	helpRendered := BlurredStyle.Render(help)
+	titleRendered := styles.TitleStyle.Render(title)
+	contentRendered := styles.BlurredStyle.Render(content)
+	helpRendered := styles.BlurredStyle.Render(help)
 	return fmt.Sprintf("\n%s\n%s\n%s", titleRendered, contentRendered, helpRendered)
 }
 
 // RenderTitleView creates a simple title-only view
 func (vb *ViewBuilder) RenderTitleView(title string) string {
-	return fmt.Sprintf("\n%s\n", TitleStyle.Render(title))
+	return fmt.Sprintf("\n%s\n", styles.TitleStyle.Render(title))
 }
 
 // RenderSuccessMessage creates a success message view
 func (vb *ViewBuilder) RenderSuccessMessage(title, message string) string {
-	titleRendered := TitleStyle.Render(title)
-	msgRendered := SuccessStyle.Render(fmt.Sprintf("\n  %s", message))
-	helpRendered := BlurredStyle.Render("\n\n  Press Enter or Ctrl+C to exit\n")
+	titleRendered := styles.TitleStyle.Render(title)
+	msgRendered := styles.SuccessStyle.Render(fmt.Sprintf("\n  %s", message))
+	helpRendered := styles.BlurredStyle.Render("\n\n  Press Enter or Ctrl+C to exit\n")
 	return fmt.Sprintf("\n%s\n%s%s", titleRendered, msgRendered, helpRendered)
 }
 
 // RenderErrorMessage creates an error message view
 func (vb *ViewBuilder) RenderErrorMessage(title, message string) string {
-	titleRendered := TitleStyle.Render(title)
-	errRendered := ErrorStyle.Render(fmt.Sprintf("\n  %s", message))
-	helpRendered := BlurredStyle.Render("\n\n  Press Enter or Ctrl+C to exit\n")
+	titleRendered := styles.TitleStyle.Render(title)
+	errRendered := styles.ErrorStyle.Render(fmt.Sprintf("\n  %s", message))
+	helpRendered := styles.BlurredStyle.Render("\n\n  Press Enter or Ctrl+C to exit\n")
 	return fmt.Sprintf("\n%s\n%s%s", titleRendered, errRendered, helpRendered)
 }
 
 // RenderListItem creates a styled list item with optional selection indicator
 func (vb *ViewBuilder) RenderListItem(item string, isFocused bool) string {
 	if isFocused {
-		cursor := FocusedStyle.Render("> ")
-		return fmt.Sprintf("%s%s", cursor, FocusedStyle.Render(item))
+		cursor := styles.FocusedStyle.Render("> ")
+		return fmt.Sprintf("%s%s", cursor, styles.FocusedStyle.Render(item))
 	}
-	return fmt.Sprintf("  %s", BlurredStyle.Render(item))
+	return fmt.Sprintf("  %s", styles.BlurredStyle.Render(item))
 }
 
 // RenderList creates a formatted list with selection indicators
@@ -152,13 +168,13 @@ func (vb *ViewBuilder) RenderList(items []string, selectedIndex int) string {
 
 // RenderFrame creates a frame with title, content, and help text
 func (vb *ViewBuilder) RenderFrame(title, content, help string) string {
-	titleRendered := TitleStyle.Render(title)
-	helpRendered := BlurredStyle.Render(help)
+	titleRendered := styles.TitleStyle.Render(title)
+	helpRendered := styles.BlurredStyle.Render(help)
 	return fmt.Sprintf("\n%s\n\n%s%s", titleRendered, content, helpRendered)
 }
 
 // RenderLoadingView creates a loading state view
 func (vb *ViewBuilder) RenderLoadingView(title string) string {
-	titleRendered := TitleStyle.Render(title)
+	titleRendered := styles.TitleStyle.Render(title)
 	return fmt.Sprintf("\n%s\n\n  Please wait...\n", titleRendered)
 }

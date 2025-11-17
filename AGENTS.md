@@ -43,7 +43,7 @@ internal/
     pages/        Individual page components (login, server_selection)
     components/   Reusable UI components (StatusBar, etc.)
     util/         TUI utilities (Model/Sizeable/Focusable interfaces, message helpers)
-  ui/             Styles, view helpers, layout calculations
+  ui/             View helpers and layout calculations (canonical styles: `internal/tui/styles`)
 main.go           Bubble Tea model + transitional integration with Coordinator
 .golangci.yml     Linter configuration (enabled/disabled linters, formatters)
 .github/workflows build.yml, test.yml, lint.yml
@@ -99,7 +99,7 @@ See `ARCHITECTURE.md` for detailed refactoring plan and migration strategy.
 ## UI / Layout
 - Pane width calculations in `internal/ui/views.go` allocate percentages (navigation 20%, content 30%, detail 40%) with minimal widths and total width adjustment subtracting 6 for borders/padding. Recent UI changes favor a Now Playing-first layout where Now Playing is the main content and the tabs draw a bottom drawer/modal overlay for Recently Added, Playlists, Search, and Settings.
 - Album art display uses dedicated renderer; playback pane keeps separate cached art.
-- Style definitions reside in `internal/ui/styles.go` (not inspected—future agents should read to follow naming and color patterns before altering styles). A new ScrimStyle was added to dim the Now Playing content when a modal/drawer is active.
+- Style definitions now reside in `internal/tui/styles/styles.go` (canonical TUI styles package). The previous `internal/ui/styles.go` compatibility wrapper has been removed; `internal/ui` now provides only view/layout helpers. A new ScrimStyle was added in the canonical package to dim the Now Playing content when a modal/drawer is active.
 - Tab navigation logic lives in model and Coordinator (`NextTab`, `PreviousTab`) cycling enumerated tab values. Enter now opens the active tab as a drawer; keys Enter/Space/Esc supported inside the drawer to respectively open, play, and close.
 
 ## Enumerations / Conventions
