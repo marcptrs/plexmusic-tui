@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# pre-commit
+#
+# Pre-commit hook to:
+#  - Format staged Go files (gofmt, and optionally gofumpt/goimports if available)
+#  - Run golangci-lint and go vet (fail & block commit on issues)
+#
+# Use this hook by enabling it for your repository:
+#   git config core.hooksPath .githooks
+#
+# Notes:
+#  - This hook intentionally runs only on the staged Go files for formatting,
+#    but runs golangci-lint & go vet across the repository to catch issues.
+#  - Developers should have `golangci-lint` installed (recommended):
+#    go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+#
+
+set -euo pipefail
+
+# Colors (if terminal supports)
+RED=""
+GREEN=""
+YELLOW=""
+RESET=""
+if [ -t 1 ]; then
+  RED="\033[0;31m"
+  GREEN="\033[0;32m"
+  YELLOW="\033[0;33m"
+  RESET="\033[0m"
+fi
+
+print() { printf "%b\n" "$*"; }
+
+repos_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+if [ -z "$repos_root" ]; then
+  print "${RED}Error: not a git repository or unable to locate repository root.${RESET}"
+  exit 1
+fi
+cd "$repos_root" || exit 1
+
+print "${YELLOW}pre-commit: running gofmt/gofumpt/goimports (if available) on staged Go files...${RESET}"
+
+# Gather staged Go files (added/modified/copied)
+# Use NUL-delimited output to be safe with filenames containing whitespace.
+staged_any=false
+git diff --cached --name-only --diff-filter=ACM -z \
+  | while IFS= read -r -d '' file; do
+    case "$file" in
+      *.go)
+        staged_any=true
+        # Only format files that still exist in the index (not removed)
+        if [ -f "$file" ]; then
+          print "  formatting: $file"
+          # Prefer gofumpt if installed
+          if command -v gofumpt >/dev/null 2>&1; then
+            # gofumpt accepts the same flags as gofmt: -w modifies files in-place
+            gofumpt -l -w "$file" || true
+          else
+            # fall back to gofmt
+            gofmt -s -w "$file"
+          fi
+          # Optionally run goimports if available
+          if command -v goimports >/dev/null 2>&1; then
+            goimports -w "$file" || true
+          fi
+          git add "$file"
+        fi
+        ;;
+    esac
+  done
+
+# If there were no staged go files, we still want to enforce linting.
+print "${GREEN}pre-commit: formatting complete.${RESET}"
+
+# Verify golangci-lint exists
+if ! command -v golangci-lint >/dev/null 2>&1; then
+  print "${RED}Error: golangci-lint not found in PATH.${RESET}"
+  print "${YELLOW}Install it (example):${RESET} go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+  print "${YELLOW}Alternatively use your OS package manager or binary distribution.${RESET}"
+  exit 1
+fi
+
+print "${YELLOW}pre-commit: running golangci-lint (this may take a while)...${RESET}"
+# Run lint using repo config. This will exit non-zero on issues.
+if ! golangci-lint run --config .golangci.yml ./...; then
+  echo
+  print "${RED}golangci-lint failed. Please fix the reported issues and re-commit.${RESET}"
+  exit 1
+fi
+
+# Optionally run go vet across the module
+if command -v go >/dev/null 2>&1; then
+  print "${YELLOW}pre-commit: running go vet ./...${RESET}"
+  if ! go vet ./...; then
+    print "${RED}go vet found issues. Please fix them and re-commit.${RESET}"
+    exit 1
+  fi
+fi
+
+print "${GREEN}pre-commit: all checks passed.${RESET}"
+exit 0
