@@ -9,13 +9,15 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	ansi "github.com/charmbracelet/x/ansi"
+
+	// ansi is used in Tabs component; not needed here
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
+	components "plexmusic-tui/internal/tui/components"
 	styles "plexmusic-tui/internal/tui/styles"
 	views "plexmusic-tui/internal/ui" // view helpers: GetContentPaneWidth, GetDetailPaneWidth, FormatTrackDuration, FormatTimeDuration
 )
@@ -896,196 +898,9 @@ func (p *MainAppPage) View() string {
 		navActive = p.tabForModal(p.modal)
 	}
 
-	// Compute consistent tab widths and build boxes for each tab using a small helper
-	// to ensure tab labels fit and the tab row doesn't wrap.
-	buildTabs := func() (string, int) {
-		usable := nowWidth - 6
-		if usable < 0 {
-			usable = 0
-		}
-		count := len(tabNames)
-		if count == 0 {
-			return "", 0
-		}
-
-		// Compute per-tab label widths and preferred/min sizes. We'll try to
-		// allocate preferred widths (label + padding) but reduce proportionally if necessary.
-		labelWidths := make([]int, count)
-		maxLabel := 0
-		for i, n := range tabNames {
-			w := lipgloss.Width(n)
-			labelWidths[i] = w
-			if w > maxLabel {
-				maxLabel = w
-			}
-		}
-
-		// Compute preferred width = label + padding (4 slots for border/padding + 2 extra)
-		preferred := make([]int, count)
-		minWidths := make([]int, count)
-		sumPreferred := 0
-		sumMin := 0
-		for i := 0; i < count; i++ {
-			preferred[i] = labelWidths[i] + 6
-			minWidths[i] = labelWidths[i] + 2
-			if minWidths[i] < 6 {
-				minWidths[i] = 6
-			}
-			sumPreferred += preferred[i]
-			sumMin += minWidths[i]
-		}
-
-		// If even the sum of minimum widths exceeds usable width, clamp to a smaller uniform minimum.
-		if sumMin > usable && usable > 0 {
-			uniformMin := usable / count
-			if uniformMin < 3 {
-				uniformMin = 3
-			}
-			sumMin = uniformMin * count
-			for i := 0; i < count; i++ {
-				minWidths[i] = uniformMin
-			}
-		}
-
-		// Prepare allocations
-		widths := make([]int, count)
-		if sumPreferred <= usable {
-			// Allocate preferred and spread leftover evenly.
-			for i := 0; i < count; i++ {
-				widths[i] = preferred[i]
-			}
-			remaining := usable - sumPreferred
-			for remaining > 0 {
-				for i := 0; i < count && remaining > 0; i++ {
-					widths[i]++
-					remaining--
-				}
-			}
-		} else {
-			// Reduce proportionally, respecting min widths.
-			// We'll perform iterative proportional reductions until total fits.
-			remainingExcess := sumPreferred - usable
-			reduced := make([]int, count) // how much each tab is reduced from preferred
-			active := make([]bool, count) // which tabs still can be reduced
-			activeCount := count
-			for i := 0; i < count; i++ {
-				active[i] = true
-			}
-
-			for remainingExcess > 0 && activeCount > 0 {
-				// Sum of preferred widths for active tabs.
-				sumPrefActive := 0
-				for i := 0; i < count; i++ {
-					if active[i] {
-						sumPrefActive += preferred[i]
-					}
-				}
-				if sumPrefActive == 0 {
-					// Fall back to uniform reduction across actives.
-					for i := 0; i < count && remainingExcess > 0; i++ {
-						if !active[i] {
-							continue
-						}
-						reduced[i]++
-						remainingExcess--
-						if preferred[i]-reduced[i] <= minWidths[i] {
-							// Cap out and mark inactive.
-							reduced[i] = preferred[i] - minWidths[i]
-							active[i] = false
-							activeCount--
-						}
-					}
-					continue
-				}
-
-				// Proportional pass.
-				allocatedThisPass := 0
-				for i := 0; i < count && remainingExcess > 0; i++ {
-					if !active[i] {
-						continue
-					}
-					share := (preferred[i] * remainingExcess) / sumPrefActive
-					if share <= 0 {
-						share = 1
-					}
-					if share > remainingExcess {
-						share = remainingExcess
-					}
-					reduced[i] += share
-					remainingExcess -= share
-					allocatedThisPass += share
-
-					// If we've reduced below min, fix that and re-add excess for distribution.
-					if preferred[i]-reduced[i] <= minWidths[i] {
-						excessOver := reduced[i] - (preferred[i] - minWidths[i])
-						if excessOver > 0 {
-							// Undo part of the reduction to cap at the min width.
-							reduced[i] -= excessOver
-							remainingExcess += excessOver
-						}
-						active[i] = false
-						activeCount--
-					}
-				}
-				if allocatedThisPass == 0 {
-					// As a safety: perform a uniform reduction of 1 across active tabs.
-					for i := 0; i < count && remainingExcess > 0; i++ {
-						if !active[i] {
-							continue
-						}
-						reduced[i]++
-						remainingExcess--
-						if preferred[i]-reduced[i] <= minWidths[i] {
-							reduced[i] = preferred[i] - minWidths[i]
-							active[i] = false
-							activeCount--
-						}
-					}
-				}
-			}
-
-			// Compute final widths (preferred minus reduction), but respect min width.
-			for i := 0; i < count; i++ {
-				w := preferred[i] - reduced[i]
-				if w < minWidths[i] {
-					w = minWidths[i]
-				}
-				widths[i] = w
-			}
-		}
-
-		// Build parts using the computed widths.
-		parts := make([]string, 0, count)
-		totalWidth := 0
-		for i := 0; i < count; i++ {
-			tt := app.TabType(i)
-			style := styles.BlurredStyle
-			if tt == navActive {
-				style = styles.FocusedStyle
-			}
-			// Inner label width = pane width minus border & padding (2 + 2)
-			labelInner := widths[i] - 4
-			if labelInner < 1 {
-				labelInner = 1
-			}
-			label := ansi.Truncate(tabNames[i], labelInner, "…")
-			tabLabel := lipgloss.NewStyle().Width(widths[i]-2).Height(1).MaxWidth(widths[i]-2).Align(lipgloss.Center, lipgloss.Center).Render(style.Render(label))
-			paneStyle := styles.PaneStyle(widths[i], 3).Padding(0, 1).Align(lipgloss.Center, lipgloss.Center)
-			if tt == navActive {
-				paneStyle = paneStyle.BorderForeground(lipgloss.Color("#FF8C00"))
-			}
-			parts = append(parts, paneStyle.Render(tabLabel))
-			totalWidth += widths[i]
-		}
-		tabRow := lipgloss.JoinHorizontal(lipgloss.Left, parts...)
-		tabsWidth := totalWidth
-		if tabsWidth > usable {
-			tabsWidth = usable
-		}
-		tabsPane := lipgloss.Place(nowWidth, 3, lipgloss.Center, lipgloss.Center, lipgloss.NewStyle().Width(tabsWidth).Render(tabRow))
-		return tabsPane, tabsWidth
-	}
-	tabsPane, tabsPaneWidth := buildTabs()
+	// Move tab building into a component to keep rendering logic isolated.
+	tabsComp := components.NewTabs(tabNames)
+	tabsPane, _ := tabsComp.Render(nowWidth, int(navActive))
 
 	// Tabs are now displayed below the Now Playing area (left navigation removed).
 
@@ -1094,12 +909,7 @@ func (p *MainAppPage) View() string {
 	// and pressing Enter opens the selected tab as an overlay drawer over Now Playing.
 	// nowWidth was computed above — no need to recompute here. This ensures the
 	// tabs were created using the final Now Playing width and remain aligned.
-	// Make sure the Now Playing area is at least as wide as the tabs pane, with
-	// a small padding to give breathing room around the tab borders. This
-	// avoids tab overflow and ensures the tabs appear aligned beneath Now Playing.
-	if nowWidth < tabsPaneWidth+4 {
-		nowWidth = tabsPaneWidth + 4
-	}
+
 	mainContent := p.renderNowPlaying(nowWidth)
 	if p.libSvc != nil && len(p.coordinator.Albums()) == 0 && len(p.coordinator.Playlists()) == 0 {
 		// Show a friendly, centered loading placeholder in the content area when

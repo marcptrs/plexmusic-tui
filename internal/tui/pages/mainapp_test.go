@@ -263,3 +263,124 @@ func TestMainAppPage_Tabs_DoNotWrap_Settings(t *testing.T) {
 		t.Fatalf("expected Settings to not be wrapped across lines, got view: %q", view)
 	}
 }
+
+func TestMainAppPage_Tabs_DoNotWrap_AllTabs(t *testing.T) {
+	// Setup a coordinator with a token and server so the tabs render.
+	coord := app.NewCoordinator()
+	coord.SetToken("test-token")
+
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+
+	page := NewMainAppPage(coord)
+	// Use a smaller width to stress the tab layout; it should still keep labels intact.
+	page.width = 80
+	page.height = 20
+
+	// Ensure view is rendered using the initialized page.
+	_ = page.Init()
+	view := page.View()
+
+	// Check that each tab shows at least its first word (or a short prefix).
+	// Many tabs are multi-word (e.g., "Recently Added") and may be truncated
+	// depending on the terminal width; verifying the first word/prefix is more robust.
+	tabs := []string{"Home", "Recently Added", "Playlists", "Search", "Queue", "Settings"}
+	for _, tab := range tabs {
+		firstWord := strings.SplitN(tab, " ", 2)[0]
+		// Accept either the full first word, or a short (6-char) prefix.
+		prefix := firstWord
+		if len(prefix) > 6 {
+			prefix = prefix[:6]
+		}
+		if !strings.Contains(view, firstWord) && !strings.Contains(view, prefix) {
+			t.Fatalf("expected tab %q (or its prefix) to be present in view: %q", tab, view)
+		}
+	}
+
+	// Verify the tab row is visually present using rounded top-left corners for
+	// each tab box. Search the last N rows for rounded corner characters, and
+	// ensure count equals the number of tabs.
+	lines := strings.Split(view, "\n")
+	lastRowsCount := 10
+	if len(lines) < lastRowsCount {
+		lastRowsCount = len(lines)
+	}
+	checkRows := strings.Join(lines[len(lines)-lastRowsCount:], "\n")
+	count := strings.Count(checkRows, "╭")
+	if count != len(tabs) {
+		t.Fatalf("expected %d rounded corner top-left characters in tabs area, found %d, view: %q", len(tabs), count, checkRows)
+	}
+}
+
+func TestMainAppPage_ContentPane_RoundedBorder(t *testing.T) {
+	// Setup a coordinator with a token and server so the content pane renders.
+	coord := app.NewCoordinator()
+	coord.SetToken("test-token")
+
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+
+	page := NewMainAppPage(coord)
+	page.width = 120
+	page.height = 40
+
+	// Initialize to ensure the pane and styles are prepared.
+	_ = page.Init()
+
+	view := page.View()
+
+	// Ensure the main content area uses rounded border characters from
+	// lipgloss's RoundedBorder (e.g., ╭ ... ╰). These characters indicate the
+	// PaneStyle with RoundedBorder is being applied.
+	if !strings.Contains(view, "╭") || !strings.Contains(view, "╰") {
+		t.Fatalf("expected main content pane to use rounded border characters, got: %q", view)
+	}
+}
+
+func TestMainAppPage_Tabs_DoNotWrap_EvenSpacing_Matrix(t *testing.T) {
+	// Setup a coordinator with a token and server so the tabs render.
+	coord := app.NewCoordinator()
+	coord.SetToken("test-token")
+
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+
+	page := NewMainAppPage(coord)
+
+	widths := []int{76, 78, 80, 82, 84, 86, 90}
+	for _, w := range widths {
+		page.width = w
+		page.height = 20
+		_ = page.Init()
+		view := page.View()
+
+		// Settings must be present and not wrapped by newlines.
+		if !strings.Contains(view, "Settings") {
+			t.Fatalf("expected view to include Settings tab at width %d, got: %q", w, view)
+		}
+		if strings.Contains(view, "Set\n") || strings.Contains(view, "Sett\n") || strings.Contains(view, "Settings\n") || strings.Contains(view, "\nSettings") {
+			t.Fatalf("expected Settings to not be wrapped across lines at width %d, got view: %q", w, view)
+		}
+	}
+}
