@@ -24,9 +24,7 @@ func buildAppModel() *tui.AppModel {
 
 	// Start with LoginPage
 	loginPage := pages.NewLoginPageWithConfig(coord, authSvc, cfgMgr)
-	router := tui.NewRouter(loginPage, tui.LoginPageID, tui.GlobalKeyMap{
-		Quit: keyMap.Quit,
-	})
+	router := tui.NewRouter(loginPage, tui.LoginPageID)
 
 	// pageFactory returns a Page for a PageID; used by AppModel to create pages
 	pageFactory := func(id tui.PageID) tui.Page {

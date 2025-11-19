@@ -337,6 +337,7 @@ Example:
 - `internal/tui/components/statusbar.go` - Status bar component
 - `internal/tui/styles/styles.go` - Centralized styles
 - `internal/tui/app_model.go` - AppModel and pageFactory wiring (NEW)
+- `internal/tui/pages/list_items.go` - List item adapters for bubbles/list (NEW)
 
 ## Next Steps
 

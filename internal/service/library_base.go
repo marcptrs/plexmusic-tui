@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 
 	log "github.com/charmbracelet/log/v2"
 
@@ -78,6 +79,44 @@ func decodePlexPlaylistContainer(body []byte, out *domain.PlexPlaylistContainer)
 	}
 
 	return fmt.Errorf("no valid PlexPlaylistContainer found")
+}
+
+// decodePlexTrackContainer handles track containers similarly to other
+// container decoders, supporting common wrappers like MediaContainer
+// or Response keys.
+func decodePlexTrackContainer(body []byte, out *domain.PlexTrackContainer) error {
+	// Try direct decode
+	if err := json.Unmarshal(body, out); err == nil && len(out.Metadata) > 0 {
+		return nil
+	}
+
+	// Try detecting wrapper keys
+	var topObj map[string]json.RawMessage
+	if err := json.Unmarshal(body, &topObj); err != nil {
+		return err
+	}
+
+	candidates := []string{"MediaContainer", "mediaContainer", "Response", "response", "Metadata"}
+	for _, k := range candidates {
+		if raw, ok := topObj[k]; ok {
+			var inner domain.PlexTrackContainer
+			if err := json.Unmarshal(raw, &inner); err == nil && len(inner.Metadata) > 0 {
+				*out = inner
+				return nil
+			}
+		}
+	}
+
+	// Some servers may respond with a top-level 'Metadata' array directly
+	var alt struct {
+		Metadata []domain.Track `json:"Metadata"`
+	}
+	if err := json.Unmarshal(body, &alt); err == nil && len(alt.Metadata) > 0 {
+		out.Metadata = alt.Metadata
+		return nil
+	}
+
+	return fmt.Errorf("no valid PlexTrackContainer found")
 }
 
 // LibraryService provides methods to fetch library data from Plex servers.
@@ -260,31 +299,99 @@ func (s *LibraryService) FetchPlaylists(ctx context.Context) ([]domain.Playlist,
 // FetchTracks fetches tracks from a specific album or playlist.
 // The key parameter should be the media key (e.g., /library/metadata/{id} or /playlists/{id})
 func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.Track, error) {
-	endpoint := s.baseURL + key
-	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+	// We will construct endpoints and perform the fetch inline below.
+
+	// Normalize key: determine the path to inspect for fallback logic and
+	// compute an endpoint for the primary fetch. If key is an absolute URL
+	// (starts with http:// or https://), prefer using it as provided; else
+	// treat it as a relative path and prepend the base URL.
+	var endpoint string
+	pathOnly := key
+	if strings.HasPrefix(key, "http://") || strings.HasPrefix(key, "https://") {
+		// Absolute URL - use as-is for the primary fetch, and use its Path
+		// for fallback detection.
+		if u, err := url.Parse(key); err == nil {
+			pathOnly = u.Path
+			endpoint = u.String()
+		} else {
+			// If parse fails, fall back to concatenating the base URL.
+			endpoint = s.baseURL + key
+		}
+	} else {
+		endpoint = s.baseURL + key
 	}
 
-	s.addPlexHeaders(req)
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch tracks: %w", err)
+	// Attempt primary fetch
+	tracks, err := func() ([]domain.Track, error) {
+		// Use endpoint variable instead of constructing from baseURL
+		req, rerr := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+		if rerr != nil {
+			return nil, fmt.Errorf("failed to create request: %w", rerr)
+		}
+		s.addPlexHeaders(req)
+		resp, derr := s.httpClient.Do(req)
+		if derr != nil {
+			return nil, fmt.Errorf("failed to fetch tracks: %w", derr)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+		}
+		// Read body and use decode helper to support wrapped responses
+		body, rerr := io.ReadAll(resp.Body)
+		if rerr != nil {
+			return nil, fmt.Errorf("failed to read tracks response: %w", rerr)
+		}
+		var container domain.PlexTrackContainer
+		if derr := decodePlexTrackContainer(body, &container); derr != nil {
+			return nil, fmt.Errorf("failed to decode tracks: %w", derr)
+		}
+		return container.Metadata, nil
+	}()
+	// If primary fetch returned no tracks, try a fallback endpoint that some
+	// Plex servers use for album children
+	if err != nil || len(tracks) == 0 {
+		if strings.HasPrefix(pathOnly, "/library/metadata/") {
+			alt := pathOnly
+			if !strings.HasSuffix(alt, "/children") {
+				alt = alt + "/children"
+			}
+			// Build the alternate endpoint using the base URL, which ensures
+			// we query the current configured server rather than any absolute
+			// host that may have been embedded in the key.
+			altEndpoint := s.baseURL + alt
+			altTracks, altErr := func() ([]domain.Track, error) {
+				req, rerr := http.NewRequestWithContext(ctx, "GET", altEndpoint, nil)
+				if rerr != nil {
+					return nil, fmt.Errorf("failed to create request: %w", rerr)
+				}
+				s.addPlexHeaders(req)
+				resp, derr := s.httpClient.Do(req)
+				if derr != nil {
+					return nil, fmt.Errorf("failed to fetch tracks: %w", derr)
+				}
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					body, _ := io.ReadAll(resp.Body)
+					return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+				}
+				body, rerr := io.ReadAll(resp.Body)
+				if rerr != nil {
+					return nil, fmt.Errorf("failed to read tracks response: %w", rerr)
+				}
+				var container domain.PlexTrackContainer
+				if derr := decodePlexTrackContainer(body, &container); derr != nil {
+					return nil, fmt.Errorf("failed to decode tracks: %w", derr)
+				}
+				return container.Metadata, nil
+			}()
+			if altErr == nil && len(altTracks) > 0 {
+				return altTracks, nil
+			}
+		}
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var container domain.PlexTrackContainer
-	if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
-		return nil, fmt.Errorf("failed to decode tracks: %w", err)
-	}
-
-	return container.Metadata, nil
+	return tracks, err
 }
 
 // BuildStreamURL constructs the URL for streaming an audio track.

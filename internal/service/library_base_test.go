@@ -180,3 +180,65 @@ func TestBuildStreamURLUsesMediaPartKeyOrKeyAndDoesNotDuplicateToken(t *testing.
 		t.Fatalf("expected token param to appear once, but got %d occurrences in %s", q, url2)
 	}
 }
+
+func TestFetchTracksChildrenFallback(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/library/metadata/1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"Metadata":[]}`)
+	})
+	mux.HandleFunc("/library/metadata/1/children", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"Metadata":[{"title":"Child Track","grandparentTitle":"Artist","parentTitle":"Album","duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}`)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	s := NewLibraryService(srv.URL, "token")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	tracks, err := s.FetchTracks(ctx, "/library/metadata/1")
+	if err != nil {
+		t.Fatalf("FetchTracks returned error: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track from children fallback, got %d", len(tracks))
+	}
+	if tracks[0].Title != "Child Track" {
+		t.Fatalf("unexpected track title: %s", tracks[0].Title)
+	}
+}
+
+func TestFetchTracksChildrenFallbackAbsoluteKey(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/library/metadata/1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"Metadata":[]}`)
+	})
+	mux.HandleFunc("/library/metadata/1/children", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"Metadata":[{"title":"Child Track Absolute","grandparentTitle":"Artist","parentTitle":"Album","duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}`)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	s := NewLibraryService(srv.URL, "token")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Call FetchTracks with an absolute URL returned by some Plex servers
+	absKey := srv.URL + "/library/metadata/1"
+	tracks, err := s.FetchTracks(ctx, absKey)
+	if err != nil {
+		t.Fatalf("FetchTracks returned error for absolute key: %v", err)
+	}
+	if len(tracks) != 1 {
+		t.Fatalf("expected 1 track from children fallback with absolute key, got %d", len(tracks))
+	}
+	if tracks[0].Title != "Child Track Absolute" {
+		t.Fatalf("unexpected track title: %s", tracks[0].Title)
+	}
+}

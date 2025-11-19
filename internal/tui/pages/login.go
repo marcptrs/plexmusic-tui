@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -35,6 +37,9 @@ type LoginPage struct {
 	// Event subscription
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	help help.Model
+	keys tui.LoginKeyMap
 }
 
 // NewLoginPage creates a new login page
@@ -68,6 +73,8 @@ func NewLoginPageWithConfig(coord *app.Coordinator, authSvc service.AuthServicer
 		focusIndex:    0,
 		ctx:           ctx,
 		cancel:        cancel,
+		help:          help.New(),
+		keys:          tui.DefaultLoginKeyMap(),
 	}
 }
 
@@ -121,22 +128,12 @@ func (p *LoginPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, nil
 		}
 
-		switch msg.String() {
-		case "tab", "shift+tab", "up", "down":
-
-			s := msg.String()
-			if s == "up" || s == "shift+tab" {
-				p.focusIndex--
-			} else {
-				p.focusIndex++
-			}
-
-			if p.focusIndex > 2 {
-				p.focusIndex = 0
-			} else if p.focusIndex < 0 {
+		switch {
+		case key.Matches(msg, p.keys.Up):
+			p.focusIndex--
+			if p.focusIndex < 0 {
 				p.focusIndex = 2
 			}
-
 			for i := range 2 {
 				if i == p.focusIndex {
 					cmds = append(cmds, p.getInput(i).Focus())
@@ -146,7 +143,21 @@ func (p *LoginPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return p, tea.Batch(cmds...)
 
-		case "enter":
+		case key.Matches(msg, p.keys.Down):
+			p.focusIndex++
+			if p.focusIndex > 2 {
+				p.focusIndex = 0
+			}
+			for i := range 2 {
+				if i == p.focusIndex {
+					cmds = append(cmds, p.getInput(i).Focus())
+				} else {
+					p.getInput(i).Blur()
+				}
+			}
+			return p, tea.Batch(cmds...)
+
+		case key.Matches(msg, p.keys.Enter):
 			if p.focusIndex == 2 || (p.focusIndex == 1 && p.passwordInput.Value() != "") {
 				// Submit form
 				return p, p.authenticate()
@@ -228,9 +239,7 @@ func (p *LoginPage) View() string {
 	s += "\n\n"
 
 	if !p.authenticating {
-		s += lipgloss.NewStyle().Foreground(lipgloss.Color("241")).Render(
-			"↑/↓: navigate • enter: submit • q: quit",
-		)
+		s += p.help.View(p.keys)
 	}
 
 	return lipgloss.Place(

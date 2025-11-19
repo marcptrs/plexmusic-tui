@@ -83,17 +83,23 @@ var (
 				Background(lipgloss.Color("236")).
 				Padding(0, 2)
 
-	// TabStyle for tabs
+	// TabStyle for tabs (made compact for split layout)
 	TabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
+			Padding(0, 1).
 			Foreground(ColorMuted)
 
-	// ActiveTabStyle for active tabs
+	// ActiveTabStyle for active tabs (made compact for split layout)
 	ActiveTabStyle = lipgloss.NewStyle().
-			Padding(0, 2).
+			Padding(0, 1).
 			Foreground(ColorPrimary).
 			Background(lipgloss.Color("236")).
 			Bold(true)
+		// TabIconStyle is used in icons-only navs to highlight the icon glyphs
+		// Make it bold, primary-colored, and slightly larger via extra padding
+	TabIconStyle = lipgloss.NewStyle().
+			Foreground(ColorPrimary).
+			Bold(true).
+			Padding(0, 0)
 
 	// InputStyle for text inputs
 	InputStyle = lipgloss.NewStyle().

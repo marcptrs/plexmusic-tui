@@ -7,7 +7,7 @@ Terminal User Interface (TUI) application for browsing and playing music from a 
 
 ## Tech Stack
 - Language: Go (go 1.24.x) — see `go.mod` for toolchain
-- UI: Charmbracelet Bubble Tea, Bubbles, Lipgloss
+- UI: Charmbracelet Bubble Tea, Bubbles (List, Help, Key), Lipgloss
 - Audio: faiface/beep (mp3, flac, ogg/vorbis, wav decoding + speaker)
 - Imaging: disintegration/imaging for resizing; custom renderer for multiple terminal protocols
 - HTTP/TLS: custom wrapper in `internal/http` auto-skips TLS verify for local/private hosts
@@ -40,9 +40,10 @@ internal/
   pubsub/         Event broker for pub/sub architecture (generic, type-safe)
   service/        AuthService, LibraryService + service interfaces
   tui/            TUI infrastructure (pages, router, page types)
-    pages/        Individual page components (login, server_selection)
+    pages/        Individual page components (login, server_selection, mainapp)
     components/   Reusable UI components (StatusBar, etc.)
     util/         TUI utilities (Model/Sizeable/Focusable interfaces, message helpers)
+    list_items.go Adapters for domain models to satisfy bubbles/list.Item interface
   ui/             View helpers and layout calculations (canonical styles: `internal/tui/styles`)
 main.go           Bubble Tea model + transitional integration with Coordinator
 .golangci.yml     Linter configuration (enabled/disabled linters, formatters)
@@ -55,8 +56,9 @@ A large `tmp/crush/` tree exists containing unrelated development tooling code (
 
 ## State Management Patterns
 **Current (Transitional)**:
-1. Legacy Bubble Tea model in `main.go` holds duplicated state fields (servers, libraries, albums, playlists, tracks, playback primitives, album art cache, tabs, queue). 
-2. Centralized `Coordinator` (`internal/app/coordinator.go`) provides getters/setters for nearly identical state + navigation helpers. Migration in progress (comment in main.go line ~135). Prefer adding new stateful logic in Coordinator to reduce duplication.
+1. Legacy Bubble Tea model in `main.go` holds duplicated state fields.
+2. `MainAppPage` (`internal/tui/pages/mainapp.go`) uses `bubbles/list` components for Recently Added, Playlists, Tracks, and Queue panes. This replaces manual slice/index management.
+3. Centralized `Coordinator` (`internal/app/coordinator.go`) provides getters/setters for shared state. Migration in progress.
 
 **Target Architecture (Following tmp/crush patterns - IN PROGRESS)**:
 - **Page Components**: Self-contained Tea.Model implementations in `internal/tui/pages/` (LoginPage, ServerSelectionPage). Each page:
@@ -98,6 +100,7 @@ See `ARCHITECTURE.md` for detailed refactoring plan and migration strategy.
 
 ## UI / Layout
 - Pane width calculations in `internal/ui/views.go` allocate percentages (navigation 20%, content 30%, detail 40%) with minimal widths and total width adjustment subtracting 6 for borders/padding. Recent UI changes favor a Now Playing-first layout where Now Playing is the main content and the tabs draw a bottom drawer/modal overlay for Recently Added, Playlists, Search, and Settings.
+- Content lists (Recently Added, Playlists, Tracks, Queue) are implemented using `bubbles/list`. Domain models are adapted to `list.Item` via wrappers in `internal/tui/pages/list_items.go`.
 - Album art display uses dedicated renderer; playback pane keeps separate cached art.
 - Style definitions now reside in `internal/tui/styles/styles.go` (canonical TUI styles package). The previous `internal/ui/styles.go` compatibility wrapper has been removed; `internal/ui` now provides only view/layout helpers. A new ScrimStyle was added in the canonical package to dim the Now Playing content when a modal/drawer is active.
 - Tab navigation logic lives in model and Coordinator (`NextTab`, `PreviousTab`) cycling enumerated tab values. Enter now opens the active tab as a drawer; keys Enter/Space/Esc supported inside the drawer to respectively open, play, and close.

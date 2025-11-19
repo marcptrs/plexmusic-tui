@@ -6,36 +6,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/help"
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
-	// ansi is used in Tabs component; not needed here
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
-	components "plexmusic-tui/internal/tui/components"
 	styles "plexmusic-tui/internal/tui/styles"
-	views "plexmusic-tui/internal/ui" // view helpers: GetContentPaneWidth, GetDetailPaneWidth, FormatTrackDuration, FormatTimeDuration
+	views "plexmusic-tui/internal/ui"
 )
 
 // MainAppPage handles the main application UI with tab navigation,
 // list rendering (Recently Added, Playlists), modal dialogs, and a simple
 // "Now Playing" panel (cover art + controls).
-type ModalType int
-
-const (
-	ModalNone ModalType = iota
-	ModalRecently
-	ModalPlaylists
-	ModalSearch
-	ModalSettings
-	ModalQueue
-)
-
 type MainAppPage struct {
 	coordinator *app.Coordinator
 
@@ -51,23 +40,27 @@ type MainAppPage struct {
 	pbSvc     *service.PlaybackService
 	pbEvtCh   <-chan pubsub.Event[service.PlaybackEvent]
 
-	// Local selection state (mirrors coordinator's selections but used
-	// for per-page selection UI)
-	selectedAlbumIndex    int
-	selectedPlaylistIndex int
-	selectedTrackIndex    int
+	// Lists
+	recentlyAddedList list.Model
+	playlistList      list.Model
+	trackList         list.Model
+	queueList         list.Model
 
-	// Search and modal UI
-	searchInput       textinput.Model
-	searchActive      bool
-	searchTerm        string
-	modal             ModalType
-	drawerOpen        bool
-	drawerOffset      int
-	drawerTarget      int
-	drawerAnimating   bool
-	drawerStep        int
+	// Search and inline content UI
+	searchInput  textinput.Model
+	searchActive bool
+	searchTerm   string
+
+	// showingTracks indicates the left-pane is showing track list for a selected album/playlist.
+	showingTracks bool
+
 	focusedNowPlaying bool
+	// Track last selected indices to detect selection changes and fetch tracks lazily
+	lastSelectedAlbumIndex    int
+	lastSelectedPlaylistIndex int
+
+	help help.Model
+	keys tui.MainAppKeyMap
 }
 
 // NewMainAppPage creates a new main application page and sets up a
@@ -79,17 +72,43 @@ func NewMainAppPage(coord *app.Coordinator) *MainAppPage {
 func NewMainAppPageWithAuth(coord *app.Coordinator, authSvc service.AuthServicer) *MainAppPage {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Initialize lists
+	delegate := list.NewDefaultDelegate()
+
+	raList := list.New(nil, delegate, 0, 0)
+	raList.Title = "Recently Added"
+	raList.SetShowHelp(false)
+
+	plList := list.New(nil, delegate, 0, 0)
+	plList.Title = "Playlists"
+	plList.SetShowHelp(false)
+
+	trList := list.New(nil, delegate, 0, 0)
+	trList.Title = "Tracks"
+	trList.SetShowHelp(false)
+
+	qList := list.New(nil, delegate, 0, 0)
+	qList.Title = "Queue"
+	qList.SetShowHelp(false)
+
 	p := &MainAppPage{
-		coordinator:     coord,
-		ctx:             ctx,
-		cancel:          cancel,
-		authSvc:         authSvc,
-		modal:           ModalNone,
-		drawerOpen:      false,
-		drawerOffset:    0,
-		drawerTarget:    0,
-		drawerAnimating: false,
-		drawerStep:      3,
+		coordinator:   coord,
+		ctx:           ctx,
+		cancel:        cancel,
+		authSvc:       authSvc,
+		searchActive:  false,
+		searchTerm:    "",
+		showingTracks: false,
+		// Track last selected indices so we can fetch tracks lazily when selection changes
+		// without issuing repeated fetches.
+		lastSelectedAlbumIndex:    -1,
+		lastSelectedPlaylistIndex: -1,
+		help:                      help.New(),
+		keys:                      tui.DefaultMainAppKeyMap(),
+		recentlyAddedList:         raList,
+		playlistList:              plList,
+		trackList:                 trList,
+		queueList:                 qList,
 	}
 
 	// Initialize search input (unfocused by default)
@@ -108,49 +127,16 @@ func NewMainAppPageWithAuth(coord *app.Coordinator, authSvc service.AuthServicer
 
 // modalForActiveTab maps a TabType -> ModalType so that switching to a
 // modal-associated tab can result in opening the appropriate modal.
-func (p *MainAppPage) modalForActiveTab(active app.TabType) ModalType {
-	switch active {
-	case app.LibraryTab:
-		return ModalRecently
-	case app.PlaylistsTab:
-		return ModalPlaylists
-	case app.SearchTab:
-		return ModalSearch
-	case app.SettingsTab:
-		return ModalSettings
-	default:
-		return ModalNone
-	}
-}
 
 // tabForModal maps a modal to the tab type (used for highlighting the nav
 // row while the modal is active but without switching page content).
-func (p *MainAppPage) tabForModal(m ModalType) app.TabType {
-	switch m {
-	case ModalRecently:
-		return app.LibraryTab
-	case ModalPlaylists:
-		return app.PlaylistsTab
-	case ModalSearch:
-		return app.SearchTab
-	case ModalSettings:
-		return app.SettingsTab
-	case ModalQueue:
-		return app.QueueTab
-	default:
-		return p.coordinator.ActiveTab()
-	}
-}
+// Note: modal/tabForModal removed; tabs now control left-pane rendering directly.
 
 // drawerTickMsg is an internal message used to animate the drawer slide.
-type drawerTickMsg time.Time
 
 // drawerTickCmd returns a command that sends a drawerTickMsg on a short interval.
-func drawerTickCmd() tea.Cmd {
-	return tea.Tick(time.Millisecond*15, func(t time.Time) tea.Msg {
-		return drawerTickMsg(t)
-	})
-}
+// drawerTickMsg/drawerTickCmd removed; drawers are deprecated in favor of
+// inline left-pane rendering managed by `showingTracks`.
 
 // Init initializes the main app page. This attempts to set up library and
 // playback services for the current server (if present) and kick off the
@@ -201,11 +187,8 @@ func (p *MainAppPage) Init() tea.Cmd {
 	// the initial view always starts with content focused when available.
 	p.coordinator.SetActiveTab(app.HomeTab)
 	p.coordinator.SetSelectedAlbum(0)
-	p.selectedAlbumIndex = 0
 	p.coordinator.SetSelectedPlaylist(0)
-	p.selectedPlaylistIndex = 0
 	p.coordinator.SetSelectedTrack(0)
-	p.selectedTrackIndex = 0
 
 	// Kick off fetching of libraries, recently added and playlists, and begin subscriptions.
 	return tea.Batch(
@@ -224,6 +207,19 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
 		p.height = msg.Height
+
+		// Resize lists
+		contentWidth := views.GetContentPaneWidth(p.width)
+		listHeight := p.height - 6 // Approximate height minus header/footer
+		if listHeight < 0 {
+			listHeight = 0
+		}
+
+		p.recentlyAddedList.SetSize(contentWidth, listHeight)
+		p.playlistList.SetSize(contentWidth, listHeight)
+		p.trackList.SetSize(contentWidth, listHeight)
+		p.queueList.SetSize(contentWidth, listHeight)
+
 		return p, nil
 
 	case service.LibraryEvent:
@@ -241,6 +237,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "recently_added.loaded":
 			// Convert domain.Album to app.Album and update coordinator
 			appAlbums := make([]app.Album, len(msg.Albums))
+			items := make([]list.Item, len(msg.Albums))
 			for i, a := range msg.Albums {
 				appAlbums[i] = app.Album{
 					Title:  a.Title,
@@ -249,16 +246,21 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Key:    a.Key,
 					Thumb:  a.Thumb,
 				}
+				items[i] = AlbumItem{Album: a}
 			}
 			p.coordinator.SetAlbums(appAlbums)
+			p.recentlyAddedList.SetItems(items)
 			// Keep UI selection sane
 			if len(appAlbums) > 0 {
 				p.coordinator.SetSelectedAlbum(0)
-				p.selectedAlbumIndex = 0
+				p.recentlyAddedList.Select(0)
+				// Reset last selected album index so first selection triggers a fetch
+				p.lastSelectedAlbumIndex = -1
 			}
 
 		case "playlists.loaded":
 			appPlaylists := make([]app.Playlist, len(msg.Playlists))
+			items := make([]list.Item, len(msg.Playlists))
 			for i, pl := range msg.Playlists {
 				appPlaylists[i] = app.Playlist{
 					Title:        pl.Title,
@@ -267,15 +269,20 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Duration:     pl.Duration,
 					PlaylistType: pl.PlaylistType,
 				}
+				items[i] = PlaylistItem{Playlist: pl}
 			}
 			p.coordinator.SetPlaylists(appPlaylists)
+			p.playlistList.SetItems(items)
 			if len(appPlaylists) > 0 {
 				p.coordinator.SetSelectedPlaylist(0)
-				p.selectedPlaylistIndex = 0
+				p.playlistList.Select(0)
+				// Reset last selected playlist index so first selection triggers a fetch
+				p.lastSelectedPlaylistIndex = -1
 			}
 
 		case "tracks.loaded":
 			appTracks := make([]app.Track, len(msg.Tracks))
+			items := make([]list.Item, len(msg.Tracks))
 			for i, t := range msg.Tracks {
 				appTracks[i] = app.Track{
 					Title:       t.Title,
@@ -287,11 +294,13 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					RatingKey:   t.RatingKey,
 					Thumb:       t.Thumb,
 				}
+				items[i] = TrackItem{Track: t}
 			}
 			p.coordinator.SetTracks(appTracks)
+			p.trackList.SetItems(items)
 			if len(appTracks) > 0 {
 				p.coordinator.SetSelectedTrack(0)
-				p.selectedTrackIndex = 0
+				p.trackList.Select(0)
 			}
 		}
 		// Re-subscribe to library and playback events so we continue receiving them
@@ -380,361 +389,97 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Re-subscribe to playback and library events so we continue receiving them
 		return p, tea.Batch(p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
-	case drawerTickMsg:
-		// Animate the drawer open/close sliding.
-		// Target height is a percent of the window height (drawer slides up).
-		ph := p.height - 6
-		var target int
-		// Prefer a pre-computed drawer target if present.
-		if p.drawerTarget > 0 {
-			target = p.drawerTarget
-		} else {
-			target = ph * 45 / 100
-			if target < 6 {
-				target = 6
-			}
-		}
-		step := p.drawerStep
-		if p.drawerAnimating {
-			if p.drawerOpen {
-				// Opening: increase offset until target.
-				if p.drawerOffset < target {
-					p.drawerOffset += step
-					if p.drawerOffset > target {
-						p.drawerOffset = target
-					}
-					return p, drawerTickCmd()
-				}
-				// Reached target
-				p.drawerOffset = target
-				p.drawerAnimating = false
-				return p, nil
-			} else {
-				// Closing: decrease offset until 0.
-				if p.drawerOffset > 0 {
-					p.drawerOffset -= step
-					if p.drawerOffset < 0 {
-						p.drawerOffset = 0
-					}
-					return p, drawerTickCmd()
-				}
-				// Fully closed: clear modal and target.
-				p.drawerAnimating = false
-				p.modal = ModalNone
-				p.drawerTarget = 0
-				return p, nil
-			}
-		}
-		return p, nil
+	// animation messages removed - no-op
 
 	case tea.KeyMsg:
-		// When the search modal is active, let the text input widget handle keys.
-		// This prioritizes search characters and allows Enter/Esc to confirm/abort.
-		if p.modal == ModalSearch {
-			var cmd tea.Cmd
-			p.searchInput, cmd = p.searchInput.Update(msg)
-			// If user hits Enter or Esc, close the search modal and apply/clear.
+		// When the Search tab is active, let the text input widget handle keys.
+		if p.coordinator.ActiveTab() == app.SearchTab {
 			switch msg.String() {
-			case "enter":
-				p.searchTerm = p.searchInput.Value()
-				// TODO: apply search across collections (albums/playlists/tracks)
-				p.modal = ModalNone
-				p.searchInput.Blur()
-				return p, cmd
-			case "esc":
-				p.modal = ModalNone
-				p.searchInput.Blur()
-				return p, cmd
+			case "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6":
+				// Allow these to fall through into the main key handling below
 			default:
-				return p, cmd
+				var cmd tea.Cmd
+				p.searchInput, cmd = p.searchInput.Update(msg)
+				// If user hits Enter or Esc, apply/abort and return
+				switch msg.String() {
+				case "enter":
+					p.searchTerm = p.searchInput.Value()
+					// TODO: apply search across collections (albums/playlists/tracks)
+					p.searchInput.Blur()
+					return p, cmd
+				case "esc":
+					p.searchInput.Blur()
+					p.coordinator.SetActiveTab(app.HomeTab)
+					return p, cmd
+				default:
+					return p, cmd
+				}
 			}
 		}
 
-		// Key handling for the main app. We map:
-		// - Tab / Right: next tab
-		// - Shift+Tab / Left: previous tab
-		// - Up / Down: navigate lists
-		// - Enter: select (fetch tracks / open playlist / play queue)
-		// - Space or p: Play/Pause the selected track
-		// - o: toggle queue modal
-		// - s: toggle search modal
-		// - r: refresh Recently Added + Playlists
-		// - f: toggle focused Now Playing
-		// - esc: go back to server selection (handled in outer router)
-		var active app.TabType
-		switch msg.String() {
-		case "esc":
+		// Key handling for the main app.
+		var cmd tea.Cmd
+
+		// Handle global keys first
+		switch {
+		case key.Matches(msg, p.keys.Back):
 			// If the queue modal is open, close it first; otherwise go back to server selection.
 			if p.coordinator.ShowQueueModal() {
 				p.coordinator.SetShowQueueModal(false)
 				return p, nil
 			}
-			// If another modal/drawer is open, close it first via animation.
-			if p.modal != ModalNone {
-				if p.drawerOffset > 0 || p.drawerAnimating {
-					// Start the closing animation. Do not clear the Modal type until the animation completes.
-					p.drawerOpen = false
-					p.drawerAnimating = true
-					return p, drawerTickCmd()
-				}
-				// If there is no open drawer or animation active, clear the modal immediately.
-				p.modal = ModalNone
+			// Close left-pane tracklist if open instead of closing a drawer/modal.
+			if p.showingTracks {
+				p.showingTracks = false
 				return p, nil
 			}
 			return p, func() tea.Msg {
 				return tui.PageChangeMsg{ID: tui.ServerSelectionPageID}
 			}
-		case "tab", "right":
-			// Always move to the next tab on Tab/Right
-			p.coordinator.NextTab()
-			// If a drawer is open or animating, close it while keeping the newly selected tab active.
-			if p.drawerOpen || p.drawerAnimating {
-				p.drawerOpen = false
-				p.drawerAnimating = true
-				return p, drawerTickCmd()
-			}
-			return p, nil
-		case "shift+tab", "left":
-			// Always move to the previous tab on Shift+Tab/Left
-			p.coordinator.PreviousTab()
-			// Close the drawer if it is open or animating.
-			if p.drawerOpen || p.drawerAnimating {
-				p.drawerOpen = false
-				p.drawerAnimating = true
-				return p, drawerTickCmd()
-			}
-			return p, nil
-		case "up", "k":
-			// If a modal is open, navigate the modal's selection instead of the
-			// main tabs. This keeps the "Now Playing" UI focused while letting the
-			// modal lists be navigable with arrow keys.
-			if p.modal == ModalRecently {
-				if p.selectedAlbumIndex > 0 {
-					p.selectedAlbumIndex--
-					// Keep coordinator selection consistent when moving in modal.
-					p.coordinator.SetSelectedAlbum(p.selectedAlbumIndex)
-				}
-				return p, nil
-			}
-			if p.modal == ModalPlaylists {
-				if p.selectedPlaylistIndex > 0 {
-					p.selectedPlaylistIndex--
-					p.coordinator.SetSelectedPlaylist(p.selectedPlaylistIndex)
+
+		case key.Matches(msg, p.keys.Play):
+			// Attempt to fetch and play the first track from the selected album
+			// or playlist, or play the selected queue item.
+			if p.showingTracks {
+				if p.libSvc != nil {
+					if item, ok := p.trackList.SelectedItem().(TrackItem); ok {
+						// Convert domain.Track -> app.Track
+						at := app.Track{
+							Title:       item.Track.Title,
+							Artist:      item.Track.Artist,
+							Album:       item.Track.Album,
+							Duration:    item.Track.Duration,
+							TrackNumber: item.Track.TrackNumber,
+							Key:         item.Track.Key,
+							RatingKey:   item.Track.RatingKey,
+							Thumb:       item.Track.Thumb,
+						}
+						p.playAppTrack(&at)
+						return p, nil
+					}
 				}
 				return p, nil
 			}
 
-			active = p.coordinator.ActiveTab()
-			switch active {
-			case app.HomeTab, app.LibraryTab: // Recently Added
-				if p.selectedAlbumIndex > 0 {
-					p.selectedAlbumIndex--
-					p.coordinator.SetSelectedAlbum(p.selectedAlbumIndex)
-				}
-			case app.PlaylistsTab:
-				if p.selectedPlaylistIndex > 0 {
-					p.selectedPlaylistIndex--
-					p.coordinator.SetSelectedPlaylist(p.selectedPlaylistIndex)
-				}
-			case app.QueueTab:
-				if p.coordinator.QueueIndex() > 0 {
-					p.coordinator.SetQueueIndex(p.coordinator.QueueIndex() - 1)
-				}
-			}
-			return p, nil
-		case "down", "j":
-			// If a modal is open, navigate the modal's selection instead of the
-			// main tabs.
-			if p.modal == ModalRecently {
-				if p.selectedAlbumIndex < len(p.coordinator.Albums())-1 {
-					p.selectedAlbumIndex++
-					p.coordinator.SetSelectedAlbum(p.selectedAlbumIndex)
-				}
-				return p, nil
-			}
-			if p.modal == ModalPlaylists {
-				if p.selectedPlaylistIndex < len(p.coordinator.Playlists())-1 {
-					p.selectedPlaylistIndex++
-					p.coordinator.SetSelectedPlaylist(p.selectedPlaylistIndex)
-				}
-				return p, nil
-			}
-
-			active = p.coordinator.ActiveTab()
-			switch active {
-			case app.HomeTab, app.LibraryTab: // Recently Added list
-				if p.selectedAlbumIndex < len(p.coordinator.Albums())-1 {
-					p.selectedAlbumIndex++
-					p.coordinator.SetSelectedAlbum(p.selectedAlbumIndex)
-				}
-			case app.PlaylistsTab:
-				if p.selectedPlaylistIndex < len(p.coordinator.Playlists())-1 {
-					p.selectedPlaylistIndex++
-					p.coordinator.SetSelectedPlaylist(p.selectedPlaylistIndex)
-				}
-			case app.QueueTab:
-				if p.coordinator.QueueIndex() < len(p.coordinator.Queue())-1 {
-					p.coordinator.SetQueueIndex(p.coordinator.QueueIndex() + 1)
-				}
-			}
-			return p, nil
-		case "enter":
-			// If no drawer is open, open the drawer for the currently selected tab.
 			active := p.coordinator.ActiveTab()
-			if !p.drawerOpen && !p.drawerAnimating && p.modal == ModalNone {
-				switch active {
-				case app.LibraryTab, app.HomeTab:
-					p.modal = ModalRecently
-					p.drawerOpen = true
-					p.drawerTarget = p.height * 45 / 100
-					p.drawerAnimating = true
-					return p, drawerTickCmd()
-				case app.PlaylistsTab:
-					p.modal = ModalPlaylists
-					p.drawerOpen = true
-					p.drawerTarget = p.height * 45 / 100
-					p.drawerAnimating = true
-					return p, drawerTickCmd()
-				case app.SearchTab:
-					p.modal = ModalSearch
-					p.drawerOpen = true
-					p.drawerTarget = p.height * 45 / 100
-					p.drawerAnimating = true
-					return p, tea.Batch(drawerTickCmd(), p.searchInput.Focus())
-				case app.SettingsTab:
-					p.modal = ModalSettings
-					p.drawerOpen = true
-					p.drawerTarget = p.height * 45 / 100
-					p.drawerAnimating = true
-					return p, drawerTickCmd()
-				}
-			}
-			// If a drawer is active, treat Enter as an action inside the drawer/modal.
-			if p.modal == ModalRecently {
-				if p.libSvc != nil {
+			if p.libSvc != nil && active == app.PlaylistsTab {
+				if item, ok := p.playlistList.SelectedItem().(PlaylistItem); ok {
 					reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 					defer cancel()
-					albums := p.coordinator.Albums()
-					if p.selectedAlbumIndex >= 0 && p.selectedAlbumIndex < len(albums) {
-						_, _ = p.libSvc.FetchTracks(reqCtx, albums[p.selectedAlbumIndex].Key)
-						// Start closing animation: leave `p.modal` until animation completes.
-						p.drawerOpen = false
-						p.drawerAnimating = true
-						return p, drawerTickCmd()
-					}
-				}
-				return p, nil
-			}
-			if p.modal == ModalPlaylists {
-				if p.libSvc != nil {
-					reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-					defer cancel()
-					playlists := p.coordinator.Playlists()
-					if p.selectedPlaylistIndex >= 0 && p.selectedPlaylistIndex < len(playlists) {
-						_, _ = p.libSvc.FetchTracks(reqCtx, playlists[p.selectedPlaylistIndex].Key)
-						// Start closing animation
-						p.drawerOpen = false
-						p.drawerAnimating = true
-						return p, drawerTickCmd()
-					}
-				}
-				return p, nil
-			}
-
-			// Enter: fetch tracks for selected album or playlist, or play selected queue item
-			active = p.coordinator.ActiveTab()
-			if p.libSvc == nil {
-				// For the queue page, pressing enter should play a queue item.
-				if active == app.QueueTab && len(p.coordinator.Queue()) > 0 {
-					q := p.coordinator.Queue()
-					idx := p.coordinator.QueueIndex()
-					if idx < 0 || idx >= len(q) {
-						idx = 0
-					}
-					p.playAppTrack(&q[idx])
-				}
-				return p, nil
-			}
-			reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-			defer cancel()
-			switch active {
-			case app.HomeTab, app.LibraryTab:
-				albums := p.coordinator.Albums()
-				if p.selectedAlbumIndex >= 0 && p.selectedAlbumIndex < len(albums) {
-					// Use library service to fetch tracks for the selected album
-					_, _ = p.libSvc.FetchTracks(reqCtx, albums[p.selectedAlbumIndex].Key)
-				}
-			case app.PlaylistsTab:
-				playlists := p.coordinator.Playlists()
-				if p.selectedPlaylistIndex >= 0 && p.selectedPlaylistIndex < len(playlists) {
-					_, _ = p.libSvc.FetchTracks(reqCtx, playlists[p.selectedPlaylistIndex].Key)
-				}
-			case app.QueueTab:
-				q := p.coordinator.Queue()
-				idx := p.coordinator.QueueIndex()
-				if idx < 0 || idx >= len(q) {
-					idx = 0
-				}
-				p.playAppTrack(&q[idx])
-			}
-			return p, nil
-		case " ", "p":
-			// If a modal is open, attempt to fetch and play the first track from the
-			// selected album or playlist.
-			if p.modal == ModalRecently {
-				if p.libSvc != nil {
-					reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-					defer cancel()
-					albums := p.coordinator.Albums()
-					if p.selectedAlbumIndex >= 0 && p.selectedAlbumIndex < len(albums) {
-						tracks, _ := p.libSvc.FetchTracks(reqCtx, albums[p.selectedAlbumIndex].Key)
-						if len(tracks) > 0 {
-							// Convert the first domain.Track returned into an app.Track
-							at := app.Track{
-								Title:       tracks[0].Title,
-								Artist:      tracks[0].Artist,
-								Album:       tracks[0].Album,
-								Duration:    tracks[0].Duration,
-								TrackNumber: tracks[0].TrackNumber,
-								Key:         tracks[0].Key,
-								RatingKey:   tracks[0].RatingKey,
-								Thumb:       tracks[0].Thumb,
-							}
-							// Use the helper so UI & playback service stay in sync
-							p.playAppTrack(&at)
-							// Start closing animation
-							p.drawerOpen = false
-							p.drawerAnimating = true
-							return p, drawerTickCmd()
+					tracks, _ := p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
+					if len(tracks) > 0 {
+						at := app.Track{
+							Title:       tracks[0].Title,
+							Artist:      tracks[0].Artist,
+							Album:       tracks[0].Album,
+							Duration:    tracks[0].Duration,
+							TrackNumber: tracks[0].TrackNumber,
+							Key:         tracks[0].Key,
+							RatingKey:   tracks[0].RatingKey,
+							Thumb:       tracks[0].Thumb,
 						}
-					}
-				}
-				return p, nil
-			}
-			if p.modal == ModalPlaylists {
-				if p.libSvc != nil {
-					reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-					defer cancel()
-					playlists := p.coordinator.Playlists()
-					if p.selectedPlaylistIndex >= 0 && p.selectedPlaylistIndex < len(playlists) {
-						tracks, _ := p.libSvc.FetchTracks(reqCtx, playlists[p.selectedPlaylistIndex].Key)
-						if len(tracks) > 0 {
-							at := app.Track{
-								Title:       tracks[0].Title,
-								Artist:      tracks[0].Artist,
-								Album:       tracks[0].Album,
-								Duration:    tracks[0].Duration,
-								TrackNumber: tracks[0].TrackNumber,
-								Key:         tracks[0].Key,
-								RatingKey:   tracks[0].RatingKey,
-								Thumb:       tracks[0].Thumb,
-							}
-							p.playAppTrack(&at)
-							// Start closing animation
-							p.drawerOpen = false
-							p.drawerAnimating = true
-							return p, drawerTickCmd()
-						}
+						p.playAppTrack(&at)
+						return p, nil
 					}
 				}
 				return p, nil
@@ -752,7 +497,6 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Favor a selected track in the page / coordinator if present, else take first track
 				tracks := p.coordinator.Tracks()
 				if len(tracks) > 0 {
-					// Use p.selectedTrackIndex if set
 					idx := p.coordinator.SelectedTrack()
 					if idx < 0 || idx >= len(tracks) {
 						idx = 0
@@ -763,51 +507,165 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			return p, nil
-		case "n":
+
+		case key.Matches(msg, p.keys.Next):
 			p.playNext()
 			return p, nil
-		case "b":
+		case key.Matches(msg, p.keys.Prev):
 			p.playPrev()
 			return p, nil
-		case "+", "=":
+		case key.Matches(msg, p.keys.VolumeUp):
 			p.adjustVolume(0.1)
 			return p, nil
-		case "-":
+		case key.Matches(msg, p.keys.VolumeDown):
 			p.adjustVolume(-0.1)
 			return p, nil
-		case "o":
+		case key.Matches(msg, p.keys.Queue):
 			// Toggle queue modal
 			p.coordinator.SetShowQueueModal(!p.coordinator.ShowQueueModal())
 			return p, nil
-		case "r":
+		case key.Matches(msg, p.keys.Refresh):
 			// Refresh library lists (recently added + playlists)
 			if p.libSvc != nil {
 				return p, tea.Batch(p.fetchRecentlyAdded(), p.fetchPlaylists())
 			}
 			return p, nil
-		case "s":
-			// Toggle search modal drawer
-			if p.modal == ModalSearch {
-				// Start closing animation (keep modal until fully closed)
-				p.drawerOpen = false
-				p.drawerAnimating = true
+		case key.Matches(msg, p.keys.Search):
+			// Toggle Search tab and focus/blur the search input accordingly
+			if p.coordinator.ActiveTab() == app.SearchTab {
 				p.searchInput.Blur()
-				return p, drawerTickCmd()
+				p.coordinator.SetActiveTab(app.HomeTab)
 			} else {
-				p.modal = ModalSearch
-				p.drawerOpen = true
-				p.drawerTarget = p.height * 45 / 100
-				p.drawerAnimating = true
+				p.coordinator.SetActiveTab(app.SearchTab)
 				p.searchInput.Focus()
-				return p, tea.Batch(drawerTickCmd(), p.searchInput.Focus())
 			}
-		case "f":
+			return p, nil
+		case key.Matches(msg, p.keys.FocusNowPlaying):
 			// Toggle pair of focused Now Playing view
 			p.focusedNowPlaying = !p.focusedNowPlaying
 			return p, nil
+		case key.Matches(msg, p.keys.SwitchView):
+			switch msg.String() {
+			case "ctrl+1":
+				p.coordinator.SetActiveTab(app.HomeTab)
+			case "ctrl+2":
+				p.coordinator.SetActiveTab(app.LibraryTab)
+			case "ctrl+3":
+				p.coordinator.SetActiveTab(app.PlaylistsTab)
+			case "ctrl+4":
+				p.coordinator.SetActiveTab(app.SearchTab)
+			case "ctrl+5":
+				p.coordinator.SetActiveTab(app.QueueTab)
+			case "ctrl+6":
+				p.coordinator.SetActiveTab(app.SettingsTab)
+			}
+			if p.showingTracks {
+				p.showingTracks = false
+			}
+			return p, nil
 		}
-	}
 
+		// Delegate to active list
+		active := p.coordinator.ActiveTab()
+
+		if p.showingTracks {
+			p.trackList, cmd = p.trackList.Update(msg)
+			p.coordinator.SetSelectedTrack(p.trackList.Index())
+
+			if key.Matches(msg, p.keys.Enter) {
+				if item, ok := p.trackList.SelectedItem().(TrackItem); ok {
+					at := app.Track{
+						Title:       item.Track.Title,
+						Artist:      item.Track.Artist,
+						Album:       item.Track.Album,
+						Duration:    item.Track.Duration,
+						TrackNumber: item.Track.TrackNumber,
+						Key:         item.Track.Key,
+						RatingKey:   item.Track.RatingKey,
+						Thumb:       item.Track.Thumb,
+					}
+					p.playAppTrack(&at)
+				}
+			}
+			return p, cmd
+		}
+
+		switch active {
+		case app.HomeTab, app.LibraryTab:
+			p.recentlyAddedList, cmd = p.recentlyAddedList.Update(msg)
+			p.coordinator.SetSelectedAlbum(p.recentlyAddedList.Index())
+
+			// If selection changed, fetch tracks for the selected album in the background
+			if item, ok := p.recentlyAddedList.SelectedItem().(AlbumItem); ok {
+				newIdx := p.recentlyAddedList.Index()
+				if newIdx != p.lastSelectedAlbumIndex && p.libSvc != nil {
+					p.lastSelectedAlbumIndex = newIdx
+					// On selection change prefetch tracks in the background.
+					// The UI should only open the track list on Enter.
+					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Album.Key))
+				}
+			}
+
+			if key.Matches(msg, p.keys.Enter) {
+				if item, ok := p.recentlyAddedList.SelectedItem().(AlbumItem); ok {
+					if p.libSvc != nil {
+						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+						defer cancel()
+						_, _ = p.libSvc.FetchTracks(reqCtx, item.Album.Key)
+						p.showingTracks = true
+					}
+				}
+			}
+
+		case app.PlaylistsTab:
+			p.playlistList, cmd = p.playlistList.Update(msg)
+			p.coordinator.SetSelectedPlaylist(p.playlistList.Index())
+
+			// If selection changed, fetch tracks for the selected playlist in the background
+			if item, ok := p.playlistList.SelectedItem().(PlaylistItem); ok {
+				newIdx := p.playlistList.Index()
+				if newIdx != p.lastSelectedPlaylistIndex && p.libSvc != nil {
+					p.lastSelectedPlaylistIndex = newIdx
+					// On selection change prefetch tracks in the background.
+					// The UI should only open the track list on Enter.
+					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Playlist.Key))
+				}
+			}
+
+			if key.Matches(msg, p.keys.Enter) {
+				if item, ok := p.playlistList.SelectedItem().(PlaylistItem); ok {
+					if p.libSvc != nil {
+						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+						defer cancel()
+						_, _ = p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
+						p.showingTracks = true
+					}
+				}
+			}
+
+		case app.QueueTab:
+			p.queueList, cmd = p.queueList.Update(msg)
+			p.coordinator.SetQueueIndex(p.queueList.Index())
+
+			if key.Matches(msg, p.keys.Enter) {
+				if item, ok := p.queueList.SelectedItem().(QueueItem); ok {
+					at := app.Track{
+						Title:       item.Track.Title,
+						Artist:      item.Track.Artist,
+						Album:       item.Track.Album,
+						Duration:    item.Track.Duration,
+						TrackNumber: item.Track.TrackNumber,
+						Key:         item.Track.Key,
+						RatingKey:   item.Track.RatingKey,
+						Thumb:       item.Track.Thumb,
+					}
+					p.playAppTrack(&at)
+				}
+			}
+		}
+
+		return p, cmd
+	}
 	return p, nil
 }
 
@@ -871,16 +729,24 @@ func (p *MainAppPage) View() string {
 
 	contentWidth := views.GetContentPaneWidth(p.width)
 	detailWidth := views.GetDetailPaneWidth(p.width)
-	// Compute the Now Playing width and use that width for tab alignment.
-	// Start with the full available width and ensure it's at least wide enough
-	// for the content + detail pane split.
-	nowWidth := p.width - 6
-	if nowWidth < contentWidth+detailWidth {
-		nowWidth = contentWidth + detailWidth
+	// Split the main layout into two panes: left controlled by tabs (contentWidth)
+	// and right showing the Now Playing (detailWidth). Ensure both fit into the
+	// available width, adjusting when necessary.
+	leftWidth := contentWidth
+	rightWidth := detailWidth
+	usableWidth := p.width - 6
+	if leftWidth+rightWidth > usableWidth {
+		// Shrink right pane to fit while keeping left pane size readable.
+		rightWidth = usableWidth - leftWidth
+		if rightWidth < 20 {
+			// Ensure a sensible minimum for the right pane.
+			rightWidth = 20
+			if leftWidth > usableWidth-rightWidth {
+				leftWidth = usableWidth - rightWidth
+			}
+		}
 	}
 
-	// Build top tabs mapped by TabType to ensure consistent mapping
-	tabNames := []string{"Home", "Recently Added", "Playlists", "Search", "Queue", "Settings"}
 	active := p.coordinator.ActiveTab()
 	// Ensure active tab is valid. If it's out of the expected range, set Home
 	// as a safe default to ensure the UI renders content instead of an empty
@@ -889,39 +755,52 @@ func (p *MainAppPage) View() string {
 		p.coordinator.SetActiveTab(app.HomeTab)
 		active = app.HomeTab
 	}
-	// If a modal is open, highlight the tab corresponding to that modal rather
-	// than the current active tab. This makes the nav reflect the modal that is
-	// being shown (Recently/Playlists/Search/Settings), even while content remains
-	// on the Now Playing centric UI.
-	navActive := active
-	if p.modal != ModalNone {
-		navActive = p.tabForModal(p.modal)
+
+	// Build left-hand content based on active tab.
+	var leftContent string
+	switch active {
+	case app.HomeTab, app.LibraryTab:
+		if p.showingTracks {
+			leftContent = p.renderTracks(leftWidth)
+		} else {
+			leftContent = p.renderRecentlyAdded(leftWidth)
+		}
+	case app.PlaylistsTab:
+		if p.showingTracks {
+			leftContent = p.renderTracks(leftWidth)
+		} else {
+			leftContent = p.renderPlaylists(leftWidth)
+		}
+	case app.QueueTab:
+		leftContent = p.renderQueue(leftWidth)
+	case app.SearchTab:
+		leftContent = p.renderSearch(leftWidth)
+	case app.SettingsTab:
+		leftContent = p.renderSettings(leftWidth)
+	default:
+		leftContent = p.renderRecentlyAdded(leftWidth)
 	}
 
-	// Move tab building into a component to keep rendering logic isolated.
-	tabsComp := components.NewTabs(tabNames)
-	tabsPane, _ := tabsComp.Render(nowWidth, int(navActive))
-
-	// Tabs are now displayed below the Now Playing area (left navigation removed).
-
 	// Main content — Now Playing becomes the primary content area.
-	// The Now Playing view will take the primary area. Tab selection is below,
-	// and pressing Enter opens the selected tab as an overlay drawer over Now Playing.
-	// nowWidth was computed above — no need to recompute here. This ensures the
-	// tabs were created using the final Now Playing width and remain aligned.
-
-	mainContent := p.renderNowPlaying(nowWidth)
+	mainContent := p.renderNowPlaying(rightWidth)
 	if p.libSvc != nil && len(p.coordinator.Albums()) == 0 && len(p.coordinator.Playlists()) == 0 {
 		// Show a friendly, centered loading placeholder in the content area when
 		// the library service is active but no content has been loaded yet.
 		mainContent = lipgloss.JoinVertical(lipgloss.Center, styles.BlurredStyle.Render("Loading library..."))
 	}
-	contentPane := styles.PaneStyle(nowWidth, p.height-6).Render(mainContent)
+	contentPane := styles.PaneStyle(rightWidth, p.height-6).Render(mainContent)
 
-	// Compose the two-pane layout: main content (Now Playing) and tabs.
-	// Center the main content and tabs horizontally so they appear visually centered
-	// on the screen.
-	layout := lipgloss.JoinVertical(lipgloss.Center, contentPane, tabsPane)
+	leftContentHeight := p.height - 6
+	if leftContentHeight < 6 {
+		// Ensure a sensible minimum height for left content
+		leftContentHeight = 6
+	}
+
+	leftPane := styles.PaneStyle(leftWidth, leftContentHeight).Render(leftContent)
+
+	// Compose the two-pane layout: left column (content) and right pane (Now Playing)
+	panesRow := lipgloss.JoinHorizontal(lipgloss.Left, leftPane, contentPane)
+	layout := panesRow
 
 	// If Queue modal is visible, overlay it
 	if p.coordinator.ShowQueueModal() {
@@ -941,35 +820,11 @@ func (p *MainAppPage) View() string {
 		)
 	}
 
-	// If a drawer/modal is active, render the slide-out drawer that slides up
-	// from the bottom over the Now Playing content and dim the Now Playing area.
-	drawerHeight := p.drawerOffset
-	if drawerHeight > 0 {
-		// Dim the Now Playing area to indicate modal focus using the Scrim style.
-		dimNowPlaying := styles.ScrimStyle.Render(mainContent)
-		contentPaneDim := styles.PaneStyle(nowWidth, p.height-6).Render(dimNowPlaying)
-
-		// Render drawer content and anchor to the bottom.
-		drawerContent := p.renderModalContent(nowWidth, "")
-		// Append a small help hint to the drawer so users know available keys while the overlay is focused.
-		drawerPane := styles.PaneStyle(nowWidth, drawerHeight).Render(lipgloss.JoinVertical(lipgloss.Left, drawerContent, styles.HelpStyle.Render("Enter: open • Space: play • Esc: close")))
-
-		baseWithTabs := lipgloss.JoinVertical(lipgloss.Center, contentPaneDim, tabsPane)
-		overlayBottom := lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Bottom, drawerPane)
-
-		// If Queue modal is visible, overlay it on top of the drawer layout as before.
-		if p.coordinator.ShowQueueModal() {
-			return p.renderWithModal(baseWithTabs)
-		}
-		return lipgloss.JoinVertical(lipgloss.Center, baseWithTabs, overlayBottom)
-	}
+	// Drawers are removed; no overlay drawer behavior needed.
 	// If the drawer is not present and the (ancillary) modal was requested but
 	// the drawer offset is zero (maybe animation not yet started), fall back to the
 	// previous centered modal behavior to prevent a confusing blank state.
-	if p.modal != ModalNone && p.drawerOffset == 0 {
-		content := p.renderModalContent(contentWidth, contentPane)
-		return p.renderWithCustomModal(layout, content)
-	}
+	// No centered modal fallback - drawers were removed.
 
 	server = p.coordinator.GetCurrentServer()
 	pageTitle := "Plex Music"
@@ -995,12 +850,11 @@ func (p *MainAppPage) View() string {
 	}
 
 	statusLine := styles.BlurredStyle.Render(fmt.Sprintf("Server: %s • %s • Albums: %d • Playlists: %d • Tracks: %d", serverName, authStatus, albumsCount, playlistsCount, tracksCount))
-	quitHint := styles.HelpStyle.Render("Ctrl+C: Quit")
 
 	centeredLayout := lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Top, layout)
 	return lipgloss.JoinVertical(lipgloss.Left,
 		styles.TitleStyle.Render(pageTitle),
-		lipgloss.JoinHorizontal(lipgloss.Left, statusLine, "  ", quitHint),
+		statusLine,
 		centeredLayout,
 	)
 }
@@ -1113,70 +967,77 @@ func (p *MainAppPage) fetchPlaylists() tea.Cmd {
 	}
 }
 
-// renderHome composes a small home view with the recently added list and
-// the Now Playing panel side-by-side.
-func (p *MainAppPage) renderHome(width int) string {
-	// Simple two-column split: left (recently added) and right (now playing)
-	leftWidth := width * 60 / 100
-	rightWidth := width - leftWidth - 2
-
-	left := p.renderRecentlyAdded(leftWidth)
-	right := p.renderNowPlaying(rightWidth)
-
-	return lipgloss.JoinHorizontal(lipgloss.Left,
-		styles.PaneStyle(leftWidth, p.height-2).Render(left),
-		styles.PaneStyle(rightWidth, p.height-2).Render(right),
-	)
+// fetchTracksCmd returns a tea.Cmd that fetches tracks for the given key
+// using the library service and returns nil as the tea.Message (we rely on
+// library events to update the UI when the response arrives).
+func (p *MainAppPage) fetchTracksCmd(key string) tea.Cmd {
+	if p.libSvc == nil || key == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+		_, _ = p.libSvc.FetchTracks(ctx, key)
+		return nil
+	}
 }
 
 // renderRecentlyAdded displays the current recently-added albums list.
 func (p *MainAppPage) renderRecentlyAdded(width int) string {
-	title := styles.TitleStyle.Render("Recently Added")
-
-	var lines []string
-	albums := p.coordinator.Albums()
-	if len(albums) == 0 {
-		lines = append(lines, styles.BlurredStyle.Render("No recently added albums"))
-	} else {
-		for i, a := range albums {
-			prefix := "  "
-			style := styles.BlurredStyle
-			if i == p.selectedAlbumIndex || i == p.coordinator.SelectedAlbum() {
-				prefix = "> "
-				style = styles.FocusedStyle
-			}
-			lines = append(lines, style.Render(fmt.Sprintf("%s%s • %s (%d)", prefix, a.Title, a.Artist, a.Year)))
-		}
-	}
-
-	help := styles.HelpStyle.Render("↑/↓: navigate • enter: view • p/space: play • n: next • b: prev • +/-: volume • o: queue")
-
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...), "", help)
+	p.recentlyAddedList.SetWidth(width)
+	return lipgloss.JoinVertical(lipgloss.Left, p.recentlyAddedList.View(), "", p.help.View(p.keys))
 }
 
 // renderPlaylists displays the playlists list.
 func (p *MainAppPage) renderPlaylists(width int) string {
-	title := styles.TitleStyle.Render("Playlists")
+	p.playlistList.SetWidth(width)
+	return lipgloss.JoinVertical(lipgloss.Left, p.playlistList.View(), "", p.help.View(p.keys))
+}
 
-	var lines []string
-	playlists := p.coordinator.Playlists()
-	if len(playlists) == 0 {
-		lines = append(lines, styles.BlurredStyle.Render("No playlists"))
-	} else {
-		for i, pl := range playlists {
-			prefix := "  "
-			style := styles.BlurredStyle
-			if i == p.selectedPlaylistIndex || i == p.coordinator.SelectedPlaylist() {
-				prefix = "> "
-				style = styles.FocusedStyle
+// renderQueue displays the queued tracks list.
+func (p *MainAppPage) renderQueue(width int) string {
+	p.queueList.SetWidth(width)
+	return lipgloss.JoinVertical(lipgloss.Left, p.queueList.View(), "", p.help.View(p.keys))
+}
+
+// renderSearch displays the search input and inline results in the left pane.
+func (p *MainAppPage) renderSearch(width int) string {
+	title := styles.TitleStyle.Render("Search")
+	results := []string{}
+	term := strings.TrimSpace(p.searchInput.Value())
+	if term != "" {
+		for _, a := range p.coordinator.Albums() {
+			if strings.Contains(strings.ToLower(a.Title), strings.ToLower(term)) || strings.Contains(strings.ToLower(a.Artist), strings.ToLower(term)) {
+				results = append(results, fmt.Sprintf("%s — %s", a.Title, a.Artist))
 			}
-			lines = append(lines, style.Render(fmt.Sprintf("%s%s (%d)", prefix, pl.Title, pl.LeafCount)))
+		}
+		for _, pl := range p.coordinator.Playlists() {
+			if strings.Contains(strings.ToLower(pl.Title), strings.ToLower(term)) {
+				results = append(results, fmt.Sprintf("%s (playlist)", pl.Title))
+			}
 		}
 	}
+	if len(results) == 0 {
+		results = append(results, styles.BlurredStyle.Render("No matches"))
+	}
+	help := p.help.View(p.keys)
+	return lipgloss.JoinVertical(lipgloss.Left, title, "", p.searchInput.View(), "", lipgloss.JoinVertical(lipgloss.Left, results...), "", help)
+}
 
-	help := styles.HelpStyle.Render("↑/↓: navigate • enter: open • p/space: play selected • n: next • b: prev • +/-: volume")
+// renderSettings displays a simple settings placeholder in the left pane.
+func (p *MainAppPage) renderSettings(width int) string {
+	title := styles.TitleStyle.Render("Settings")
+	lines := []string{
+		styles.BlurredStyle.Render("No settings available yet."),
+		styles.BlurredStyle.Render("Press Esc to close."),
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...))
+}
 
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...), "", help)
+// renderTracks displays the currently selected tracks in the left pane.
+func (p *MainAppPage) renderTracks(width int) string {
+	p.trackList.SetWidth(width)
+	return lipgloss.JoinVertical(lipgloss.Left, p.trackList.View(), "", p.help.View(p.keys))
 }
 
 // renderNowPlaying shows the now playing details, a small cover-art placeholder,
@@ -1258,7 +1119,7 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 		volume = fmt.Sprintf("Vol: %.2f", vol.Volume)
 	}
 
-	controls := styles.HelpStyle.Render("Space/p: Play/Pause • n: Next • b: Prev • +/-: Volume • o: Queue")
+	controls := p.help.View(p.keys)
 
 	// Render album art using the playback renderer (if available). Fall back to a thumb/url line.
 	art := p.coordinator.PlaybackAlbumArt()
@@ -1421,7 +1282,7 @@ func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 		lenStr,
 	)
 
-	controls := styles.HelpStyle.Render("Space/p: Play/Pause • n: Next • b: Prev • +/-: Volume • o: Queue • f: Toggle Focus")
+	controls := p.help.View(p.keys)
 
 	// Compose a top-to-bottom full-screen now playing view
 	info := lipgloss.JoinVertical(lipgloss.Left,
@@ -1447,93 +1308,6 @@ func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 		lipgloss.NewStyle().Padding(1, 2).Render(artView),
 		lipgloss.NewStyle().Padding(1, 2).Render(info),
 	)
-}
-
-// renderWithCustomModal overlays any content (string) as a centered modal
-// and returns the combined view for use in View()
-func (p *MainAppPage) renderWithCustomModal(base, content string) string {
-	modalStyled := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2).Width(60).Render(content)
-
-	// Center overlay
-	return lipgloss.Place(
-		p.width,
-		p.height,
-		lipgloss.Center,
-		lipgloss.Center,
-		lipgloss.JoinVertical(lipgloss.Center, base, "", modalStyled),
-	)
-}
-
-// renderModalContent returns content for the current active modal type.
-func (p *MainAppPage) renderModalContent(width int, baseContent string) string {
-	switch p.modal {
-	case ModalSearch:
-		title := styles.TitleStyle.Render("Search")
-		// Display input and search results
-		results := []string{}
-		term := strings.TrimSpace(p.searchInput.Value())
-		if term != "" {
-			// Very simple matching against album title and artist
-			for _, a := range p.coordinator.Albums() {
-				if strings.Contains(strings.ToLower(a.Title), strings.ToLower(term)) || strings.Contains(strings.ToLower(a.Artist), strings.ToLower(term)) {
-					results = append(results, fmt.Sprintf("%s — %s", a.Title, a.Artist))
-				}
-			}
-			for _, pl := range p.coordinator.Playlists() {
-				if strings.Contains(strings.ToLower(pl.Title), strings.ToLower(term)) {
-					results = append(results, fmt.Sprintf("%s (playlist)", pl.Title))
-				}
-			}
-		}
-		if len(results) == 0 {
-			results = append(results, styles.BlurredStyle.Render("No matches"))
-		}
-		return lipgloss.JoinVertical(lipgloss.Left, title, "", p.searchInput.View(), "", lipgloss.JoinVertical(lipgloss.Left, results...), "")
-	case ModalRecently:
-		title := styles.TitleStyle.Render("Recently Added")
-		var lines []string
-		for i, a := range p.coordinator.Albums() {
-			prefix := "  "
-			style := styles.BlurredStyle
-			if i == p.selectedAlbumIndex {
-				prefix = "> "
-				style = styles.FocusedStyle
-			}
-			lines = append(lines, style.Render(fmt.Sprintf("%s%s • %s", prefix, a.Title, a.Artist)))
-		}
-		if len(lines) == 0 {
-			lines = append(lines, styles.BlurredStyle.Render("No recently added albums"))
-		}
-		help := styles.HelpStyle.Render("Enter: open • Space: play • Esc: close")
-		return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...), "", help)
-
-	case ModalPlaylists:
-		title := styles.TitleStyle.Render("Playlists")
-		var lines []string
-		for i, pl := range p.coordinator.Playlists() {
-			prefix := "  "
-			style := styles.BlurredStyle
-			if i == p.selectedPlaylistIndex {
-				prefix = "> "
-				style = styles.FocusedStyle
-			}
-			lines = append(lines, style.Render(fmt.Sprintf("%s%s (%d)", prefix, pl.Title, pl.LeafCount)))
-		}
-		if len(lines) == 0 {
-			lines = append(lines, styles.BlurredStyle.Render("No playlists"))
-		}
-		help := styles.HelpStyle.Render("Enter: open • Space: play • Esc: close")
-		return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...), "", help)
-
-	case ModalSettings:
-		title := styles.TitleStyle.Render("Settings")
-		var lines []string
-		lines = append(lines, styles.BlurredStyle.Render("Settings are not yet available in a modal."))
-		lines = append(lines, styles.BlurredStyle.Render("Press Esc to close."))
-		return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...))
-	default:
-		return styles.BlurredStyle.Render("Unknown modal")
-	}
 }
 
 // Helper: convert an app.Track into a domain.Track for playback calls

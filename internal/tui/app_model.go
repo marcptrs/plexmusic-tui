@@ -42,12 +42,6 @@ func NewAppModel(
 	keyMap KeyMap,
 	pageFactory func(PageID) Page,
 ) *AppModel {
-	// Ensure router's global keys reflect the provided keyMap.
-	if router != nil {
-		router.globalKeys = GlobalKeyMap{
-			Quit: keyMap.Quit,
-		}
-	}
 	return &AppModel{
 		router:      router,
 		coord:       coord,

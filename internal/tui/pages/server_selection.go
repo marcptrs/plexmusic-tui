@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	log "github.com/charmbracelet/log/v2"
@@ -22,6 +24,13 @@ import (
 // ServerSelectionPage handles server selection UI
 const maxServerFetchAttempts = 3
 
+// serverItem adapts domain.PlexServer to list.Item
+type serverItem domain.PlexServer
+
+func (i serverItem) Title() string       { return i.Name }
+func (i serverItem) Description() string { return fmt.Sprintf("%s:%s", i.Host, i.Port) }
+func (i serverItem) FilterValue() string { return i.Name }
+
 type ServerSelectionPage struct {
 	coordinator *app.Coordinator
 	authService service.AuthServicer
@@ -29,8 +38,7 @@ type ServerSelectionPage struct {
 
 	width, height int
 
-	servers             []domain.PlexServer
-	selectedIndex       int
+	list                list.Model
 	loadingServers      bool
 	serverFetchAttempts int
 	errorMsg            string
@@ -39,6 +47,8 @@ type ServerSelectionPage struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	eventCh <-chan pubsub.Event[service.AuthEvent]
+
+	keys tui.ServerSelectionKeyMap
 }
 
 // NewServerSelectionPage creates a new server selection page
@@ -52,6 +62,24 @@ func NewServerSelectionPage(
 	// publishes events before the page has a chance to subscribe.
 	eventCh := authSvc.Subscribe(ctx)
 
+	l := list.New(nil, list.NewDefaultDelegate(), 0, 0)
+	l.Title = "Select Plex Server"
+	l.SetShowHelp(true)
+
+	keys := tui.ServerSelectionKeyMap{
+		Select: key.NewBinding(
+			key.WithKeys("enter"),
+			key.WithHelp("enter", "select"),
+		),
+	}
+
+	l.AdditionalShortHelpKeys = func() []key.Binding {
+		return keys.ShortHelp()
+	}
+	l.AdditionalFullHelpKeys = func() []key.Binding {
+		return keys.FullHelp()[0]
+	}
+
 	return &ServerSelectionPage{
 		coordinator:    coord,
 		authService:    authSvc,
@@ -59,7 +87,9 @@ func NewServerSelectionPage(
 		ctx:            ctx,
 		cancel:         cancel,
 		eventCh:        eventCh,
+		list:           l,
 		loadingServers: true,
+		keys:           keys,
 	}
 }
 
@@ -81,6 +111,7 @@ func (p *ServerSelectionPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
 		p.height = msg.Height
+		p.list.SetSize(msg.Width-4, msg.Height-4)
 		return p, nil
 
 	case tea.KeyMsg:
@@ -90,32 +121,19 @@ func (p *ServerSelectionPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, nil
 		}
 
-		switch msg.String() {
-		case "up", "k":
-
-			if p.selectedIndex > 0 {
-				p.selectedIndex--
-			}
-
-		case "down", "j":
-			if p.selectedIndex < len(p.servers)-1 {
-				p.selectedIndex++
-			}
-
-		case "enter", " ":
-			if len(p.servers) > 0 {
+		if key.Matches(msg, p.keys.Select) {
+			if len(p.list.Items()) > 0 {
 				return p, p.selectServer()
 			}
 		}
 
-		return p, nil
-
 	case service.AuthEvent:
 		return p, p.handleAuthEvent(msg)
-
-	default:
-		return p, nil
 	}
+
+	var cmd tea.Cmd
+	p.list, cmd = p.list.Update(msg)
+	return p, cmd
 }
 
 // View renders the server selection page
@@ -131,10 +149,10 @@ func (p *ServerSelectionPage) View() string {
 		content = p.renderLoading()
 	} else if p.errorMsg != "" {
 		content = p.renderError()
-	} else if len(p.servers) == 0 {
+	} else if len(p.list.Items()) == 0 {
 		content = p.renderNoServers()
 	} else {
-		content = p.renderServerList()
+		content = p.list.View()
 	}
 
 	// Center the content and add padding like the login page
@@ -209,10 +227,15 @@ func (p *ServerSelectionPage) handleAuthEvent(event service.AuthEvent) tea.Cmd {
 	switch event.Type {
 	case "servers.loaded":
 		p.loadingServers = false
-		p.servers = event.Servers
 		p.errorMsg = ""
 		// Reset attempts counter on success
 		p.serverFetchAttempts = 0
+
+		items := make([]list.Item, len(event.Servers))
+		for i, s := range event.Servers {
+			items[i] = serverItem(s)
+		}
+		p.list.SetItems(items)
 
 		// Try to select previously used server and auto-select if found
 		lastServer := ""
@@ -220,11 +243,11 @@ func (p *ServerSelectionPage) handleAuthEvent(event service.AuthEvent) tea.Cmd {
 			lastServer = p.configMgr.GetLastSelectedServer()
 		}
 		if lastServer != "" {
-			for i, server := range p.servers {
+			for i, server := range event.Servers {
 				// Use host/name canonical form to compare, and fall back to server name only.
 				key := fmt.Sprintf("%s/%s", server.Host, server.Name)
 				if key == lastServer || server.Name == lastServer {
-					p.selectedIndex = i
+					p.list.Select(i)
 					// If matched by server name only, attempt to upgrade the stored key
 					// to the canonical host/name format to avoid future ambiguity.
 					if p.configMgr != nil && server.Host != "" {
@@ -271,16 +294,18 @@ func (p *ServerSelectionPage) handleAuthEvent(event service.AuthEvent) tea.Cmd {
 
 // selectServer handles server selection
 func (p *ServerSelectionPage) selectServer() tea.Cmd {
-	if p.selectedIndex < 0 || p.selectedIndex >= len(p.servers) {
+	selectedItem := p.list.SelectedItem()
+	if selectedItem == nil {
 		return nil
 	}
-
-	selected := p.servers[p.selectedIndex]
+	selected := domain.PlexServer(selectedItem.(serverItem))
 
 	// Store servers and selected index in coordinator
 	// Convert domain.PlexServer to app.PlexServer
-	appServers := make([]app.PlexServer, len(p.servers))
-	for i, s := range p.servers {
+	items := p.list.Items()
+	appServers := make([]app.PlexServer, len(items))
+	for i, item := range items {
+		s := domain.PlexServer(item.(serverItem))
 		appServers[i] = app.PlexServer{
 			Name:         s.Name,
 			Host:         s.Host,
@@ -291,7 +316,7 @@ func (p *ServerSelectionPage) selectServer() tea.Cmd {
 		}
 	}
 	p.coordinator.SetServers(appServers)
-	p.coordinator.SetSelectedServer(p.selectedIndex)
+	p.coordinator.SetSelectedServer(p.list.Index())
 
 	// Save to config (if config manager present)
 	if p.configMgr != nil {
@@ -353,51 +378,6 @@ func (p *ServerSelectionPage) renderNoServers() string {
 		title,
 		"",
 		noServers,
-		"",
-		help,
-	)
-}
-
-// renderServerList renders the server selection list
-func (p *ServerSelectionPage) renderServerList() string {
-	title := styles.TitleStyle.Render("Select Plex Server")
-
-	// Build server list
-	var serverLines []string
-	for i, server := range p.servers {
-		prefix := "  "
-		style := lipgloss.NewStyle()
-
-		if i == p.selectedIndex {
-			prefix = "> "
-			style = styles.FocusedStyle
-		}
-
-		// Show last selected indicator (safe when no config manager provided)
-		lastServer := ""
-		if p.configMgr != nil {
-			lastServer = p.configMgr.GetLastSelectedServer()
-		}
-		lastIndicator := ""
-		// Build canonical key for this server
-		key := fmt.Sprintf("%s/%s", server.Host, server.Name)
-		if key == lastServer || server.Name == lastServer {
-			lastIndicator = " (last used)"
-		}
-
-		serverLine := fmt.Sprintf("%s%s%s", prefix, server.Name, lastIndicator)
-		serverLines = append(serverLines, style.Render(serverLine))
-	}
-
-	serverList := lipgloss.JoinVertical(lipgloss.Left, serverLines...)
-
-	help := styles.HelpStyle.Render("↑/↓: navigate • enter: select • q: quit")
-
-	return lipgloss.JoinVertical(
-		lipgloss.Center,
-		title,
-		"",
-		serverList,
 		"",
 		help,
 	)
