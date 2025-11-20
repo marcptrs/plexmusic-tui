@@ -220,6 +220,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
 		p.height = msg.Height
+		log.Debug("MainAppPage: WindowSizeMsg", "width", p.width, "height", p.height)
 
 		// Resize lists
 		// We use the same calculation as in View() to ensure consistency
@@ -487,23 +488,30 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, p.keys.Play):
 			log.Debug("Play key matched", "msg", msg)
 
-			// Priority: Toggle playback if active (Playing or Paused)
-			// This applies to both Space and P keys.
-			if p.coordinator.IsPlaying() {
-				if p.pbSvc != nil {
-					_ = p.pbSvc.Pause()
-				}
-				return p, nil
-			}
-			if p.coordinator.IsPaused() {
-				if p.pbSvc != nil {
-					_ = p.pbSvc.Resume()
-				}
+			if p.pbSvc == nil {
 				return p, nil
 			}
 
-			// If we are Stopped (or no track loaded), try to play the selected item.
-			// This mimics "Play" behavior on a stopped player.
+			// Priority: Toggle playback if active (Playing or Paused)
+			if p.coordinator.IsPlaying() {
+				_ = p.pbSvc.Pause()
+				return p, nil
+			}
+			if p.coordinator.IsPaused() {
+				_ = p.pbSvc.Resume()
+				return p, nil
+			}
+
+			// If we are Stopped, try to restart the current track if available.
+			if p.coordinator.HasCurrentTrack() {
+				if tr := p.coordinator.CurrentTrack(); tr != nil {
+					return p, p.playAppTrack(tr)
+				}
+			}
+			return p, nil
+
+		case key.Matches(msg, p.keys.PlaySelected):
+			log.Debug("PlaySelected key matched", "msg", msg)
 
 			// Attempt to fetch and play the first track from the selected album
 			// or playlist, or play the selected queue item.
@@ -578,39 +586,17 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return p, nil
 			}
 
-			// Play/pause. Toggle playback for selected track (if available).
-			if p.pbSvc == nil {
-				return p, nil
-			}
-
-			shouldPlayFromList := false
-
-			if p.coordinator.HasCurrentTrack() {
-				// If we are here, we are Stopped (IsPlaying and IsPaused checks above failed).
-				// Try to restart the current track if available.
-				if tr := p.coordinator.CurrentTrack(); tr != nil {
-					return p, p.playAppTrack(tr)
-				} else {
-					shouldPlayFromList = true
+			// Fallback: if we have tracks loaded in the coordinator but not showingTracks (e.g. queue view?)
+			// or if we just want to play the selected track from the current list if nothing else matched.
+			// The original code had a fallback here.
+			tracks := p.coordinator.Tracks()
+			if len(tracks) > 0 {
+				idx := p.coordinator.SelectedTrack()
+				if idx < 0 || idx >= len(tracks) {
+					idx = 0
 				}
-			} else {
-				shouldPlayFromList = true
-			}
-
-			if shouldPlayFromList {
-				// Determine candidate track:
-				var tr *app.Track
-				// Favor a selected track in the page / coordinator if present, else take first track
-				tracks := p.coordinator.Tracks()
-				if len(tracks) > 0 {
-					idx := p.coordinator.SelectedTrack()
-					if idx < 0 || idx >= len(tracks) {
-						idx = 0
-					}
-					tr = &tracks[idx]
-					// Play via helper to keep UI in sync
-					return p, p.playAppTrack(tr)
-				}
+				tr := &tracks[idx]
+				return p, p.playAppTrack(tr)
 			}
 			return p, nil
 
@@ -831,6 +817,23 @@ func (p *MainAppPage) View() string {
 		leftWidth = usableWidth - rightWidth
 	}
 
+	// Calculate heights
+	contentHeight := p.height - 8
+	if contentHeight < 6 {
+		contentHeight = 6
+	}
+	listHeight := contentHeight - 2
+	if listHeight < 0 {
+		listHeight = 0
+	}
+
+	// Update list sizes to ensure they match the view dimensions
+	// This is critical if the view dimensions were defaulted (e.g. if WindowSizeMsg was 0)
+	p.recentlyAddedList.SetSize(leftWidth, listHeight)
+	p.playlistList.SetSize(leftWidth, listHeight)
+	p.trackList.SetSize(leftWidth, listHeight)
+	p.queueList.SetSize(leftWidth, listHeight)
+
 	active := p.coordinator.ActiveTab()
 	// Ensure active tab is valid. If it's out of the expected range, set Home
 	// as a safe default to ensure the UI renders content instead of an empty
@@ -873,10 +876,8 @@ func (p *MainAppPage) View() string {
 		mainContent = lipgloss.JoinVertical(lipgloss.Center, styles.BlurredStyle.Render("Loading library..."))
 	}
 	// Adjust height to accommodate help view at the bottom (approx 2 lines)
-	contentHeight := p.height - 8
-	if contentHeight < 6 {
-		contentHeight = 6
-	}
+	// contentHeight calculated above
+
 	// Force height on the pane style to ensure borders extend fully
 	contentPane := styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(mainContent)
 
@@ -983,12 +984,19 @@ func (p *MainAppPage) View() string {
 		)
 	}
 
-	// Place the main layout in the available space minus help height?
-	// Or just join them.
-	return lipgloss.JoinVertical(lipgloss.Left,
+	// Place the main layout in the available space
+	finalView := lipgloss.JoinVertical(lipgloss.Left,
 		mainLayout,
 		"",
 		helpView,
+	)
+
+	return lipgloss.Place(
+		p.width,
+		p.height,
+		lipgloss.Center,
+		lipgloss.Center,
+		finalView,
 	)
 }
 
@@ -1236,9 +1244,13 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 	sr := int(p.coordinator.SampleRate())
 
 	var posMs, lenMs int
-	if sr > 0 && lengthSamples > 0 {
+	if sr > 0 {
 		posMs = posSamples * 1000 / sr
-		lenMs = lengthSamples * 1000 / sr
+		if lengthSamples > 0 {
+			lenMs = lengthSamples * 1000 / sr
+		} else {
+			lenMs = tr.Duration
+		}
 	} else {
 		// Fallback to former approach, but prefer track.Duration if available.
 		posMs = 0
@@ -1390,9 +1402,13 @@ func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 	lengthSamples := p.coordinator.StreamLength()
 	sr := int(p.coordinator.SampleRate())
 	var posMs, lenMs int
-	if sr > 0 && lengthSamples > 0 {
+	if sr > 0 {
 		posMs = posSamples * 1000 / sr
-		lenMs = lengthSamples * 1000 / sr
+		if lengthSamples > 0 {
+			lenMs = lengthSamples * 1000 / sr
+		} else {
+			lenMs = tr.Duration
+		}
 	} else {
 		posMs = 0
 		lenMs = tr.Duration

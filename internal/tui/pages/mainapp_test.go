@@ -826,18 +826,18 @@ func TestMainAppPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	page.coordinator.SetActiveTab(app.HomeTab)
 	page.coordinator.SetSelectedAlbum(0)
 
-	// Press 'p' to play album and expect queue to be set and playback to begin
-	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	// Press 'space' to play album and expect queue to be set and playback to begin
+	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
 	page = m.(*MainAppPage)
 	if cmd != nil {
 		_ = cmd()
 	}
 
 	if !coord.HasCurrentTrack() {
-		t.Fatalf("expected coordinator to have current track after pressing p on album")
+		t.Fatalf("expected coordinator to have current track after pressing space on album")
 	}
 	if !coord.IsPlaying() {
-		t.Fatalf("expected coordinator playback state to be Playing after pressing p on album")
+		t.Fatalf("expected coordinator playback state to be Playing after pressing space on album")
 	}
 	queue := coord.Queue()
 	if len(queue) != 2 {
@@ -956,17 +956,17 @@ func TestMainAppPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 	page.coordinator.SetActiveTab(app.PlaylistsTab)
 	page.coordinator.SetSelectedPlaylist(0)
 
-	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
 	page = m.(*MainAppPage)
 	if cmd != nil {
 		_ = cmd()
 	}
 
 	if !coord.HasCurrentTrack() {
-		t.Fatalf("expected coordinator to have current track after pressing p on playlist")
+		t.Fatalf("expected coordinator to have current track after pressing space on playlist")
 	}
 	if !coord.IsPlaying() {
-		t.Fatalf("expected coordinator playback state to be Playing after pressing p on playlist")
+		t.Fatalf("expected coordinator playback state to be Playing after pressing space on playlist")
 	}
 	queue := coord.Queue()
 	if len(queue) != 2 {

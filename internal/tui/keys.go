@@ -29,6 +29,7 @@ type MainAppKeyMap struct {
 	Down            key.Binding
 	Enter           key.Binding
 	Play            key.Binding
+	PlaySelected    key.Binding
 	Next            key.Binding
 	Prev            key.Binding
 	VolumeUp        key.Binding
@@ -45,13 +46,13 @@ type MainAppKeyMap struct {
 
 // ShortHelp returns keybindings to be shown in the mini help view.
 func (k MainAppKeyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Enter, k.Play, k.Back, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Enter, k.PlaySelected, k.Play, k.Back, k.Quit}
 }
 
 // FullHelp returns keybindings for the expanded help view.
 func (k MainAppKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Enter, k.Back},
+		{k.Up, k.Down, k.Enter, k.PlaySelected, k.Back},
 		{k.Play, k.Next, k.Prev, k.VolumeUp, k.VolumeDown, k.FocusNowPlaying},
 		{k.Queue, k.Refresh, k.Search, k.Settings, k.SwitchView, k.Quit},
 	}
@@ -73,8 +74,12 @@ func DefaultMainAppKeyMap() MainAppKeyMap {
 			key.WithHelp("enter", "select"),
 		),
 		Play: key.NewBinding(
-			key.WithKeys(" ", "p"),
-			key.WithHelp("space/p", "play"),
+			key.WithKeys("p"),
+			key.WithHelp("p", "play/pause"),
+		),
+		PlaySelected: key.NewBinding(
+			key.WithKeys(" "),
+			key.WithHelp("space", "play selected"),
 		),
 		Next: key.NewBinding(
 			key.WithKeys("n"),
