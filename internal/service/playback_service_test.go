@@ -1,0 +1,92 @@
+package service
+
+import (
+	"bytes"
+	"context"
+	"encoding/binary"
+	"io"
+	"testing"
+	"time"
+
+	"plexmusic-tui/internal/domain"
+)
+
+// createSilenceWav returns a minimal WAV file with the given duration seconds.
+func createSilenceWav(seconds int) []byte {
+	sampleRate := 44100
+	bitsPerSample := 16
+	numChannels := 1
+	numSamples := sampleRate * seconds
+	byteRate := sampleRate * numChannels * bitsPerSample / 8
+	blockAlign := numChannels * bitsPerSample / 8
+	dataSize := numSamples * blockAlign
+
+	buff := &bytes.Buffer{}
+	buff.WriteString("RIFF")
+	_ = binary.Write(buff, binary.LittleEndian, uint32(36+dataSize))
+	buff.WriteString("WAVE")
+	buff.WriteString("fmt ")
+	_ = binary.Write(buff, binary.LittleEndian, uint32(16))
+	_ = binary.Write(buff, binary.LittleEndian, uint16(1))
+	_ = binary.Write(buff, binary.LittleEndian, uint16(numChannels))
+	_ = binary.Write(buff, binary.LittleEndian, uint32(sampleRate))
+	_ = binary.Write(buff, binary.LittleEndian, uint32(byteRate))
+	_ = binary.Write(buff, binary.LittleEndian, uint16(blockAlign))
+	_ = binary.Write(buff, binary.LittleEndian, uint16(bitsPerSample))
+	buff.WriteString("data")
+	_ = binary.Write(buff, binary.LittleEndian, uint32(dataSize))
+	zero := make([]byte, dataSize)
+	buff.Write(zero)
+	return buff.Bytes()
+}
+
+func TestPlaybackService_LoadInitializePlay(t *testing.T) {
+	s := NewPlaybackService()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ch := s.Subscribe(ctx)
+
+	// Load wav stream
+	wav := createSilenceWav(1)
+	rc := io.NopCloser(bytes.NewReader(wav))
+	if err := s.LoadStream(rc, "audio/wav"); err != nil {
+		t.Fatalf("LoadStream error: %v", err)
+	}
+
+	if err := s.Initialize(); err != nil {
+		t.Fatalf("Initialize error: %v", err)
+	}
+
+	// Play a dummy track
+	track := &domain.Track{Title: "Test"}
+	if err := s.Play(track); err != nil {
+		t.Fatalf("Play error: %v", err)
+	}
+
+	// Read for a playback.started event (there may be playback.loaded/initialized earlier).
+	gotStarted := false
+	deadline := time.After(2 * time.Second)
+	for !gotStarted {
+		select {
+		case ev := <-ch:
+			if ev.Payload.Type == "playback.started" {
+				gotStarted = true
+				continue
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for playback.started event")
+		}
+	}
+	// Ensure position/length updated
+	if s.Length() == 0 {
+		t.Fatalf("expected non-zero length after load")
+	}
+	if s.Position() < 0 {
+		t.Fatalf("expected non-negative position")
+	}
+
+	// Stop playback so test finishes cleanly
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+}

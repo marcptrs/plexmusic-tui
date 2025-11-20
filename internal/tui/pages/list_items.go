@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"plexmusic-tui/internal/domain"
+	styles "plexmusic-tui/internal/tui/styles"
 )
 
 // AlbumItem adapts domain.Album to list.Item
@@ -26,10 +27,17 @@ func (i PlaylistItem) FilterValue() string { return i.Playlist.Title }
 
 // TrackItem adapts domain.Track to list.Item
 type TrackItem struct {
-	Track domain.Track
+	Track   domain.Track
+	Playing bool
 }
 
-func (i TrackItem) Title() string { return i.Track.Title }
+func (i TrackItem) Title() string {
+	if i.Playing {
+		return styles.SuccessStyle.Render(i.Track.Title)
+	}
+	return i.Track.Title
+}
+
 func (i TrackItem) Description() string {
 	return fmt.Sprintf("%s — %s", i.Track.Artist, i.Track.Album)
 }
@@ -37,11 +45,18 @@ func (i TrackItem) FilterValue() string { return i.Track.Title + " " + i.Track.A
 
 // QueueItem adapts domain.Track to list.Item for the queue
 type QueueItem struct {
-	Track domain.Track
-	Index int
+	Track   domain.Track
+	Index   int
+	Playing bool
 }
 
-func (i QueueItem) Title() string { return i.Track.Title }
+func (i QueueItem) Title() string {
+	if i.Playing {
+		return styles.SuccessStyle.Render(i.Track.Title)
+	}
+	return i.Track.Title
+}
+
 func (i QueueItem) Description() string {
 	return fmt.Sprintf("%s — %s", i.Track.Artist, i.Track.Album)
 }

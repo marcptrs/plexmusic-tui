@@ -1,6 +1,8 @@
 package main
 
 import (
+	"time"
+
 	"plexmusic-tui/internal/logging"
 
 	log "github.com/charmbracelet/log/v2"
@@ -17,6 +19,19 @@ import (
 func buildAppModel() *tui.AppModel {
 	coord := app.NewCoordinator()
 	authSvc := service.NewAuthService()
+	// Create a singleton playback service and wire it to the coordinator so
+	// all pages reuse the same instance.
+	pbSvc := service.NewPlaybackService()
+	coord.SetPlaybackService(pbSvc)
+	// Start a background ticker to keep the playback service updating its
+	// position for UI progress reporting. This runs for the life of the app.
+	go func(svc *service.PlaybackService) {
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		for range ticker.C {
+			svc.UpdatePosition()
+		}
+	}(pbSvc)
 	cfgMgr, _ := config.NewManager()
 	coord.SetConfigManager(cfgMgr)
 

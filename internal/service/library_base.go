@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/jpeg" // Register JPEG decoder
+	_ "image/png"  // Register PNG decoder
 	"io"
 	"net/http"
 	"net/url"
@@ -426,6 +429,71 @@ func (s *LibraryService) BuildStreamURL(track *domain.Track) (string, error) {
 		u.RawQuery = q.Encode()
 	}
 	return u.String(), nil
+}
+
+// FetchStream fetches the audio stream for a track.
+func (s *LibraryService) FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error) {
+	urlStr, err := s.BuildStreamURL(track)
+	if err != nil {
+		return nil, "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	// Do not use addPlexHeaders as it sets Accept: application/json which can confuse Plex
+	// when fetching media streams.
+	if s.token != "" {
+		req.Header.Set("X-Plex-Token", s.token)
+	}
+	req.Header.Set("User-Agent", "plexmusic-tui")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, "", fmt.Errorf("failed to fetch stream: status %d", resp.StatusCode)
+	}
+
+	return resp.Body, resp.Header.Get("Content-Type"), nil
+}
+
+// FetchImage fetches and decodes an image from the Plex server.
+func (s *LibraryService) FetchImage(ctx context.Context, path string) (image.Image, error) {
+	// Construct URL
+	var urlStr string
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		urlStr = path
+	} else {
+		urlStr = s.baseURL + path
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "GET", urlStr, nil)
+	if err != nil {
+		return nil, err
+	}
+	s.addPlexHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("failed to fetch image: status %d", resp.StatusCode)
+	}
+
+	img, _, err := image.Decode(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode image: %w", err)
+	}
+
+	return img, nil
 }
 
 // addPlexHeaders adds standard Plex API headers to a request.

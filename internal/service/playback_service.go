@@ -8,18 +8,19 @@ import (
 	"plexmusic-tui/internal/playback"
 	"plexmusic-tui/internal/pubsub"
 
-	"github.com/faiface/beep"
+	log "github.com/charmbracelet/log/v2"
 )
 
 // PlaybackEvent represents playback-related events
 type PlaybackEvent struct {
-	Type     string
-	Track    *domain.Track
-	State    domain.PlaybackState
-	Position int
-	Length   int
-	Volume   float64
-	Error    error
+	Type       string
+	Track      *domain.Track
+	State      domain.PlaybackState
+	Position   int
+	Length     int
+	SampleRate int
+	Volume     float64
+	Error      error
 }
 
 // PlaybackService provides playback operations with event publishing
@@ -42,8 +43,8 @@ func (s *PlaybackService) Subscribe(ctx context.Context) <-chan pubsub.Event[Pla
 }
 
 // LoadStream loads an audio stream for playback
-func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string, format beep.Format) error {
-	err := s.player.LoadStream(body, contentType, format)
+func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string) error {
+	err := s.player.LoadStream(body, contentType)
 	if err != nil {
 		s.broker.Publish(pubsub.Event[PlaybackEvent]{
 			Type: "playback.load_failed",
@@ -52,6 +53,8 @@ func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string, for
 				Error: err,
 			},
 		})
+		// Log debug info to the file so we can triage runtime decode issues
+		log.Debug("playback.load_failed", "error", err)
 		return err
 	}
 
@@ -61,6 +64,7 @@ func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string, for
 			Type: "playback.loaded",
 		},
 	})
+	log.Debug("playback.loaded")
 
 	return nil
 }
@@ -76,6 +80,7 @@ func (s *PlaybackService) Initialize() error {
 				Error: err,
 			},
 		})
+		log.Debug("playback.init_failed", "error", err)
 		return err
 	}
 
@@ -85,6 +90,7 @@ func (s *PlaybackService) Initialize() error {
 			Type: "playback.initialized",
 		},
 	})
+	log.Debug("playback.initialized")
 
 	return nil
 }
@@ -101,6 +107,8 @@ func (s *PlaybackService) Play(track *domain.Track) error {
 				Error: err,
 			},
 		})
+		// Add a debug log to help trace practical failures in real runs
+		log.Debug("playback.play_failed", "error", err, "track", track)
 		return err
 	}
 
@@ -112,6 +120,7 @@ func (s *PlaybackService) Play(track *domain.Track) error {
 			State: domain.PlaybackPlaying,
 		},
 	})
+	log.Debug("playback.started", "track", track)
 
 	return nil
 }
@@ -226,9 +235,23 @@ func (s *PlaybackService) GetVolume() float64 {
 	return s.player.GetVolume()
 }
 
+// SampleRate returns the current sample rate
+func (s *PlaybackService) SampleRate() int {
+	return s.player.SampleRate()
+}
+
 // UpdatePosition updates the current position (should be called periodically)
 func (s *PlaybackService) UpdatePosition() {
 	s.player.UpdatePosition()
+	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+		Type: "playback.position",
+		Payload: PlaybackEvent{
+			Type:       "playback.position",
+			Position:   s.player.Position(),
+			Length:     s.player.Length(),
+			SampleRate: s.player.SampleRate(),
+		},
+	})
 }
 
 // IsPlaying returns true if playing

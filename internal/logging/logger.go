@@ -4,18 +4,18 @@ import (
 	"context"
 	"fmt"
 	"io"
+	stdlog "log"
+	"log/slog"
 	"os"
 	"time"
 
-	"log/slog"
-
-	"github.com/charmbracelet/log/v2"
+	clog "github.com/charmbracelet/log/v2"
 )
 
 // DefaultLogger is the package-level logger used by the application.
 // It is safe to use (read-only) without explicit initialization: it will
 // fall back to charm's default logger.
-var DefaultLogger *log.Logger = log.Default()
+var DefaultLogger *clog.Logger = clog.Default()
 
 // InitFileLogger initializes and returns a charm logger that writes to the
 // provided file path. If the file can't be opened, it returns an error
@@ -23,10 +23,32 @@ var DefaultLogger *log.Logger = log.Default()
 //
 // The function also sets sensible options for file logging: timestamps are
 // enabled and the log level is preserved from the current default logger.
-func InitFileLogger(path string, level log.Level) (*log.Logger, error) {
+func InitFileLogger(path string, level clog.Level) (*clog.Logger, error) {
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open file logger: %w", err)
+	}
+
+	// Also set the charm log global output to the file. This ensures packages
+	// that import the charm logger and call the package-level log.* helpers
+	// write to the file instead of stdout, preventing UI bumping during
+	// interactive sessions where the TUI uses an alternate screen buffer.
+	clog.SetOutput(f)
+	clog.SetLevel(level)
+
+	// Route the standard library logger to the same file so printf/println
+	// and library-level logs are also captured in the file instead of
+	// writing to stderr which can interfere with the TUI.
+	// Redirect the standard library log package to the same file
+	stdlog.SetOutput(f)
+
+	// Replace the default slog logger with an adapter that forwards to the
+	// charm logger we are using; this captures usage of the newer slog API
+	// into our file-backed charm log as well.
+	if err := setSlogHandler(AsSlogHandler()); err != nil {
+		// If we fail to set slog default, keep going but warn. This should
+		// not be fatal to app startup.
+		clog.Warn("failed to set slog default handler", "err", err)
 	}
 
 	return NewLoggerWithWriter(f, level), nil
@@ -34,8 +56,8 @@ func InitFileLogger(path string, level log.Level) (*log.Logger, error) {
 
 // NewLoggerWithWriter constructs a charm logger backed by the provided writer.
 // This is useful for testing or for wiring loggers to non-files (e.g. io.Pipe).
-func NewLoggerWithWriter(w io.Writer, level log.Level) *log.Logger {
-	l := log.NewWithOptions(w, log.Options{
+func NewLoggerWithWriter(w io.Writer, level clog.Level) *clog.Logger {
+	l := clog.NewWithOptions(w, clog.Options{
 		ReportTimestamp: true,
 		TimeFormat:      time.RFC3339,
 		Level:           level,
@@ -47,14 +69,14 @@ func NewLoggerWithWriter(w io.Writer, level log.Level) *log.Logger {
 // charm logger. Callers who need a centralized logger (for example, wiring a
 // default across packages) should call this once during application
 // initialization.
-func SetDefaultLogger(l *log.Logger) {
+func SetDefaultLogger(l *clog.Logger) {
 	if l != nil {
 		DefaultLogger = l
 	}
 }
 
 // SetLevel sets the logging level on the default logger.
-func SetLevel(level log.Level) {
+func SetLevel(level clog.Level) {
 	if DefaultLogger != nil {
 		DefaultLogger.SetLevel(level)
 	}
@@ -62,13 +84,13 @@ func SetLevel(level log.Level) {
 
 // ParseLevel parses a string into a charm log.Level. Supported values are
 // the same as charm's log package (debug, info, warn, error, fatal).
-func ParseLevel(s string) (log.Level, error) {
-	return log.ParseLevel(s)
+func ParseLevel(s string) (clog.Level, error) {
+	return clog.ParseLevel(s)
 }
 
 // charmSlogAdapter implements slog.Handler using a charm logger instance.
 type charmSlogAdapter struct {
-	logger *log.Logger
+	logger *clog.Logger
 }
 
 // Enabled reports whether logging at the given level is enabled.
@@ -144,11 +166,22 @@ func (a *charmSlogAdapter) WithGroup(name string) slog.Handler {
 func AsSlogHandler() slog.Handler {
 	// Use the package's DefaultLogger as the target; fall back to the package
 	// default charm logger if not initialized.
-	var target *log.Logger
+	var target *clog.Logger
 	if DefaultLogger == nil {
-		target = log.Default()
+		target = clog.Default()
 	} else {
 		target = DefaultLogger
 	}
 	return &charmSlogAdapter{logger: target}
+}
+
+// setSlogHandler safely sets the slog default logger to use the provided
+// handler by creating a new logger and registering it.
+func setSlogHandler(h slog.Handler) error {
+	if h == nil {
+		return nil
+	}
+	lg := slog.New(h)
+	slog.SetDefault(lg)
+	return nil
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"image"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/faiface/beep"
@@ -12,6 +13,7 @@ import (
 	"plexmusic-tui/internal/config"
 	termimg "plexmusic-tui/internal/image"
 	"plexmusic-tui/internal/plex"
+	"plexmusic-tui/internal/service"
 
 	log "github.com/charmbracelet/log/v2"
 )
@@ -179,6 +181,16 @@ type Coordinator struct {
 	usernameInput textinput.Model
 	passwordInput textinput.Model
 	focusIndex    int
+
+	// Notification message for transient UI notifications
+	notifMsg      string
+	notifSeverity string
+	notifExpiry   time.Time
+
+	// PlaybackService is a singleton service for the app lifecycle. Pages should
+	// reuse this instance instead of creating their own to avoid event
+	// subscription mismatches and duplicate audio pipelines.
+	playbackService *service.PlaybackService
 }
 
 // NewCoordinator creates a new coordinator instance
@@ -493,6 +505,37 @@ func (c *Coordinator) PlaybackAlbumArtThumb() string {
 	return c.playbackAlbumArtThumb
 }
 
+// Notifications
+func (c *Coordinator) SetNotification(msg, severity string, duration time.Duration) {
+	c.notifMsg = msg
+	c.notifSeverity = severity
+	if duration > 0 {
+		c.notifExpiry = time.Now().Add(duration)
+	} else {
+		c.notifExpiry = time.Time{}
+	}
+}
+
+func (c *Coordinator) Notification() (string, string, time.Time) {
+	return c.notifMsg, c.notifSeverity, c.notifExpiry
+}
+
+func (c *Coordinator) ClearNotification() {
+	c.notifMsg = ""
+	c.notifSeverity = ""
+	c.notifExpiry = time.Time{}
+}
+
+func (c *Coordinator) NotificationActive() bool {
+	if c.notifMsg == "" {
+		return false
+	}
+	if c.notifExpiry.IsZero() {
+		return true
+	}
+	return time.Now().Before(c.notifExpiry)
+}
+
 // Image renderers
 func (c *Coordinator) ImgRenderer() *termimg.Renderer {
 	return c.imgRenderer
@@ -705,4 +748,13 @@ func (c *Coordinator) ClearTracks() {
 func (c *Coordinator) ClearQueue() {
 	c.queue = nil
 	c.queueIndex = 0
+}
+
+// PlaybackService accessors
+func (c *Coordinator) PlaybackService() *service.PlaybackService {
+	return c.playbackService
+}
+
+func (c *Coordinator) SetPlaybackService(s *service.PlaybackService) {
+	c.playbackService = s
 }

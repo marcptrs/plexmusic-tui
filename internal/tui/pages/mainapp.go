@@ -3,6 +3,7 @@ package pages
 import (
 	"context"
 	"fmt"
+	"image"
 	"strings"
 	"time"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	log "github.com/charmbracelet/log/v2"
+	"github.com/faiface/beep"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/domain"
@@ -179,7 +182,17 @@ func (p *MainAppPage) Init() tea.Cmd {
 
 	// Create (or reuse) playback service and subscribe to events.
 	if p.pbSvc == nil {
-		p.pbSvc = service.NewPlaybackService()
+		if p.coordinator != nil && p.coordinator.PlaybackService() != nil {
+			p.pbSvc = p.coordinator.PlaybackService()
+		} else {
+			// Create a local instance and wire it into the coordinator to
+			// ensure other pages may reuse it. Clients running the app will
+			// typically set this at startup.
+			p.pbSvc = service.NewPlaybackService()
+			if p.coordinator != nil {
+				p.coordinator.SetPlaybackService(p.pbSvc)
+			}
+		}
 		p.pbEvtCh = p.pbSvc.Subscribe(p.ctx)
 	}
 
@@ -209,16 +222,36 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.height = msg.Height
 
 		// Resize lists
-		contentWidth := views.GetContentPaneWidth(p.width)
-		listHeight := p.height - 6 // Approximate height minus header/footer
+		// We use the same calculation as in View() to ensure consistency
+		usableWidth := p.width - 4
+		leftWidth := usableWidth * 40 / 100
+		if leftWidth < 30 {
+			leftWidth = 30
+		}
+
+		// Adjust height to accommodate help view at the bottom (approx 2 lines)
+		// and header/footer/borders.
+		// In View(), contentHeight := p.height - 8
+		// The list is inside the pane, which has borders (2 lines).
+		// So list height should be contentHeight - 2?
+		// Or does SetSize include borders? bubbles/list usually handles its own sizing.
+		// If we put the list inside a pane, the pane adds borders.
+		// So the list should be sized to fit INSIDE the pane.
+
+		contentHeight := p.height - 8
+		if contentHeight < 6 {
+			contentHeight = 6
+		}
+		// Pane borders take 2 lines (top+bottom)
+		listHeight := contentHeight - 2
 		if listHeight < 0 {
 			listHeight = 0
 		}
 
-		p.recentlyAddedList.SetSize(contentWidth, listHeight)
-		p.playlistList.SetSize(contentWidth, listHeight)
-		p.trackList.SetSize(contentWidth, listHeight)
-		p.queueList.SetSize(contentWidth, listHeight)
+		p.recentlyAddedList.SetSize(leftWidth, listHeight)
+		p.playlistList.SetSize(leftWidth, listHeight)
+		p.trackList.SetSize(leftWidth, listHeight)
+		p.queueList.SetSize(leftWidth, listHeight)
 
 		return p, nil
 
@@ -284,15 +317,8 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			appTracks := make([]app.Track, len(msg.Tracks))
 			items := make([]list.Item, len(msg.Tracks))
 			for i, t := range msg.Tracks {
-				appTracks[i] = app.Track{
-					Title:       t.Title,
-					Artist:      t.Artist,
-					Album:       t.Album,
-					Duration:    t.Duration,
-					TrackNumber: t.TrackNumber,
-					Key:         t.Key,
-					RatingKey:   t.RatingKey,
-					Thumb:       t.Thumb,
+				if at := p.domainTrackToApp(&t); at != nil {
+					appTracks[i] = *at
 				}
 				items[i] = TrackItem{Track: t}
 			}
@@ -364,32 +390,53 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case service.PlaybackEvent:
 		// Keep coordinator synchronized with playback events (UI-only reflection).
 		switch msg.Type {
+		case "playback.load_failed":
+			if msg.Error != nil {
+				p.coordinator.SetNotification(fmt.Sprintf("Load failed: %v", msg.Error), "error", 10*time.Second)
+				log.Debug("MainAppPage: set load_failed notification", "err", msg.Error)
+			} else {
+				p.coordinator.SetNotification("Load failed", "error", 10*time.Second)
+				log.Debug("MainAppPage: set load_failed notification (no err)")
+			}
+		case "playback.play_failed":
+			if msg.Error != nil {
+				p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", msg.Error), "error", 10*time.Second)
+			} else {
+				p.coordinator.SetNotification("Play failed", "error", 10*time.Second)
+			}
 		case "playback.started":
 			p.coordinator.SetPlaybackState(app.PlaybackPlaying)
 			if msg.Track != nil {
-				// Convert domain.Track -> app.Track and set on coordinator
-				track := app.Track{
-					Title:       msg.Track.Title,
-					Artist:      msg.Track.Artist,
-					Album:       msg.Track.Album,
-					Duration:    msg.Track.Duration,
-					TrackNumber: msg.Track.TrackNumber,
-					Key:         msg.Track.Key,
-					RatingKey:   msg.Track.RatingKey,
-					Thumb:       msg.Track.Thumb,
-				}
-				p.coordinator.SetCurrentTrack(&track)
+				track := p.domainTrackToApp(msg.Track)
+				p.coordinator.SetCurrentTrack(track)
 			}
+		case "playback.resumed":
+			p.coordinator.SetPlaybackState(app.PlaybackPlaying)
 		case "playback.paused":
 			p.coordinator.SetPlaybackState(app.PlaybackPaused)
 		case "playback.stopped":
 			p.coordinator.SetPlaybackState(app.PlaybackStopped)
 		case "playback.volume_changed":
 			// Playback service publishes floats — we don't keep it in coordinator as a primitive.
+		case "playback.position":
+			// Periodic position updates from the service.
+			if msg.Position >= 0 {
+				p.coordinator.SetStreamPosition(msg.Position)
+			}
+			if msg.Length > 0 {
+				p.coordinator.SetStreamLength(msg.Length)
+			}
+			if msg.SampleRate > 0 {
+				p.coordinator.SetSampleRate(beep.SampleRate(msg.SampleRate))
+			}
 		}
 		// Re-subscribe to playback and library events so we continue receiving them
 		return p, tea.Batch(p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	// animation messages removed - no-op
+
+	case CoverArtLoadedMsg:
+		p.coordinator.SetPlaybackAlbumArt(msg.Image, msg.Path)
+		return p, nil
 
 	case tea.KeyMsg:
 		// When the Search tab is active, let the text input widget handle keys.
@@ -438,48 +485,94 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, p.keys.Play):
+			log.Debug("Play key matched", "msg", msg)
+
+			// Priority: Toggle playback if active (Playing or Paused)
+			// This applies to both Space and P keys.
+			if p.coordinator.IsPlaying() {
+				if p.pbSvc != nil {
+					_ = p.pbSvc.Pause()
+				}
+				return p, nil
+			}
+			if p.coordinator.IsPaused() {
+				if p.pbSvc != nil {
+					_ = p.pbSvc.Resume()
+				}
+				return p, nil
+			}
+
+			// If we are Stopped (or no track loaded), try to play the selected item.
+			// This mimics "Play" behavior on a stopped player.
+
 			// Attempt to fetch and play the first track from the selected album
 			// or playlist, or play the selected queue item.
 			if p.showingTracks {
 				if p.libSvc != nil {
 					if item, ok := p.trackList.SelectedItem().(TrackItem); ok {
 						// Convert domain.Track -> app.Track
-						at := app.Track{
-							Title:       item.Track.Title,
-							Artist:      item.Track.Artist,
-							Album:       item.Track.Album,
-							Duration:    item.Track.Duration,
-							TrackNumber: item.Track.TrackNumber,
-							Key:         item.Track.Key,
-							RatingKey:   item.Track.RatingKey,
-							Thumb:       item.Track.Thumb,
-						}
-						p.playAppTrack(&at)
-						return p, nil
+						at := p.domainTrackToApp(&item.Track)
+						return p, p.playAppTrack(at)
 					}
 				}
 				return p, nil
 			}
 
 			active := p.coordinator.ActiveTab()
-			if p.libSvc != nil && active == app.PlaylistsTab {
-				if item, ok := p.playlistList.SelectedItem().(PlaylistItem); ok {
-					reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-					defer cancel()
-					tracks, _ := p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
-					if len(tracks) > 0 {
-						at := app.Track{
-							Title:       tracks[0].Title,
-							Artist:      tracks[0].Artist,
-							Album:       tracks[0].Album,
-							Duration:    tracks[0].Duration,
-							TrackNumber: tracks[0].TrackNumber,
-							Key:         tracks[0].Key,
-							RatingKey:   tracks[0].RatingKey,
-							Thumb:       tracks[0].Thumb,
+			if p.libSvc != nil && (active == app.PlaylistsTab || active == app.HomeTab || active == app.LibraryTab) {
+				if active == app.PlaylistsTab {
+					if item, ok := p.playlistList.SelectedItem().(PlaylistItem); ok {
+						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+						defer cancel()
+						// Fetch tracks for the playlist and set them as the queue.
+						tracks, _ := p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
+						if len(tracks) > 0 {
+							// Build app.Track list and list items
+							appTracks := make([]app.Track, len(tracks))
+							items := make([]list.Item, len(tracks))
+							for i, t := range tracks {
+								if at := p.domainTrackToApp(&t); at != nil {
+									appTracks[i] = *at
+								}
+								items[i] = TrackItem{Track: t}
+							}
+							// Update coordinator & list state
+							p.coordinator.SetQueue(appTracks)
+							p.coordinator.SetQueueIndex(0)
+							p.coordinator.SetTracks(appTracks)
+							p.trackList.SetItems(items)
+							p.trackList.Select(0)
+							p.coordinator.SetSelectedTrack(0)
+							p.showingTracks = true
+							// Play the first track of the queue
+							return p, p.playAppTrack(&appTracks[0])
 						}
-						p.playAppTrack(&at)
-						return p, nil
+					}
+				} else {
+					// Home or Library tab: use selected album
+					if item, ok := p.recentlyAddedList.SelectedItem().(AlbumItem); ok {
+						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+						defer cancel()
+						tracks, _ := p.libSvc.FetchTracks(reqCtx, item.Album.Key)
+						if len(tracks) > 0 {
+							// Build app.Track list and list items
+							appTracks := make([]app.Track, len(tracks))
+							items := make([]list.Item, len(tracks))
+							for i, t := range tracks {
+								if at := p.domainTrackToApp(&t); at != nil {
+									appTracks[i] = *at
+								}
+								items[i] = TrackItem{Track: t}
+							}
+							p.coordinator.SetQueue(appTracks)
+							p.coordinator.SetQueueIndex(0)
+							p.coordinator.SetTracks(appTracks)
+							p.trackList.SetItems(items)
+							p.trackList.Select(0)
+							p.coordinator.SetSelectedTrack(0)
+							p.showingTracks = true
+							return p, p.playAppTrack(&appTracks[0])
+						}
 					}
 				}
 				return p, nil
@@ -489,9 +582,22 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if p.pbSvc == nil {
 				return p, nil
 			}
-			if p.coordinator.HasCurrentTrack() && p.coordinator.IsPlaying() {
-				_ = p.pbSvc.Pause()
+
+			shouldPlayFromList := false
+
+			if p.coordinator.HasCurrentTrack() {
+				// If we are here, we are Stopped (IsPlaying and IsPaused checks above failed).
+				// Try to restart the current track if available.
+				if tr := p.coordinator.CurrentTrack(); tr != nil {
+					return p, p.playAppTrack(tr)
+				} else {
+					shouldPlayFromList = true
+				}
 			} else {
+				shouldPlayFromList = true
+			}
+
+			if shouldPlayFromList {
 				// Determine candidate track:
 				var tr *app.Track
 				// Favor a selected track in the page / coordinator if present, else take first track
@@ -503,17 +609,15 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					tr = &tracks[idx]
 					// Play via helper to keep UI in sync
-					p.playAppTrack(tr)
+					return p, p.playAppTrack(tr)
 				}
 			}
 			return p, nil
 
 		case key.Matches(msg, p.keys.Next):
-			p.playNext()
-			return p, nil
+			return p, p.playNext()
 		case key.Matches(msg, p.keys.Prev):
-			p.playPrev()
-			return p, nil
+			return p, p.playPrev()
 		case key.Matches(msg, p.keys.VolumeUp):
 			p.adjustVolume(0.1)
 			return p, nil
@@ -572,21 +676,8 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.trackList, cmd = p.trackList.Update(msg)
 			p.coordinator.SetSelectedTrack(p.trackList.Index())
 
-			if key.Matches(msg, p.keys.Enter) {
-				if item, ok := p.trackList.SelectedItem().(TrackItem); ok {
-					at := app.Track{
-						Title:       item.Track.Title,
-						Artist:      item.Track.Artist,
-						Album:       item.Track.Album,
-						Duration:    item.Track.Duration,
-						TrackNumber: item.Track.TrackNumber,
-						Key:         item.Track.Key,
-						RatingKey:   item.Track.RatingKey,
-						Thumb:       item.Track.Thumb,
-					}
-					p.playAppTrack(&at)
-				}
-			}
+			// Enter on track list does nothing (dedicated to menu operation elsewhere).
+			// Playback is triggered via Space/P.
 			return p, cmd
 		}
 
@@ -649,17 +740,8 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if key.Matches(msg, p.keys.Enter) {
 				if item, ok := p.queueList.SelectedItem().(QueueItem); ok {
-					at := app.Track{
-						Title:       item.Track.Title,
-						Artist:      item.Track.Artist,
-						Album:       item.Track.Album,
-						Duration:    item.Track.Duration,
-						TrackNumber: item.Track.TrackNumber,
-						Key:         item.Track.Key,
-						RatingKey:   item.Track.RatingKey,
-						Thumb:       item.Track.Thumb,
-					}
-					p.playAppTrack(&at)
+					at := p.domainTrackToApp(&item.Track)
+					return p, p.playAppTrack(at)
 				}
 			}
 		}
@@ -727,24 +809,26 @@ func (p *MainAppPage) View() string {
 		)
 	}
 
-	contentWidth := views.GetContentPaneWidth(p.width)
-	detailWidth := views.GetDetailPaneWidth(p.width)
 	// Split the main layout into two panes: left controlled by tabs (contentWidth)
 	// and right showing the Now Playing (detailWidth). Ensure both fit into the
 	// available width, adjusting when necessary.
-	leftWidth := contentWidth
-	rightWidth := detailWidth
-	usableWidth := p.width - 6
-	if leftWidth+rightWidth > usableWidth {
-		// Shrink right pane to fit while keeping left pane size readable.
+
+	// Calculate widths to fill available space
+	// We want roughly 40% left, 60% right, or 50/50?
+	// The previous logic used fixed percentages in views.go which might leave gaps.
+	// Let's use a simpler split: 40% left, 60% right of usable width.
+	usableWidth := p.width - 4 // 2 chars padding/border on each side roughly
+	leftWidth := usableWidth * 40 / 100
+	rightWidth := usableWidth - leftWidth
+
+	// Ensure minimums
+	if leftWidth < 30 {
+		leftWidth = 30
 		rightWidth = usableWidth - leftWidth
-		if rightWidth < 20 {
-			// Ensure a sensible minimum for the right pane.
-			rightWidth = 20
-			if leftWidth > usableWidth-rightWidth {
-				leftWidth = usableWidth - rightWidth
-			}
-		}
+	}
+	if rightWidth < 20 {
+		rightWidth = 20
+		leftWidth = usableWidth - rightWidth
 	}
 
 	active := p.coordinator.ActiveTab()
@@ -788,15 +872,16 @@ func (p *MainAppPage) View() string {
 		// the library service is active but no content has been loaded yet.
 		mainContent = lipgloss.JoinVertical(lipgloss.Center, styles.BlurredStyle.Render("Loading library..."))
 	}
-	contentPane := styles.PaneStyle(rightWidth, p.height-6).Render(mainContent)
-
-	leftContentHeight := p.height - 6
-	if leftContentHeight < 6 {
-		// Ensure a sensible minimum height for left content
-		leftContentHeight = 6
+	// Adjust height to accommodate help view at the bottom (approx 2 lines)
+	contentHeight := p.height - 8
+	if contentHeight < 6 {
+		contentHeight = 6
 	}
+	// Force height on the pane style to ensure borders extend fully
+	contentPane := styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(mainContent)
 
-	leftPane := styles.PaneStyle(leftWidth, leftContentHeight).Render(leftContent)
+	leftContentHeight := contentHeight
+	leftPane := styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(leftContent)
 
 	// Compose the two-pane layout: left column (content) and right pane (Now Playing)
 	panesRow := lipgloss.JoinHorizontal(lipgloss.Left, leftPane, contentPane)
@@ -851,11 +936,59 @@ func (p *MainAppPage) View() string {
 
 	statusLine := styles.BlurredStyle.Render(fmt.Sprintf("Server: %s • %s • Albums: %d • Playlists: %d • Tracks: %d", serverName, authStatus, albumsCount, playlistsCount, tracksCount))
 
-	centeredLayout := lipgloss.Place(p.width, p.height, lipgloss.Center, lipgloss.Top, layout)
-	return lipgloss.JoinVertical(lipgloss.Left,
+	// Render a transient top notification line if set on the coordinator.
+	notifStr := ""
+	if p.coordinator != nil && p.coordinator.NotificationActive() {
+		msg, sev, _ := p.coordinator.Notification()
+		switch sev {
+		case "error":
+			notifStr = styles.ErrorStyle.Render(fmt.Sprintf(" ⚠ %s", msg))
+		case "success":
+			notifStr = styles.SuccessStyle.Render(fmt.Sprintf(" ✓ %s", msg))
+		default:
+			notifStr = styles.InfoStyle.Render(fmt.Sprintf(" %s", msg))
+		}
+	}
+
+	p.help.Width = p.width
+	helpView := p.help.View(p.keys)
+
+	// We use p.height-2 for the centered layout to leave room for the help view?
+	// Actually centeredLayout uses lipgloss.Place which might fill the height.
+	// We should probably let the layout flow naturally or adjust the Place height.
+	// Since we adjusted the pane heights, the content should fit.
+	// Let's just join them vertically.
+
+	// Note: lipgloss.Place with p.height might push the help view off screen if we are not careful.
+	// But we reduced the pane height by 8 (header + footer + help).
+	// Header is ~3 lines (Title + Status + Notif).
+	// Help is ~1-2 lines.
+	// So p.height - 8 should be safe.
+
+	// We don't strictly need lipgloss.Place for the whole page if we are building it vertically.
+	// But let's keep the structure similar.
+
+	mainLayout := lipgloss.JoinVertical(lipgloss.Left,
 		styles.TitleStyle.Render(pageTitle),
 		statusLine,
-		centeredLayout,
+		layout, // The panes
+	)
+
+	if notifStr != "" {
+		mainLayout = lipgloss.JoinVertical(lipgloss.Left,
+			styles.TitleStyle.Render(pageTitle),
+			notifStr,
+			statusLine,
+			layout,
+		)
+	}
+
+	// Place the main layout in the available space minus help height?
+	// Or just join them.
+	return lipgloss.JoinVertical(lipgloss.Left,
+		mainLayout,
+		"",
+		helpView,
 	)
 }
 
@@ -866,9 +999,6 @@ func (p *MainAppPage) Close() {
 	}
 	if p.libSvc != nil {
 		_ = p.libSvc.Close()
-	}
-	if p.pbSvc != nil {
-		_ = p.pbSvc.Close()
 	}
 }
 
@@ -894,7 +1024,6 @@ func (p *MainAppPage) subscribeToLibraryEvents() tea.Cmd {
 	}
 }
 
-// subscribeToPlaybackEvents returns a command that listens for playback events
 // and returns them as tea messages for processing in Update.
 func (p *MainAppPage) subscribeToPlaybackEvents() tea.Cmd {
 	if p.pbEvtCh == nil {
@@ -982,22 +1111,41 @@ func (p *MainAppPage) fetchTracksCmd(key string) tea.Cmd {
 	}
 }
 
+type CoverArtLoadedMsg struct {
+	Image image.Image
+	Path  string
+}
+
+func (p *MainAppPage) fetchCoverArtCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		if p.libSvc == nil {
+			return nil
+		}
+		img, err := p.libSvc.FetchImage(p.ctx, path)
+		if err != nil {
+			log.Error("failed to fetch cover art", "path", path, "err", err)
+			return nil
+		}
+		return CoverArtLoadedMsg{Image: img, Path: path}
+	}
+}
+
 // renderRecentlyAdded displays the current recently-added albums list.
 func (p *MainAppPage) renderRecentlyAdded(width int) string {
 	p.recentlyAddedList.SetWidth(width)
-	return lipgloss.JoinVertical(lipgloss.Left, p.recentlyAddedList.View(), "", p.help.View(p.keys))
+	return p.recentlyAddedList.View()
 }
 
 // renderPlaylists displays the playlists list.
 func (p *MainAppPage) renderPlaylists(width int) string {
 	p.playlistList.SetWidth(width)
-	return lipgloss.JoinVertical(lipgloss.Left, p.playlistList.View(), "", p.help.View(p.keys))
+	return p.playlistList.View()
 }
 
 // renderQueue displays the queued tracks list.
 func (p *MainAppPage) renderQueue(width int) string {
 	p.queueList.SetWidth(width)
-	return lipgloss.JoinVertical(lipgloss.Left, p.queueList.View(), "", p.help.View(p.keys))
+	return p.queueList.View()
 }
 
 // renderSearch displays the search input and inline results in the left pane.
@@ -1020,8 +1168,7 @@ func (p *MainAppPage) renderSearch(width int) string {
 	if len(results) == 0 {
 		results = append(results, styles.BlurredStyle.Render("No matches"))
 	}
-	help := p.help.View(p.keys)
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", p.searchInput.View(), "", lipgloss.JoinVertical(lipgloss.Left, results...), "", help)
+	return lipgloss.JoinVertical(lipgloss.Left, title, "", p.searchInput.View(), "", lipgloss.JoinVertical(lipgloss.Left, results...))
 }
 
 // renderSettings displays a simple settings placeholder in the left pane.
@@ -1037,7 +1184,7 @@ func (p *MainAppPage) renderSettings(width int) string {
 // renderTracks displays the currently selected tracks in the left pane.
 func (p *MainAppPage) renderTracks(width int) string {
 	p.trackList.SetWidth(width)
-	return lipgloss.JoinVertical(lipgloss.Left, p.trackList.View(), "", p.help.View(p.keys))
+	return p.trackList.View()
 }
 
 // renderNowPlaying shows the now playing details, a small cover-art placeholder,
@@ -1056,6 +1203,32 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 	trackTitle := styles.PrimaryTextStyle().Render(tr.Title)
 	artist := styles.SecondaryTextStyle().Render(tr.Artist)
 	album := styles.TertiaryTextStyle().Render(tr.Album)
+
+	// Render album art using the playback renderer (if available). Fall back to a thumb/url line.
+	art := p.coordinator.PlaybackAlbumArt()
+	var artView string
+	artW := 0
+	if art != nil && p.coordinator.PlaybackImgRenderer() != nil {
+		// Give the art roughly 40-50% of the detail width with a lower bound
+		artW = width * 45 / 100
+		if artW < 6 {
+			artW = 6
+		}
+		artH := artW / 2
+		// Guard against zero size
+		if artH < 3 {
+			artH = 3
+		}
+		artView = p.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
+	} else {
+		// Fallback to the thumbnail URL if image rendering is not available.
+		thumb := p.coordinator.PlaybackAlbumArtThumb()
+		if thumb != "" {
+			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
+		} else {
+			artView = styles.BlurredStyle.Render("(Album art)")
+		}
+	}
 
 	// Use sample pos/length and sample rate (if available) to compute a time-based position.
 	posSamples := p.coordinator.StreamPosition()
@@ -1081,7 +1254,13 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 	lenStr := views.FormatTrackDuration(lenMs)
 
 	// Build a progress bar roughly sized to the detail width
-	barWidth := width - 12
+	// If art is present, we have less width for the bar
+	availableWidth := width
+	if artView != "" {
+		availableWidth = width - artW - 4 // padding
+	}
+
+	barWidth := availableWidth - 16 // approximate timestamp width
 	if barWidth < 8 {
 		barWidth = 8
 	}
@@ -1119,33 +1298,6 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 		volume = fmt.Sprintf("Vol: %.2f", vol.Volume)
 	}
 
-	controls := p.help.View(p.keys)
-
-	// Render album art using the playback renderer (if available). Fall back to a thumb/url line.
-	art := p.coordinator.PlaybackAlbumArt()
-	var artView string
-	if art != nil && p.coordinator.PlaybackImgRenderer() != nil {
-		// Give the art roughly 40-50% of the detail width with a lower bound
-		artW := width * 45 / 100
-		if artW < 6 {
-			artW = 6
-		}
-		artH := artW / 2
-		// Guard against zero size
-		if artH < 3 {
-			artH = 3
-		}
-		artView = p.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
-	} else {
-		// Fallback to the thumbnail URL if image rendering is not available.
-		thumb := p.coordinator.PlaybackAlbumArtThumb()
-		if thumb != "" {
-			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
-		} else {
-			artView = styles.BlurredStyle.Render("(Album art)")
-		}
-	}
-
 	rightColumn := lipgloss.JoinVertical(lipgloss.Left,
 		trackTitle,
 		artist,
@@ -1153,8 +1305,6 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 		"",
 		styles.BlurredStyle.Render(progressBar),
 		styles.BlurredStyle.Render(volume),
-		"",
-		controls,
 	)
 
 	// If we have artView (likely multi-line), render art and info side-by-side.
@@ -1315,7 +1465,7 @@ func (p *MainAppPage) appTrackToDomain(at *app.Track) *domain.Track {
 	if at == nil {
 		return nil
 	}
-	return &domain.Track{
+	dt := &domain.Track{
 		Title:       at.Title,
 		Artist:      at.Artist,
 		Album:       at.Album,
@@ -1325,26 +1475,119 @@ func (p *MainAppPage) appTrackToDomain(at *app.Track) *domain.Track {
 		RatingKey:   at.RatingKey,
 		Thumb:       at.Thumb,
 	}
+
+	// Copy Media info if present
+	if len(at.Media) > 0 {
+		dt.Media = make([]struct {
+			Part []struct {
+				Key string `json:"key"`
+			} `json:"Part"`
+		}, len(at.Media))
+		for i, m := range at.Media {
+			if len(m.Part) > 0 {
+				dt.Media[i].Part = make([]struct {
+					Key string `json:"key"`
+				}, len(m.Part))
+				for j, part := range m.Part {
+					dt.Media[i].Part[j].Key = part.Key
+				}
+			}
+		}
+	}
+	return dt
+}
+
+// Helper: convert a domain.Track into an app.Track
+func (p *MainAppPage) domainTrackToApp(dt *domain.Track) *app.Track {
+	if dt == nil {
+		return nil
+	}
+	at := &app.Track{
+		Title:       dt.Title,
+		Artist:      dt.Artist,
+		Album:       dt.Album,
+		Duration:    dt.Duration,
+		TrackNumber: dt.TrackNumber,
+		Key:         dt.Key,
+		RatingKey:   dt.RatingKey,
+		Thumb:       dt.Thumb,
+	}
+
+	// Copy Media info if present
+	if len(dt.Media) > 0 {
+		at.Media = make([]struct {
+			Part []struct {
+				Key string
+			}
+		}, len(dt.Media))
+		for i, m := range dt.Media {
+			if len(m.Part) > 0 {
+				at.Media[i].Part = make([]struct {
+					Key string
+				}, len(m.Part))
+				for j, part := range m.Part {
+					at.Media[i].Part[j].Key = part.Key
+				}
+			}
+		}
+	}
+	return at
 }
 
 // Helper: play the provided app.Track (UI & playback service)
-func (p *MainAppPage) playAppTrack(at *app.Track) {
+func (p *MainAppPage) playAppTrack(at *app.Track) tea.Cmd {
 	if at == nil {
-		return
+		return nil
 	}
+	log.Debug("playAppTrack.called", "title", at.Title)
 	// Update UI coordinator state
 	p.coordinator.SetCurrentTrack(at)
+	log.Debug("coordinator.current_track_set", "track", p.coordinator.CurrentTrack())
 	p.coordinator.SetPlaybackState(app.PlaybackPlaying)
+
+	var cmds []tea.Cmd
+
+	// Fetch cover art if available
+	if at.Thumb != "" {
+		cmds = append(cmds, p.fetchCoverArtCmd(at.Thumb))
+	}
 
 	// Delegate to playback service if available.
 	if p.pbSvc != nil {
 		dt := p.appTrackToDomain(at)
+
+		// Fetch stream if library service is available
+		if p.libSvc != nil {
+			// Use the page context for the stream request.
+			// Do NOT use a short timeout context here because canceling it will
+			// close the response body and kill the stream during playback.
+			stream, contentType, err := p.libSvc.FetchStream(p.ctx, dt)
+			if err != nil {
+				log.Error("failed to fetch stream", "err", err)
+				return nil
+			}
+
+			// Load the stream into the player
+			if err := p.pbSvc.LoadStream(stream, contentType); err != nil {
+				log.Error("failed to load stream", "err", err)
+				stream.Close()
+				return nil
+			}
+
+			// Initialize the player (speaker)
+			if err := p.pbSvc.Initialize(); err != nil {
+				log.Error("failed to initialize playback", "err", err)
+				return nil
+			}
+		}
+
 		_ = p.pbSvc.Play(dt)
 	}
+	return tea.Batch(cmds...)
 }
 
 // Helper: play next track (queue preferred, otherwise tracklist)
-func (p *MainAppPage) playNext() {
+func (p *MainAppPage) playNext() tea.Cmd {
 	// Prefer queue if present
 	q := p.coordinator.Queue()
 	if len(q) > 0 {
@@ -1358,14 +1601,13 @@ func (p *MainAppPage) playNext() {
 			}
 		}
 		p.coordinator.SetQueueIndex(idx)
-		p.playAppTrack(&q[idx])
-		return
+		return p.playAppTrack(&q[idx])
 	}
 
 	// Otherwise iterate through tracklist
 	tracks := p.coordinator.Tracks()
 	if len(tracks) == 0 {
-		return
+		return nil
 	}
 	idx := p.coordinator.SelectedTrack()
 	if idx < 0 || idx >= len(tracks)-1 {
@@ -1374,11 +1616,11 @@ func (p *MainAppPage) playNext() {
 		idx++
 	}
 	p.coordinator.SetSelectedTrack(idx)
-	p.playAppTrack(&tracks[idx])
+	return p.playAppTrack(&tracks[idx])
 }
 
 // Helper: play previous track (queue preferred, otherwise tracklist)
-func (p *MainAppPage) playPrev() {
+func (p *MainAppPage) playPrev() tea.Cmd {
 	// Prefer queue if present
 	q := p.coordinator.Queue()
 	if len(q) > 0 {
@@ -1389,14 +1631,13 @@ func (p *MainAppPage) playPrev() {
 			idx--
 		}
 		p.coordinator.SetQueueIndex(idx)
-		p.playAppTrack(&q[idx])
-		return
+		return p.playAppTrack(&q[idx])
 	}
 
 	// Otherwise iterate through tracklist
 	tracks := p.coordinator.Tracks()
 	if len(tracks) == 0 {
-		return
+		return nil
 	}
 	idx := p.coordinator.SelectedTrack()
 	if idx <= 0 {
@@ -1405,7 +1646,7 @@ func (p *MainAppPage) playPrev() {
 		idx--
 	}
 	p.coordinator.SetSelectedTrack(idx)
-	p.playAppTrack(&tracks[idx])
+	return p.playAppTrack(&tracks[idx])
 }
 
 // Helper: adjust volume by delta (range 0.0..2.0)
