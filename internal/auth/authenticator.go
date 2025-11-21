@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"plexmusic-tui/internal/domain"
 )
@@ -27,6 +31,26 @@ func NewAuthenticator() *Authenticator {
 	return &Authenticator{
 		httpClient: &http.Client{},
 	}
+}
+
+// isReachable attempts a quick TCP connection to the provided host:port using a short timeout.
+// It returns true if the host is reachable within the timeout.
+func isReachable(ctx context.Context, host string, port int, timeout time.Duration) bool {
+	if host == "" || port <= 0 {
+		return false
+	}
+
+	dialCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	address := net.JoinHostPort(host, strconv.Itoa(port))
+	d := net.Dialer{}
+	conn, err := d.DialContext(dialCtx, "tcp", address)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 // AuthenticateUser authenticates a user with Plex using username and password
@@ -89,7 +113,13 @@ func (a *Authenticator) FetchServers(ctx context.Context, token string) ([]domai
 		return nil, fmt.Errorf("authentication token is empty")
 	}
 
-	url := plexTVURL + "/api/v2/resources?includeHttps=1&includeRelay=0"
+	// includeRelay can be overridden via environment variable `PLEX_INCLUDE_RELAY`.
+	// When set to '1', relays are included. Default behavior is '0'.
+	relay := os.Getenv("PLEX_INCLUDE_RELAY")
+	if relay != "1" {
+		relay = "0"
+	}
+	url := fmt.Sprintf("%s/api/v2/resources?includeHttps=1&includeRelay=%s", plexTVURL, relay)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -127,28 +157,60 @@ func (a *Authenticator) FetchServers(ctx context.Context, token string) ([]domai
 		}
 
 		if len(resource.Connections) > 0 {
-			// Prefer local connections
-			var bestConn *struct {
-				Protocol string `json:"protocol"`
-				Address  string `json:"address"`
-				Port     int    `json:"port"`
-				Local    bool   `json:"local"`
-			}
+			// Prefer reachable remote connections, then reachable local connections,
+			// then fall back to the first remote or local address.
+			firstLocalIdx := -1
+			firstRemoteIdx := -1
+			reachableLocalIdx := -1
+			reachableRemoteIdx := -1
 
 			for i := range resource.Connections {
 				conn := &resource.Connections[i]
-				if bestConn == nil || (conn.Local && !bestConn.Local) {
-					bestConn = conn
+				if conn.Local {
+					if firstLocalIdx == -1 {
+						firstLocalIdx = i
+					}
+				} else {
+					if firstRemoteIdx == -1 {
+						firstRemoteIdx = i
+					}
+				}
+
+				// Quick reachability test with a short timeout. If the overall ctx is
+				// canceled, this will return quickly.
+				if isReachable(ctx, conn.Address, conn.Port, 500*time.Millisecond) {
+					if conn.Local {
+						if reachableLocalIdx == -1 {
+							reachableLocalIdx = i
+						}
+					} else {
+						// Prefer a reachable remote address and stop searching further.
+						reachableRemoteIdx = i
+						break
+					}
 				}
 			}
 
-			if bestConn != nil {
+			chosenIdx := -1
+			switch {
+			case reachableRemoteIdx != -1:
+				chosenIdx = reachableRemoteIdx
+			case reachableLocalIdx != -1:
+				chosenIdx = reachableLocalIdx
+			case firstRemoteIdx != -1:
+				chosenIdx = firstRemoteIdx
+			default:
+				chosenIdx = firstLocalIdx
+			}
+
+			if chosenIdx != -1 {
+				chosenConn := &resource.Connections[chosenIdx]
 				servers = append(servers, domain.PlexServer{
 					Name:        resource.Name,
-					Host:        bestConn.Address,
-					Port:        fmt.Sprintf("%d", bestConn.Port),
+					Host:        chosenConn.Address,
+					Port:        fmt.Sprintf("%d", chosenConn.Port),
 					AccessToken: resource.AccessToken,
-					Scheme:      bestConn.Protocol,
+					Scheme:      chosenConn.Protocol,
 				})
 			}
 		}

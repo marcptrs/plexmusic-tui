@@ -55,6 +55,35 @@ func TestFetchRecentlyAddedReturnsAlbums(t *testing.T) {
 	}
 }
 
+func TestAddPlexHeadersSetsHeaderAndQuery(t *testing.T) {
+	body := `{"MediaContainer":{"Metadata":[{"title":"Test Album","parentTitle":"Artist","year":2020,"key":"/library/metadata/99","thumb":"/thumb.jpg"}]}}`
+	mux := http.NewServeMux()
+	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
+		// Verify header and query param
+		tokenHeader := r.Header.Get("X-Plex-Token")
+		tokenQuery := r.URL.Query().Get("X-Plex-Token")
+		if tokenHeader != "server-token" || tokenQuery != "server-token" {
+			w.WriteHeader(http.StatusUnauthorized)
+			fmt.Fprintf(w, "missing token: header=%s query=%s", tokenHeader, tokenQuery)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, body)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	s := NewLibraryService(srv.URL, "server-token")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Fetch libraries - endpoint uses addPlexHeaders
+	_, err := s.FetchLibraries(ctx)
+	if err != nil {
+		t.Fatalf("FetchLibraries failed: %v", err)
+	}
+}
+
 func TestFetchPlaylistsReturnsPlaylists(t *testing.T) {
 	body := `{"MediaContainer":{"Metadata":[{"title":"Test Playlist","key":"/playlists/1","leafCount":3,"duration":120000,"playlistType":"audio"}]}}`
 	srv := startTestServer(body)
