@@ -19,7 +19,7 @@ import (
 	"plexmusic-tui/internal/service"
 )
 
-func TestMainAppPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
+func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 	coord := app.NewCoordinator()
 
 	albums := []app.Album{
@@ -48,7 +48,7 @@ func TestMainAppPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
 
-	page := NewMainAppPage(coord)
+	page := NewLibraryPage(coord)
 
 	// Ensure the page has a size to render its layout
 	page.width = 120
@@ -65,7 +65,7 @@ func TestMainAppPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 
 	// Open drawer for the selected tab (Enter) so the "Recently Added" list is shown over Now Playing
 	m, _ := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 
 	view := page.View()
 	if !strings.Contains(view, "Test Album") {
@@ -81,7 +81,7 @@ func TestMainAppPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
+func TestLibraryPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 	coord := app.NewCoordinator()
 
 	playlists := []app.Playlist{
@@ -109,7 +109,7 @@ func TestMainAppPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
 
-	page := NewMainAppPage(coord)
+	page := NewLibraryPage(coord)
 	page.width = 120
 	page.height = 40
 
@@ -124,7 +124,7 @@ func TestMainAppPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 
 	// Open drawer for the selected tab (Enter) so the playlist list is shown over Now Playing
 	m, _ := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 
 	view := page.View()
 	if !strings.Contains(view, "Test Playlist") {
@@ -132,7 +132,7 @@ func TestMainAppPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_FetchesLibraryDataFromServer(t *testing.T) {
+func TestLibraryPage_FetchesLibraryDataFromServer(t *testing.T) {
 	// Start a test HTTP server to simulate Plex responses.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
@@ -157,7 +157,7 @@ func TestMainAppPage_FetchesLibraryDataFromServer(t *testing.T) {
 	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
 	coord.SetSelectedServer(0)
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 
@@ -211,9 +211,9 @@ func TestMainAppPage_FetchesLibraryDataFromServer(t *testing.T) {
 }
 
 // Test that when a user changes selection in the Recently Added list, the
-// MainAppPage triggers a background fetch for the tracks belonging to the
+// LibraryPage triggers a background fetch for the tracks belonging to the
 // newly-selected album.
-func TestMainAppPage_FetchTracksOnAlbumSelection(t *testing.T) {
+func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	// Start a test HTTP server to simulate Plex responses.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
@@ -242,7 +242,7 @@ func TestMainAppPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
 	coord.SetSelectedServer(0)
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 
@@ -283,7 +283,7 @@ func TestMainAppPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	page.coordinator.SetActiveTab(app.HomeTab)
 	// Move selection to index 1 (Down) which should trigger a track fetch for album 2
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 	if cmd != nil {
 		_ = cmd()
 	}
@@ -318,7 +318,7 @@ func TestMainAppPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	}
 	// Press Enter to open the track list and ensure it now displays Track X
 	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 	if cmd != nil {
 		_ = cmd()
 	}
@@ -330,7 +330,7 @@ func TestMainAppPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_PlaybackPositionEventUpdatesCoordinator(t *testing.T) {
+func TestLibraryPage_PlaybackPositionEventUpdatesCoordinator(t *testing.T) {
 	coord := app.NewCoordinator()
 
 	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
@@ -338,7 +338,7 @@ func TestMainAppPage_PlaybackPositionEventUpdatesCoordinator(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 
 	// Simulate a playback position event coming from the playback service.
 	ev := service.PlaybackEvent{Type: "playback.position", Position: 1234, Length: 5678}
@@ -352,7 +352,7 @@ func TestMainAppPage_PlaybackPositionEventUpdatesCoordinator(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_PlaybackLoadFailure_ShowsNotification(t *testing.T) {
+func TestLibraryPage_PlaybackLoadFailure_ShowsNotification(t *testing.T) {
 	coord := app.NewCoordinator()
 
 	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
@@ -360,7 +360,7 @@ func TestMainAppPage_PlaybackLoadFailure_ShowsNotification(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 
@@ -385,7 +385,7 @@ func TestMainAppPage_PlaybackLoadFailure_ShowsNotification(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
+func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	// Start a test HTTP server to simulate Plex responses.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
@@ -416,7 +416,7 @@ func TestMainAppPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
 	coord.SetSelectedServer(0)
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 
@@ -457,7 +457,7 @@ func TestMainAppPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	page.coordinator.SetActiveTab(app.HomeTab)
 	// Move selection to index 1 (Down) which should trigger a track fetch for album 2
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 	if cmd != nil {
 		_ = cmd()
 	}
@@ -492,7 +492,7 @@ func TestMainAppPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	}
 	// Press Enter to open the track list and ensure it now displays Track X
 	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 	if cmd != nil {
 		_ = cmd()
 	}
@@ -505,9 +505,9 @@ func TestMainAppPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 }
 
 // Test that when a user changes selection in the Playlists list, the
-// MainAppPage triggers a background fetch for the tracks belonging to the
+// LibraryPage triggers a background fetch for the tracks belonging to the
 // newly-selected playlist.
-func TestMainAppPage_FetchTracksOnPlaylistSelection(t *testing.T) {
+func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/playlists", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Pl 1","key":"/playlists/1"},{"title":"Pl 2","key":"/playlists/2"}]}}`)
@@ -531,7 +531,7 @@ func TestMainAppPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
 	coord.SetSelectedServer(0)
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -567,7 +567,7 @@ func TestMainAppPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 
 	// Move selection down which should fetch tracks for playlist 2
 	m2, cmd2 := page.Update(tea.KeyMsg{Type: tea.KeyDown})
-	page = m2.(*MainAppPage)
+	page = m2.(*LibraryPage)
 	if cmd2 != nil {
 		_ = cmd2()
 	}
@@ -602,7 +602,7 @@ func TestMainAppPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	}
 	// Press Enter to open the track list and ensure it now displays PTrack X
 	m2, cmd2 = page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m2.(*MainAppPage)
+	page = m2.(*LibraryPage)
 	if cmd2 != nil {
 		_ = cmd2()
 	}
@@ -612,7 +612,7 @@ func TestMainAppPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
+func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`)
@@ -637,7 +637,7 @@ func TestMainAppPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetActiveTab(app.HomeTab)
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -674,7 +674,7 @@ func TestMainAppPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 
 	// Press Enter and expect the track list to open (no immediate playback)
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 	if cmd != nil {
 		_ = cmd()
 	}
@@ -689,7 +689,7 @@ func TestMainAppPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_EnterOpensTrackList_Playlist(t *testing.T) {
+func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/playlists", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Pl 1","key":"/playlists/1"}]}}`)
@@ -711,7 +711,7 @@ func TestMainAppPage_EnterOpensTrackList_Playlist(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetActiveTab(app.PlaylistsTab)
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -744,7 +744,7 @@ func TestMainAppPage_EnterOpensTrackList_Playlist(t *testing.T) {
 	page.coordinator.SetSelectedPlaylist(0)
 
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 	if cmd != nil {
 		_ = cmd()
 	}
@@ -759,7 +759,7 @@ func TestMainAppPage_EnterOpensTrackList_Playlist(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
+func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`)
@@ -793,7 +793,7 @@ func TestMainAppPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetActiveTab(app.HomeTab)
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -827,7 +827,7 @@ func TestMainAppPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 
 	// Press 'space' to play album and expect queue to be set and playback to begin
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 	if cmd != nil {
 		_ = cmd()
 	}
@@ -892,7 +892,7 @@ func createSilenceWav(seconds int) []byte {
 	return buff.Bytes()
 }
 
-func TestMainAppPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
+func TestLibraryPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/playlists", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Pl 1","key":"/playlists/1"}]}}`)
@@ -923,7 +923,7 @@ func TestMainAppPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetActiveTab(app.PlaylistsTab)
 
-	page := NewMainAppPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -956,7 +956,7 @@ func TestMainAppPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 	page.coordinator.SetSelectedPlaylist(0)
 
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
-	page = m.(*MainAppPage)
+	page = m.(*LibraryPage)
 	if cmd != nil {
 		_ = cmd()
 	}
@@ -983,7 +983,7 @@ func TestMainAppPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 	}
 }
 
-func TestMainAppPage_Init_UsesServerAccessTokenOverCoordinatorToken(t *testing.T) {
+func TestLibraryPage_Init_UsesServerAccessTokenOverCoordinatorToken(t *testing.T) {
 	coord := app.NewCoordinator()
 	coord.SetToken("coord-token")
 
@@ -997,7 +997,7 @@ func TestMainAppPage_Init_UsesServerAccessTokenOverCoordinatorToken(t *testing.T
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 
-	page := NewMainAppPage(coord)
+	page := NewLibraryPage(coord)
 	page.width = 120
 	page.height = 40
 

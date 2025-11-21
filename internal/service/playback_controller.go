@@ -8,7 +8,7 @@ import (
 
 // PlaybackController provides simple playback volume control operations.
 // It's intentionally minimal to avoid circular imports with the app package.
-// Complex playback orchestration (play, next, prev) remains in mainapp.go
+// Complex playback orchestration (play, next, prev) remains in library_page.go
 // where the full type information is available.
 type PlaybackController struct {
 	pbSvc *PlaybackService

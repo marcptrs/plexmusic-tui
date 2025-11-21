@@ -18,10 +18,10 @@ const (
 	SettingsView
 	LibrarySelectionView
 	AlbumListView
-	MainAppView // Unified view with panes
+	LibraryView // Unified view with panes
 )
 
-// PaneType represents the focused pane in the main app view
+// PaneType represents the focused pane in the library page view
 type PaneType int
 
 const (

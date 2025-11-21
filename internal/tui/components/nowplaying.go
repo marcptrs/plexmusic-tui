@@ -190,7 +190,7 @@ func (np *NowPlayingComponent) buildVolumeDisplay() string {
 	return volume
 }
 
-// SetVolume updates the volume display (called from mainapp when pbSvc available).
+// SetVolume updates the volume display (called from library page when pbSvc available).
 func (np *NowPlayingComponent) SetVolume(pbVolume float64) {
 	// This is informational; the component doesn't store state.
 	// The caller should manage volume state via the playback service.

@@ -18,7 +18,7 @@ import (
 	"github.com/faiface/beep"
 
 	"plexmusic-tui/internal/app"
-	"plexmusic-tui/internal/domain"
+	domain "plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
@@ -26,11 +26,11 @@ import (
 	"plexmusic-tui/internal/tui/util"
 )
 
-// MainAppPage handles the main application UI with tab navigation,
-// list rendering (Recently Added, Playlists), modal dialogs, and a simple
+// LibraryPage handles the library browsing UI with tab navigation,
+// list rendering (Recently Added, Playlists), modal dialogs, and the
 // "Now Playing" panel (cover art + controls).
-type MainAppPage struct {
-	coordinator *app.Coordinator
+type LibraryPage struct {
+	coordinator app.Coordinatorer
 
 	width, height int
 
@@ -64,16 +64,16 @@ type MainAppPage struct {
 	lastSelectedPlaylistIndex int
 
 	help help.Model
-	keys tui.MainAppKeyMap
+	keys tui.LibraryKeyMap
 }
 
-// NewMainAppPage creates a new main application page and sets up a
+// NewLibraryPage creates a new library browsing page and sets up a
 // cancellable background context for event subscriptions.
-func NewMainAppPage(coord *app.Coordinator) *MainAppPage {
-	return NewMainAppPageWithAuth(coord, nil)
+func NewLibraryPage(coord app.Coordinatorer) *LibraryPage {
+	return NewLibraryPageWithAuth(coord, nil)
 }
 
-func NewMainAppPageWithAuth(coord *app.Coordinator, authSvc service.AuthServicer) *MainAppPage {
+func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthServicer) *LibraryPage {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Initialize lists
@@ -95,7 +95,7 @@ func NewMainAppPageWithAuth(coord *app.Coordinator, authSvc service.AuthServicer
 	qList.Title = "Queue"
 	qList.SetShowHelp(false)
 
-	p := &MainAppPage{
+	p := &LibraryPage{
 		coordinator:   coord,
 		ctx:           ctx,
 		cancel:        cancel,
@@ -108,7 +108,7 @@ func NewMainAppPageWithAuth(coord *app.Coordinator, authSvc service.AuthServicer
 		lastSelectedAlbumIndex:    -1,
 		lastSelectedPlaylistIndex: -1,
 		help:                      help.New(),
-		keys:                      tui.DefaultMainAppKeyMap(),
+		keys:                      tui.DefaultLibraryKeyMap(),
 		recentlyAddedList:         raList,
 		playlistList:              plList,
 		trackList:                 trList,
@@ -142,10 +142,10 @@ func NewMainAppPageWithAuth(coord *app.Coordinator, authSvc service.AuthServicer
 // drawerTickMsg/drawerTickCmd removed; drawers are deprecated in favor of
 // inline left-pane rendering managed by `showingTracks`.
 
-// Init initializes the main app page. This attempts to set up library and
+// Init initializes the library page. This attempts to set up library and
 // playback services for the current server (if present) and kick off the
 // initial fetches for Recently Added + Playlists.
-func (p *MainAppPage) Init() tea.Cmd {
+func (p *LibraryPage) Init() tea.Cmd {
 	server := p.coordinator.GetCurrentServer()
 	// Prefer the server-specific access token (resource.AccessToken) when available;
 	// otherwise fall back to the user auth token stored on the coordinator.
@@ -169,7 +169,7 @@ func (p *MainAppPage) Init() tea.Cmd {
 	if server.Port != "" {
 		baseURL = fmt.Sprintf("%s:%s", baseURL, server.Port)
 	}
-	log.Debug("MainAppPage: connecting to server", "name", server.Name, "baseURL", baseURL, "scheme", server.Scheme, "host", server.Host, "port", server.Port)
+	log.Debug("LibraryPage: connecting to server", "name", server.Name, "baseURL", baseURL, "scheme", server.Scheme, "host", server.Host, "port", server.Port)
 
 	// Create (or reuse) library service and subscribe to events. This ensures we
 	// only fetch library content when we have the necessary server + token.
@@ -215,14 +215,14 @@ func (p *MainAppPage) Init() tea.Cmd {
 	)
 }
 
-// Update processes messages for the main application page, including window
+// Update processes messages for the library page, including window
 // size changes, library/playback events, and key events for navigation & actions.
-func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
 		p.height = msg.Height
-		log.Debug("MainAppPage: WindowSizeMsg", "width", p.width, "height", p.height)
+		log.Debug("LibraryPage: WindowSizeMsg", "width", p.width, "height", p.height)
 
 		// Resize lists
 		// We use the same calculation as in View() to ensure consistency
@@ -282,7 +282,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Key:    a.Key,
 					Thumb:  a.Thumb,
 				}
-				items[i] = AlbumItem{Album: a}
+				items[i] = util.AlbumItem{Album: a}
 			}
 			p.coordinator.SetAlbums(appAlbums)
 			p.recentlyAddedList.SetItems(items)
@@ -305,7 +305,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Duration:     pl.Duration,
 					PlaylistType: pl.PlaylistType,
 				}
-				items[i] = PlaylistItem{Playlist: pl}
+				items[i] = util.PlaylistItem{Playlist: pl}
 			}
 			p.coordinator.SetPlaylists(appPlaylists)
 			p.playlistList.SetItems(items)
@@ -323,7 +323,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if at := p.domainTrackToApp(&t); at != nil {
 					appTracks[i] = *at
 				}
-				items[i] = TrackItem{Track: t}
+				items[i] = util.TrackItem{Track: t}
 			}
 			p.coordinator.SetTracks(appTracks)
 			p.trackList.SetItems(items)
@@ -411,10 +411,10 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "playback.load_failed":
 			if msg.Error != nil {
 				p.coordinator.SetNotification(fmt.Sprintf("Load failed: %v", msg.Error), "error", 10*time.Second)
-				log.Debug("MainAppPage: set load_failed notification", "err", msg.Error)
+				log.Debug("LibraryPage: set load_failed notification", "err", msg.Error)
 			} else {
 				p.coordinator.SetNotification("Load failed", "error", 10*time.Second)
-				log.Debug("MainAppPage: set load_failed notification (no err)")
+				log.Debug("LibraryPage: set load_failed notification (no err)")
 			}
 		case "playback.play_failed":
 			if msg.Error != nil {
@@ -482,7 +482,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Key handling for the main app.
+		// Key handling for the library page.
 		var cmd tea.Cmd
 
 		// Handle global keys first
@@ -534,7 +534,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// or playlist, or play the selected queue item.
 			if p.showingTracks {
 				if p.libSvc != nil {
-					if item, ok := p.trackList.SelectedItem().(TrackItem); ok {
+					if item, ok := p.trackList.SelectedItem().(util.TrackItem); ok {
 						// Convert domain.Track -> app.Track
 						at := p.domainTrackToApp(&item.Track)
 						return p, p.playAppTrack(at)
@@ -546,7 +546,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			active := p.coordinator.ActiveTab()
 			if p.libSvc != nil && (active == app.PlaylistsTab || active == app.HomeTab || active == app.LibraryTab) {
 				if active == app.PlaylistsTab {
-					if item, ok := p.playlistList.SelectedItem().(PlaylistItem); ok {
+					if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
 						// Fetch tracks for the playlist and set them as the queue.
@@ -559,7 +559,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								if at := p.domainTrackToApp(&t); at != nil {
 									appTracks[i] = *at
 								}
-								items[i] = TrackItem{Track: t}
+								items[i] = util.TrackItem{Track: t}
 							}
 							// Update coordinator & list state
 							p.coordinator.SetQueue(appTracks)
@@ -575,7 +575,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else {
 					// Home or Library tab: use selected album
-					if item, ok := p.recentlyAddedList.SelectedItem().(AlbumItem); ok {
+					if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
 						tracks, _ := p.libSvc.FetchTracks(reqCtx, item.Album.Key)
@@ -587,7 +587,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 								if at := p.domainTrackToApp(&t); at != nil {
 									appTracks[i] = *at
 								}
-								items[i] = TrackItem{Track: t}
+								items[i] = util.TrackItem{Track: t}
 							}
 							p.coordinator.SetQueue(appTracks)
 							p.coordinator.SetQueueIndex(0)
@@ -690,7 +690,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.coordinator.SetSelectedAlbum(p.recentlyAddedList.Index())
 
 			// If selection changed, fetch tracks for the selected album in the background
-			if item, ok := p.recentlyAddedList.SelectedItem().(AlbumItem); ok {
+			if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
 				newIdx := p.recentlyAddedList.Index()
 				if newIdx != p.lastSelectedAlbumIndex && p.libSvc != nil {
 					p.lastSelectedAlbumIndex = newIdx
@@ -701,7 +701,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if key.Matches(msg, p.keys.Enter) {
-				if item, ok := p.recentlyAddedList.SelectedItem().(AlbumItem); ok {
+				if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
 					if p.libSvc != nil {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
@@ -716,7 +716,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.coordinator.SetSelectedPlaylist(p.playlistList.Index())
 
 			// If selection changed, fetch tracks for the selected playlist in the background
-			if item, ok := p.playlistList.SelectedItem().(PlaylistItem); ok {
+			if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
 				newIdx := p.playlistList.Index()
 				if newIdx != p.lastSelectedPlaylistIndex && p.libSvc != nil {
 					p.lastSelectedPlaylistIndex = newIdx
@@ -727,7 +727,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if key.Matches(msg, p.keys.Enter) {
-				if item, ok := p.playlistList.SelectedItem().(PlaylistItem); ok {
+				if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
 					if p.libSvc != nil {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
@@ -742,7 +742,7 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.coordinator.SetQueueIndex(p.queueList.Index())
 
 			if key.Matches(msg, p.keys.Enter) {
-				if item, ok := p.queueList.SelectedItem().(QueueItem); ok {
+				if item, ok := p.queueList.SelectedItem().(util.QueueItem); ok {
 					at := p.domainTrackToApp(&item.Track)
 					return p, p.playAppTrack(at)
 				}
@@ -754,10 +754,10 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return p, nil
 }
 
-// View renders the main app page using a tabbed layout. It includes a nav pane,
+// View renders the library page using a tabbed layout. It includes a nav pane,
 // main content pane, and a detail/now-playing pane. When the queue is visible,
 // a modal overlay is displayed.
-func (p *MainAppPage) View() string {
+func (p *LibraryPage) View() string {
 	// Ensure we have width/height for layout calculations. If the page hasn't
 	// received a WindowSizeMsg yet (width/height == 0) fall back to either the
 	// coordinator-provided dimensions or to pragmatic defaults so we can render
@@ -1018,7 +1018,7 @@ func (p *MainAppPage) View() string {
 }
 
 // Close cancels any subscriptions and releases resources used by the page.
-func (p *MainAppPage) Close() {
+func (p *LibraryPage) Close() {
 	if p.cancel != nil {
 		p.cancel()
 	}
@@ -1031,7 +1031,7 @@ func (p *MainAppPage) Close() {
 
 // subscribeToLibraryEvents returns a command that listens for library events
 // and returns them as tea messages (LibraryEvent) for processing in Update.
-func (p *MainAppPage) subscribeToLibraryEvents() tea.Cmd {
+func (p *LibraryPage) subscribeToLibraryEvents() tea.Cmd {
 	if p.libEvtCh == nil {
 		return nil
 	}
@@ -1052,7 +1052,7 @@ func (p *MainAppPage) subscribeToLibraryEvents() tea.Cmd {
 }
 
 // and returns them as tea messages for processing in Update.
-func (p *MainAppPage) subscribeToPlaybackEvents() tea.Cmd {
+func (p *LibraryPage) subscribeToPlaybackEvents() tea.Cmd {
 	if p.pbEvtCh == nil {
 		return nil
 	}
@@ -1066,7 +1066,7 @@ func (p *MainAppPage) subscribeToPlaybackEvents() tea.Cmd {
 
 // subscribeToAuthEvents listens for AuthService events and forwards ones
 // relevant to server discovery to the page as tea messages.
-func (p *MainAppPage) subscribeToAuthEvents() tea.Cmd {
+func (p *LibraryPage) subscribeToAuthEvents() tea.Cmd {
 	if p.authEvtCh == nil {
 		if p.authSvc == nil {
 			return nil
@@ -1085,7 +1085,7 @@ func (p *MainAppPage) subscribeToAuthEvents() tea.Cmd {
 }
 
 // fetchLibraries triggers the library service to fetch available libraries.
-func (p *MainAppPage) fetchLibraries() tea.Cmd {
+func (p *LibraryPage) fetchLibraries() tea.Cmd {
 	if p.libSvc == nil {
 		return nil
 	}
@@ -1098,7 +1098,7 @@ func (p *MainAppPage) fetchLibraries() tea.Cmd {
 }
 
 // fetchRecentlyAdded triggers the library service to fetch recently added.
-func (p *MainAppPage) fetchRecentlyAdded() tea.Cmd {
+func (p *LibraryPage) fetchRecentlyAdded() tea.Cmd {
 	if p.libSvc == nil {
 		return nil
 	}
@@ -1111,7 +1111,7 @@ func (p *MainAppPage) fetchRecentlyAdded() tea.Cmd {
 }
 
 // fetchPlaylists triggers the library service to fetch playlists.
-func (p *MainAppPage) fetchPlaylists() tea.Cmd {
+func (p *LibraryPage) fetchPlaylists() tea.Cmd {
 	if p.libSvc == nil {
 		return nil
 	}
@@ -1126,7 +1126,7 @@ func (p *MainAppPage) fetchPlaylists() tea.Cmd {
 // fetchTracksCmd returns a tea.Cmd that fetches tracks for the given key
 // using the library service and returns nil as the tea.Message (we rely on
 // library events to update the UI when the response arrives).
-func (p *MainAppPage) fetchTracksCmd(key string) tea.Cmd {
+func (p *LibraryPage) fetchTracksCmd(key string) tea.Cmd {
 	if p.libSvc == nil || key == "" {
 		return nil
 	}
@@ -1143,7 +1143,7 @@ type CoverArtLoadedMsg struct {
 	Path  string
 }
 
-func (p *MainAppPage) fetchCoverArtCmd(path string) tea.Cmd {
+func (p *LibraryPage) fetchCoverArtCmd(path string) tea.Cmd {
 	return func() tea.Msg {
 		if p.libSvc == nil {
 			return nil
@@ -1158,25 +1158,25 @@ func (p *MainAppPage) fetchCoverArtCmd(path string) tea.Cmd {
 }
 
 // renderRecentlyAdded displays the current recently-added albums list.
-func (p *MainAppPage) renderRecentlyAdded(width int) string {
+func (p *LibraryPage) renderRecentlyAdded(width int) string {
 	p.recentlyAddedList.SetWidth(width)
 	return p.recentlyAddedList.View()
 }
 
 // renderPlaylists displays the playlists list.
-func (p *MainAppPage) renderPlaylists(width int) string {
+func (p *LibraryPage) renderPlaylists(width int) string {
 	p.playlistList.SetWidth(width)
 	return p.playlistList.View()
 }
 
 // renderQueue displays the queued tracks list.
-func (p *MainAppPage) renderQueue(width int) string {
+func (p *LibraryPage) renderQueue(width int) string {
 	p.queueList.SetWidth(width)
 	return p.queueList.View()
 }
 
 // renderSearch displays the search input and inline results in the left pane.
-func (p *MainAppPage) renderSearch(width int) string {
+func (p *LibraryPage) renderSearch(width int) string {
 	title := styles.TitleStyle.Render("Search")
 	results := []string{}
 	term := strings.TrimSpace(p.searchInput.Value())
@@ -1199,7 +1199,7 @@ func (p *MainAppPage) renderSearch(width int) string {
 }
 
 // renderSettings displays a simple settings placeholder in the left pane.
-func (p *MainAppPage) renderSettings(width int) string {
+func (p *LibraryPage) renderSettings(width int) string {
 	title := styles.TitleStyle.Render("Settings")
 	lines := []string{
 		styles.BlurredStyle.Render("No settings available yet."),
@@ -1209,14 +1209,14 @@ func (p *MainAppPage) renderSettings(width int) string {
 }
 
 // renderTracks displays the currently selected tracks in the left pane.
-func (p *MainAppPage) renderTracks(width int) string {
+func (p *LibraryPage) renderTracks(width int) string {
 	p.trackList.SetWidth(width)
 	return p.trackList.View()
 }
 
 // renderNowPlaying shows the now playing details, a small cover-art placeholder,
 // playback progress and volume controls.
-func (p *MainAppPage) renderNowPlaying(width, height int) string {
+func (p *LibraryPage) renderNowPlaying(width, height int) string {
 	// If no track is present, show a 'Nothing Playing' placeholder
 	if !p.coordinator.HasCurrentTrack() {
 		help := styles.NothingPlayingHintStyle()
@@ -1365,7 +1365,7 @@ func (p *MainAppPage) renderNowPlaying(width, height int) string {
 }
 
 // renderWithModal composes the base view layout with the queue modal overlay.
-func (p *MainAppPage) renderWithModal(base string) string {
+func (p *LibraryPage) renderWithModal(base string) string {
 	queue := p.coordinator.Queue()
 	var lines []string
 	lines = append(lines, styles.TitleStyle.Render("Queue"))
@@ -1396,7 +1396,7 @@ func (p *MainAppPage) renderWithModal(base string) string {
 }
 
 // renderNowPlayingFull renders a full-screen focused Now Playing page.
-func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
+func (p *LibraryPage) renderNowPlayingFull(width int, height int) string {
 	// Build a large art presentation area plus metadata and controls below
 	if !p.coordinator.HasCurrentTrack() {
 		help := styles.NothingPlayingHintStyle()
@@ -1510,7 +1510,7 @@ func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 }
 
 // Helper: convert an app.Track into a domain.Track for playback calls
-func (p *MainAppPage) appTrackToDomain(at *app.Track) *domain.Track {
+func (p *LibraryPage) appTrackToDomain(at *app.Track) *domain.Track {
 	if at == nil {
 		return nil
 	}
@@ -1547,7 +1547,7 @@ func (p *MainAppPage) appTrackToDomain(at *app.Track) *domain.Track {
 }
 
 // Helper: convert a domain.Track into an app.Track
-func (p *MainAppPage) domainTrackToApp(dt *domain.Track) *app.Track {
+func (p *LibraryPage) domainTrackToApp(dt *domain.Track) *app.Track {
 	if dt == nil {
 		return nil
 	}
@@ -1584,7 +1584,7 @@ func (p *MainAppPage) domainTrackToApp(dt *domain.Track) *app.Track {
 }
 
 // Helper: play the provided app.Track (UI & playback service)
-func (p *MainAppPage) playAppTrack(at *app.Track) tea.Cmd {
+func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
 	if at == nil {
 		return nil
 	}
@@ -1636,7 +1636,7 @@ func (p *MainAppPage) playAppTrack(at *app.Track) tea.Cmd {
 }
 
 // Helper: play next track (queue preferred, otherwise tracklist)
-func (p *MainAppPage) playNext() tea.Cmd {
+func (p *LibraryPage) playNext() tea.Cmd {
 	// Prefer queue if present
 	q := p.coordinator.Queue()
 	if len(q) > 0 {
@@ -1669,7 +1669,7 @@ func (p *MainAppPage) playNext() tea.Cmd {
 }
 
 // Helper: play previous track (queue preferred, otherwise tracklist)
-func (p *MainAppPage) playPrev() tea.Cmd {
+func (p *LibraryPage) playPrev() tea.Cmd {
 	// Prefer queue if present
 	q := p.coordinator.Queue()
 	if len(q) > 0 {
@@ -1700,7 +1700,7 @@ func (p *MainAppPage) playPrev() tea.Cmd {
 
 // Helper: adjust volume by percentage (linear stepping for consistent feel)
 // percentageDelta is in percentage points (e.g., 5 means +5% or -5%)
-func (p *MainAppPage) adjustVolumeByPercent(percentageDelta int) {
+func (p *LibraryPage) adjustVolumeByPercent(percentageDelta int) {
 	if p.pbSvc != nil {
 		currentVolume := p.pbSvc.GetVolume()
 		// Convert current logarithmic volume to percentage

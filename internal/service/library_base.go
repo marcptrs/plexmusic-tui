@@ -201,10 +201,13 @@ func (s *LibraryService) FetchLibraries(ctx context.Context) ([]domain.MusicLibr
 	}
 parsed:
 
-	// Filter to music libraries only
+	// Filter to music libraries only. Use a whitelist of known music section
+	// types to avoid including TV/movie/photo sections that some servers
+	// may return unexpectedly.
+	allowed := map[string]bool{"artist": true, "music": true, "album": true, "collection": true, "music_video": true}
 	var libraries []domain.MusicLibrary
 	for _, dir := range container.Directory {
-		if dir.Type == "artist" {
+		if allowed[strings.ToLower(dir.Type)] {
 			libraries = append(libraries, dir)
 		}
 	}

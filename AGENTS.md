@@ -40,7 +40,7 @@ internal/
   pubsub/         Event broker for pub/sub architecture (generic, type-safe)
   service/        AuthService, LibraryService + service interfaces
   tui/            TUI infrastructure (pages, router, page types)
-    pages/        Individual page components (login, server_selection, mainapp)
+    pages/        Individual page components (login, server_selection, library_page)
     components/   Reusable UI components (NowPlayingComponent, etc.)
     styles/       Canonical TUI styles package (replaces deprecated internal/ui)
     util/         TUI utilities (Model/Sizeable/Focusable, FormatTrackDuration, GetContentPaneWidth, etc.)
@@ -57,7 +57,7 @@ A large `tmp/crush/` tree exists containing unrelated development tooling code (
 ## State Management Patterns
 **Current (Transitional)**:
 1. Legacy Bubble Tea model in `main.go` holds duplicated state fields.
-2. `MainAppPage` (`internal/tui/pages/mainapp.go`) uses `bubbles/list` components for Recently Added, Playlists, Tracks, and Queue panes. This replaces manual slice/index management.
+2. `LibraryPage` (`internal/tui/pages/library_page.go`) uses `bubbles/list` components for Recently Added, Playlists, Tracks, and Queue panes. This replaces manual slice/index management.
 3. Centralized `Coordinator` (`internal/app/coordinator.go`) provides getters/setters for shared state. Migration in progress.
 
 **Target Architecture (Following tmp/crush patterns - IN PROGRESS)**:

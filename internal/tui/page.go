@@ -8,7 +8,7 @@ type PageID string
 const (
 	LoginPageID           PageID = "login"
 	ServerSelectionPageID PageID = "server_selection"
-	MainAppPageID         PageID = "main_app"
+	LibraryPageID         PageID = "library"
 )
 
 // PageChangeMsg signals a page transition

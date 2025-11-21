@@ -71,7 +71,10 @@ func (c *Coordinator) Dispatch(msg CoordinatorMsg) bool {
 
 	case MessageQueueTrack:
 		if track, ok := msg.Data.(Track); ok {
-			c.queue = append(c.queue, track)
+			// convert app.Track -> domain.Track then set via coordinator API
+			q := c.Queue()
+			q = append(q, track)
+			c.SetQueue(q)
 			return true
 		}
 

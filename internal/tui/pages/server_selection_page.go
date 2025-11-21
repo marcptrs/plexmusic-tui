@@ -32,7 +32,7 @@ func (i serverItem) Description() string { return fmt.Sprintf("%s:%s", i.Host, i
 func (i serverItem) FilterValue() string { return i.Name }
 
 type ServerSelectionPage struct {
-	coordinator *app.Coordinator
+	coordinator app.Coordinatorer
 	authService service.AuthServicer
 	configMgr   *config.Manager
 
@@ -53,7 +53,7 @@ type ServerSelectionPage struct {
 
 // NewServerSelectionPage creates a new server selection page
 func NewServerSelectionPage(
-	coord *app.Coordinator,
+	coord app.Coordinatorer,
 	authSvc service.AuthServicer,
 	cfgMgr *config.Manager,
 ) *ServerSelectionPage {
@@ -259,7 +259,7 @@ func (p *ServerSelectionPage) handleAuthEvent(event service.AuthEvent) tea.Cmd {
 							}
 						}
 					}
-					// Immediately select and navigate to main app when the previously-used
+					// Immediately select and navigate to library page when the previously-used
 					// server is found so the user is returned directly to the main view.
 					return p.selectServer()
 				}
@@ -329,9 +329,9 @@ func (p *ServerSelectionPage) selectServer() tea.Cmd {
 		}
 	}
 
-	// Transition to main app
+	// Transition to library page
 	return func() tea.Msg {
-		return tui.PageChangeMsg{ID: tui.MainAppPageID}
+		return tui.PageChangeMsg{ID: tui.LibraryPageID}
 	}
 }
 

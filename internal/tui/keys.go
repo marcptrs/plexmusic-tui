@@ -23,8 +23,8 @@ func DefaultKeyMap() KeyMap {
 	}
 }
 
-// MainAppKeyMap defines key bindings for the main application page.
-type MainAppKeyMap struct {
+// LibraryKeyMap defines key bindings for the library browsing page.
+type LibraryKeyMap struct {
 	Up              key.Binding
 	Down            key.Binding
 	Enter           key.Binding
@@ -45,12 +45,12 @@ type MainAppKeyMap struct {
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view.
-func (k MainAppKeyMap) ShortHelp() []key.Binding {
+func (k LibraryKeyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.Up, k.Down, k.Enter, k.PlaySelected, k.Play, k.Back, k.Quit}
 }
 
 // FullHelp returns keybindings for the expanded help view.
-func (k MainAppKeyMap) FullHelp() [][]key.Binding {
+func (k LibraryKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter, k.PlaySelected, k.Back},
 		{k.Play, k.Next, k.Prev, k.VolumeUp, k.VolumeDown, k.FocusNowPlaying},
@@ -58,9 +58,9 @@ func (k MainAppKeyMap) FullHelp() [][]key.Binding {
 	}
 }
 
-// DefaultMainAppKeyMap returns the default key bindings for the main app.
-func DefaultMainAppKeyMap() MainAppKeyMap {
-	return MainAppKeyMap{
+// DefaultLibraryKeyMap returns the default key bindings for the library page.
+func DefaultLibraryKeyMap() LibraryKeyMap {
+	return LibraryKeyMap{
 		Up: key.NewBinding(
 			key.WithKeys("up", "k"),
 			key.WithHelp("↑/k", "up"),

@@ -21,7 +21,7 @@ import (
 
 // LoginPage handles authentication UI
 type LoginPage struct {
-	coordinator *app.Coordinator
+	coordinator app.Coordinatorer
 	authService service.AuthServicer
 	configMgr   *config.Manager
 
@@ -43,12 +43,12 @@ type LoginPage struct {
 }
 
 // NewLoginPage creates a new login page
-func NewLoginPage(coord *app.Coordinator, authSvc service.AuthServicer) *LoginPage {
+func NewLoginPage(coord app.Coordinatorer, authSvc service.AuthServicer) *LoginPage {
 	// Backward-compatible wrapper, creating login page without config manager
 	return NewLoginPageWithConfig(coord, authSvc, nil)
 }
 
-func NewLoginPageWithConfig(coord *app.Coordinator, authSvc service.AuthServicer, cfgMgr *config.Manager) *LoginPage {
+func NewLoginPageWithConfig(coord app.Coordinatorer, authSvc service.AuthServicer, cfgMgr *config.Manager) *LoginPage {
 	usernameInput := textinput.New()
 	usernameInput.Placeholder = "Email or username"
 	usernameInput.Focus()
@@ -87,7 +87,7 @@ func (p *LoginPage) Init() tea.Cmd {
 
 			// If there's a previously selected server, proactively fetch servers
 			// and wait for the auth service to publish 'servers.loaded' so we can
-			// auto-select and navigate straight into the main app view.
+			// auto-select and navigate straight into the library page view.
 			if p.configMgr.GetLastSelectedServer() != "" {
 				return tea.Batch(
 					textinput.Blink,
@@ -407,9 +407,9 @@ func (p *LoginPage) handleAuthEvent(event service.AuthEvent) (tea.Model, tea.Cmd
 							}
 						}
 					}
-					// Navigate straight to the main app page
+					// Navigate straight to the library page page
 					return p, func() tea.Msg {
-						return tui.PageChangeMsg{ID: tui.MainAppPageID}
+						return tui.PageChangeMsg{ID: tui.LibraryPageID}
 					}
 				}
 			}

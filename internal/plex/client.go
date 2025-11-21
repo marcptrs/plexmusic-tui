@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"plexmusic-tui/internal/domain"
 	httpclient "plexmusic-tui/internal/http"
@@ -71,10 +72,12 @@ func (c *Client) FetchLibraries() ([]domain.MusicLibrary, error) {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	// Filter for music libraries only
+	// Filter for music libraries only. Use a whitelist of known music types
+	// to avoid accidentally returning TV/movie/photo sections.
+	allowed := map[string]bool{"artist": true, "music": true, "album": true, "collection": true, "music_video": true}
 	var musicLibs []domain.MusicLibrary
 	for _, lib := range container.Directory {
-		if lib.Type == "artist" {
+		if allowed[strings.ToLower(lib.Type)] {
 			musicLibs = append(musicLibs, lib)
 		}
 	}

@@ -169,7 +169,7 @@ This resolves subtle input-handling issues by ensuring a single source of truth 
 ```main.go#L1-200
 // buildAppModel() constructs the Coordinator, services, router and returns
 // an AppModel configured with a pageFactory that knows how to create pages
-// on demand (login, server selection, main app).
+// on demand (login, server selection, top-level page).
 ```
 
 ### Implementation notes / guidelines
@@ -220,12 +220,12 @@ type Coordinator struct {
 Move view logic from `main.go` into page components:
 
 ```
-internal/tui/page/
-├── login.go          # Login page
-├── servers.go        # Server selection
-├── main.go           # Main app (three-pane layout)
-├── queue.go          # Queue modal
-└── playback.go       # Playback controls
+internal/tui/pages/
+├── login_page.go               # Login page
+├── server_selection_page.go    # Server selection
+├── library_page.go             # Library page (three-pane layout)
+├── queue.go                    # Queue modal
+└── playback.go                 # Playback controls
 ```
 
 Each page implements:
