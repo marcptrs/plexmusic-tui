@@ -23,7 +23,7 @@ import (
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	styles "plexmusic-tui/internal/tui/styles"
-	views "plexmusic-tui/internal/ui"
+	"plexmusic-tui/internal/tui/util"
 )
 
 // MainAppPage handles the main application UI with tab navigation,
@@ -169,6 +169,7 @@ func (p *MainAppPage) Init() tea.Cmd {
 	if server.Port != "" {
 		baseURL = fmt.Sprintf("%s:%s", baseURL, server.Port)
 	}
+	log.Debug("MainAppPage: connecting to server", "name", server.Name, "baseURL", baseURL, "scheme", server.Scheme, "host", server.Host, "port", server.Port)
 
 	// Create (or reuse) library service and subscribe to events. This ensures we
 	// only fetch library content when we have the necessary server + token.
@@ -329,6 +330,21 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(appTracks) > 0 {
 				p.coordinator.SetSelectedTrack(0)
 				p.trackList.Select(0)
+			}
+
+		// Error cases: log and display notification
+		case "libraries.fetch_failed", "recently_added.fetch_failed", "playlists.fetch_failed", "albums.fetch_failed", "tracks.fetch_failed":
+			if msg.Error != nil {
+				// Extract just the error message without full error chain for display
+				errMsg := msg.Error.Error()
+				// Truncate if too long for UI
+				if len(errMsg) > 60 {
+					errMsg = errMsg[:60] + "..."
+				}
+				// Show truncated message in UI
+				p.coordinator.SetNotification(fmt.Sprintf("Library fetch error: %s", errMsg), "error", 10*time.Second)
+				// Log full details including event type for debugging
+				log.Error("Library fetch failed", "event_type", msg.Type, "full_error", msg.Error.Error())
 			}
 		}
 		// Re-subscribe to library and playback events so we continue receiving them
@@ -1021,9 +1037,11 @@ func (p *MainAppPage) subscribeToLibraryEvents() tea.Cmd {
 	}
 	return func() tea.Msg {
 		for ev := range p.libEvtCh {
-			// Only forward useful events for this page
+			// Forward both success and error events for this page
 			switch ev.Type {
-			case "recently_added.loaded", "playlists.loaded", "tracks.loaded", "albums.loaded":
+			case "recently_added.loaded", "playlists.loaded", "tracks.loaded", "albums.loaded",
+				"recently_added.fetch_failed", "playlists.fetch_failed", "tracks.fetch_failed", "albums.fetch_failed",
+				"libraries.loaded", "libraries.fetch_failed":
 				return ev.Payload
 			default:
 				continue
@@ -1273,8 +1291,8 @@ func (p *MainAppPage) renderNowPlaying(width, height int) string {
 		lenMs = tr.Duration
 	}
 
-	posStr := views.FormatTrackDuration(posMs)
-	lenStr := views.FormatTrackDuration(lenMs)
+	posStr := util.FormatTrackDuration(posMs)
+	lenStr := util.FormatTrackDuration(lenMs)
 
 	// Build a progress bar roughly sized to the detail width
 	// If art is present, we have less width for the bar
@@ -1428,8 +1446,8 @@ func (p *MainAppPage) renderNowPlayingFull(width int, height int) string {
 		posMs = 0
 		lenMs = tr.Duration
 	}
-	posStr := views.FormatTrackDuration(posMs)
-	lenStr := views.FormatTrackDuration(lenMs)
+	posStr := util.FormatTrackDuration(posMs)
+	lenStr := util.FormatTrackDuration(lenMs)
 
 	// Simple, wide progress bar
 	barWidth := width - 10

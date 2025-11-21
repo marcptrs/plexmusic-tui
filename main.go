@@ -1,6 +1,10 @@
 package main
 
 import (
+	"bufio"
+	"flag"
+	"fmt"
+	"os"
 	"time"
 
 	"plexmusic-tui/internal/logging"
@@ -64,8 +68,32 @@ func buildAppModel() *tui.AppModel {
 }
 
 func main() {
+	// Define command-line flags
+	showLogs := flag.Bool("logs", false, "Show recent log entries and exit")
+	tailLines := flag.Int("tail", 50, "Number of log lines to show (default: 50)")
+	showHelp := flag.Bool("help", false, "Show help message")
+	flag.Parse()
+
+	// Handle help flag
+	if *showHelp {
+		showUsage()
+		os.Exit(0)
+	}
+
+	// Handle logs command
+	if *showLogs {
+		displayLogs("/tmp/plexmusic-startup.log", *tailLines)
+		os.Exit(0)
+	}
+
+	// Determine log level from environment variable or default to Info
+	logLevel := log.InfoLevel
+	if debugEnv := os.Getenv("PLEXMUSIC_DEBUG"); debugEnv != "" {
+		logLevel = log.DebugLevel
+	}
+
 	// Initialize file-backed logger for startup diagnostics
-	logger, err := logging.InitFileLogger("/tmp/plexmusic-startup.log", log.InfoLevel)
+	logger, err := logging.InitFileLogger("/tmp/plexmusic-startup.log", logLevel)
 	if err != nil {
 		log.Error("Failed to initialize startup logger", "path", "/tmp/plexmusic-startup.log", "err", err)
 	} else {
@@ -89,4 +117,76 @@ func main() {
 	}
 
 	log.Info("Run() completed successfully")
+}
+
+// displayLogs reads and displays the last N lines from the log file
+func displayLogs(logFile string, tailLines int) {
+	file, err := os.Open(logFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Could not open log file at %s\n", logFile)
+		fmt.Fprintf(os.Stderr, "Details: %v\n", err)
+		return
+	}
+	defer file.Close()
+
+	// Read all lines from the file
+	scanner := bufio.NewScanner(file)
+	var lines []string
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading log file: %v\n", err)
+		return
+	}
+
+	// Determine which lines to display
+	startIdx := 0
+	if len(lines) > tailLines {
+		startIdx = len(lines) - tailLines
+		fmt.Fprintf(os.Stderr, "Showing last %d lines. Full logs at: %s\n\n", tailLines, logFile)
+	}
+
+	// Print the tail lines
+	for i := startIdx; i < len(lines); i++ {
+		fmt.Println(lines[i])
+	}
+
+	if len(lines) == 0 {
+		fmt.Fprintf(os.Stderr, "No log entries found in %s\n", logFile)
+	}
+}
+
+// showUsage displays the command-line help message
+func showUsage() {
+	fmt.Fprintf(os.Stderr, `Plex Music TUI - Terminal UI for Plex Music Server
+
+USAGE:
+  plexmusic-tui [OPTIONS]
+
+OPTIONS:
+  -logs               Show recent log entries and exit
+  -tail N             Number of log lines to show (default: 50)
+  -help               Show this help message
+
+EXAMPLES:
+  # Run the interactive TUI
+  plexmusic-tui
+
+  # Show last 50 log entries
+  plexmusic-tui -logs
+
+  # Show last 100 log entries
+  plexmusic-tui -logs -tail 100
+
+  # Show help
+  plexmusic-tui -help
+
+LOGS:
+  Application logs are stored at: /tmp/plexmusic-startup.log
+
+  Use -logs to view recent entries when debugging connection issues.
+
+`)
 }

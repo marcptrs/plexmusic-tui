@@ -151,20 +151,20 @@ func NewLibraryService(baseURL, token string) *LibraryService {
 	}
 }
 
-// FetchLibraries fetches all music libraries from the server.
+// FetchLibraries fetches the list of music libraries from the Plex server.
 func (s *LibraryService) FetchLibraries(ctx context.Context) ([]domain.MusicLibrary, error) {
-	endpoint := s.baseURL + "/library/sections"
+	endpoint := fmt.Sprintf("%s/library/sections?type=8", s.baseURL)
+	log.Debug("FetchLibraries", "endpoint", endpoint)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Add Plex headers
 	s.addPlexHeaders(req)
 
-	log.Debug("LibraryService.FetchLibraries", "endpoint", endpoint)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		log.Error("FetchLibraries: HTTP request failed", "endpoint", endpoint, "error", err)
 		return nil, fmt.Errorf("failed to fetch libraries: %w", err)
 	}
 	defer resp.Body.Close()
@@ -221,6 +221,7 @@ func (s *LibraryService) FetchAlbums(ctx context.Context, libraryKey string) ([]
 // FetchRecentlyAdded fetches recently added albums for the server.
 func (s *LibraryService) FetchRecentlyAdded(ctx context.Context) ([]domain.Album, error) {
 	endpoint := fmt.Sprintf("%s/library/recentlyAdded?type=9", s.baseURL)
+	log.Debug("FetchRecentlyAdded", "endpoint", endpoint)
 	return s.fetchAlbums(ctx, endpoint)
 }
 
@@ -232,6 +233,7 @@ func (s *LibraryService) FetchRecentlyAddedInLibrary(ctx context.Context, librar
 
 // fetchAlbums is a helper for fetching albums from any endpoint.
 func (s *LibraryService) fetchAlbums(ctx context.Context, endpoint string) ([]domain.Album, error) {
+	log.Debug("fetchAlbums: starting request", "endpoint", endpoint)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -241,6 +243,7 @@ func (s *LibraryService) fetchAlbums(ctx context.Context, endpoint string) ([]do
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		log.Error("fetchAlbums: HTTP request failed", "endpoint", endpoint, "error", err)
 		return nil, fmt.Errorf("failed to fetch albums: %w", err)
 	}
 	defer resp.Body.Close()
@@ -267,6 +270,7 @@ func (s *LibraryService) fetchAlbums(ctx context.Context, endpoint string) ([]do
 // FetchPlaylists fetches all playlists from the server.
 func (s *LibraryService) FetchPlaylists(ctx context.Context) ([]domain.Playlist, error) {
 	endpoint := s.baseURL + "/playlists"
+	log.Debug("FetchPlaylists", "endpoint", endpoint)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
@@ -276,6 +280,7 @@ func (s *LibraryService) FetchPlaylists(ctx context.Context) ([]domain.Playlist,
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		log.Error("FetchPlaylists: HTTP request failed", "endpoint", endpoint, "error", err)
 		return nil, fmt.Errorf("failed to fetch playlists: %w", err)
 	}
 	defer resp.Body.Close()

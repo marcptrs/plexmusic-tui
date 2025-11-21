@@ -41,10 +41,10 @@ internal/
   service/        AuthService, LibraryService + service interfaces
   tui/            TUI infrastructure (pages, router, page types)
     pages/        Individual page components (login, server_selection, mainapp)
-    components/   Reusable UI components (StatusBar, etc.)
-    util/         TUI utilities (Model/Sizeable/Focusable interfaces, message helpers)
+    components/   Reusable UI components (NowPlayingComponent, etc.)
+    styles/       Canonical TUI styles package (replaces deprecated internal/ui)
+    util/         TUI utilities (Model/Sizeable/Focusable, FormatTrackDuration, GetContentPaneWidth, etc.)
     list_items.go Adapters for domain models to satisfy bubbles/list.Item interface
-  ui/             View helpers and layout calculations (canonical styles: `internal/tui/styles`)
 main.go           Bubble Tea model + transitional integration with Coordinator
 .golangci.yml     Linter configuration (enabled/disabled linters, formatters)
 .github/workflows build.yml, test.yml, lint.yml
@@ -77,7 +77,9 @@ See `ARCHITECTURE.md` for detailed refactoring plan and migration strategy.
 
 ## Networking / Plex Access
 - Preferred abstraction: `service.LibraryService` for fetching libraries, albums, recently added (server-scoped and library-scoped), playlists, tracks. Recent changes added support for recentlyAdded scoped to a specific library via `FetchRecentlyAddedInLibrary`.
-- Deprecated: `plex.Client` (marked with comments at top). Retain for backward compatibility but do not add new features there.
+Deprecated: 
+  - `plex.Client` (marked with comments at top). Retain for backward compatibility but do not add new features there.
+  - `internal/ui` package (removed in cleanup). Use `internal/tui/util` for formatting/layout utilities and `internal/tui/styles` for canonical styles.
 - Image and track URLs built using scheme/host/port plus media key with `X-Plex-Token` query/header. `BuildStreamURL` prefers media part keys when available and avoids duplicating `X-Plex-Token` query params.
 - HTTP client selection via `http.GetForHost(host)` that enables `InsecureSkipVerify` for local/private networks only.
 
