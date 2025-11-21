@@ -34,6 +34,11 @@ func buildAppModel() *tui.AppModel {
 	}(pbSvc)
 	cfgMgr, _ := config.NewManager()
 	coord.SetConfigManager(cfgMgr)
+	// Load and apply saved volume from config
+	if cfgMgr != nil {
+		savedVolume := cfgMgr.GetVolume()
+		pbSvc.SetVolume(savedVolume)
+	}
 
 	keyMap := tui.DefaultKeyMap()
 

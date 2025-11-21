@@ -8,8 +8,9 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	AuthToken          string `json:"authToken"`
-	LastSelectedServer string `json:"lastSelectedServer,omitempty"` // Server canonical key in the form host/name
+	AuthToken          string  `json:"authToken"`
+	LastSelectedServer string  `json:"lastSelectedServer,omitempty"` // Server canonical key in the form host/name
+	Volume             float64 `json:"volume,omitempty"`             // Audio volume "stops" (logarithmic scale, Base:2). 0 = 100%, 1 = 200%, -1 = 50%
 }
 
 // Manager wraps Config with convenience methods
@@ -44,6 +45,23 @@ func (m *Manager) GetLastSelectedServer() string {
 // SetLastSelectedServer sets the last selected server canonical key in the form host/name
 func (m *Manager) SetLastSelectedServer(serverName string) {
 	m.cfg.LastSelectedServer = serverName
+}
+
+// GetVolume returns the stored volume level, defaulting to 0.0 if not previously set.
+// Since Volume is a float64 with omitempty tag, unset values will be 0.0 from JSON unmarshal.
+// Volume uses a logarithmic scale where 0 = 100% (no change), with Base:2 in the beep library.
+// Positive values increase volume (1 = 200%), negative values decrease (e.g., -1 = 50%).
+func (m *Manager) GetVolume() float64 {
+	// If Volume is 0.0, it wasn't explicitly set in the config file, return default of 0 (100%)
+	if m.cfg.Volume == 0 {
+		return 0.0 // Default to 0 (100% display)
+	}
+	return m.cfg.Volume
+}
+
+// SetVolume sets the volume level
+func (m *Manager) SetVolume(volume float64) {
+	m.cfg.Volume = volume
 }
 
 // Save saves the configuration to disk

@@ -22,21 +22,23 @@ import (
 
 // Player manages audio playback
 type Player struct {
-	state        domain.PlaybackState
-	currentTrack *domain.Track
-	streamer     beep.StreamSeekCloser
-	ctrl         *beep.Ctrl
-	volume       *effects.Volume
-	speakerInit  bool
-	sampleRate   beep.SampleRate
-	position     int // Current position in samples
-	length       int // Total length in samples
+	state         domain.PlaybackState
+	currentTrack  *domain.Track
+	streamer      beep.StreamSeekCloser
+	ctrl          *beep.Ctrl
+	volume        *effects.Volume
+	desiredVolume float64 // Volume to apply when volume effect is created
+	speakerInit   bool
+	sampleRate    beep.SampleRate
+	position      int // Current position in samples
+	length        int // Total length in samples
 }
 
 // NewPlayer creates a new audio player
 func NewPlayer() *Player {
 	return &Player{
-		state: domain.PlaybackStopped,
+		state:         domain.PlaybackStopped,
+		desiredVolume: 0.0, // Default to 0 (100% display, logarithmic scale with Base:2)
 	}
 }
 
@@ -218,6 +220,9 @@ func (p *Player) attachStreamer(streamer beep.StreamSeekCloser, format beep.Form
 
 	// Create the volume effect
 	p.volume = &effects.Volume{Streamer: p.ctrl, Base: 2}
+
+	// Apply the desired volume to the newly created effect
+	p.volume.Volume = p.desiredVolume
 }
 
 // Initialize initializes the speaker for playback
@@ -359,13 +364,16 @@ func (p *Player) IsPaused() bool {
 // GetVolume returns the current volume level
 func (p *Player) GetVolume() float64 {
 	if p.volume == nil {
-		return 1.0
+		return p.desiredVolume
 	}
 	return p.volume.Volume
 }
 
 // SetVolume sets the volume level (0.0 to 2.0)
 func (p *Player) SetVolume(v float64) {
+	// Store the desired volume so it can be applied when a stream is loaded
+	p.desiredVolume = v
+	// If a volume effect already exists, apply immediately
 	if p.volume != nil {
 		p.volume.Volume = v
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"math"
 	"strings"
 	"time"
 
@@ -605,10 +606,10 @@ func (p *MainAppPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, p.keys.Prev):
 			return p, p.playPrev()
 		case key.Matches(msg, p.keys.VolumeUp):
-			p.adjustVolume(0.1)
+			p.adjustVolumeByPercent(5)
 			return p, nil
 		case key.Matches(msg, p.keys.VolumeDown):
-			p.adjustVolume(-0.1)
+			p.adjustVolumeByPercent(-5)
 			return p, nil
 		case key.Matches(msg, p.keys.Queue):
 			// Toggle queue modal
@@ -869,7 +870,7 @@ func (p *MainAppPage) View() string {
 	}
 
 	// Main content — Now Playing becomes the primary content area.
-	mainContent := p.renderNowPlaying(rightWidth)
+	mainContent := p.renderNowPlaying(rightWidth, contentHeight)
 	if p.libSvc != nil && len(p.coordinator.Albums()) == 0 && len(p.coordinator.Playlists()) == 0 {
 		// Show a friendly, centered loading placeholder in the content area when
 		// the library service is active but no content has been loaded yet.
@@ -1197,14 +1198,24 @@ func (p *MainAppPage) renderTracks(width int) string {
 
 // renderNowPlaying shows the now playing details, a small cover-art placeholder,
 // playback progress and volume controls.
-func (p *MainAppPage) renderNowPlaying(width int) string {
-	// Existing small/compact Right-hand Now Playing
-	title := styles.TitleStyle.Render("Now Playing")
-
+func (p *MainAppPage) renderNowPlaying(width, height int) string {
 	// If no track is present, show a 'Nothing Playing' placeholder
 	if !p.coordinator.HasCurrentTrack() {
 		help := styles.NothingPlayingHintStyle()
-		return lipgloss.JoinVertical(lipgloss.Center, title, "", styles.NothingPlayingStyle(), "", help)
+
+		// Build volume display
+		volumeStr := ""
+		if p.pbSvc != nil {
+			vol := p.pbSvc.GetVolume()
+			// Volume: 0 = 100%, 1 = 200%, -1 = 50% (logarithmic scale with Base: 2)
+			volumeStr = fmt.Sprintf("Volume: %.0f%%", math.Pow(2, vol)*100)
+		} else if vol := p.coordinator.Volume(); vol != nil {
+			volumeStr = fmt.Sprintf("Volume: %.0f%%", math.Pow(2, vol.Volume)*100)
+		}
+
+		nothingPlayingText := lipgloss.JoinVertical(lipgloss.Center, styles.NothingPlayingStyle(), "", help, "", styles.BlurredStyle.Render(volumeStr))
+		// Center both horizontally and vertically within the available space
+		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, nothingPlayingText)
 	}
 
 	tr := p.coordinator.CurrentTrack()
@@ -1304,10 +1315,14 @@ func (p *MainAppPage) renderNowPlaying(width int) string {
 		lenStr,
 	)
 
-	// Volume display: read from coordinator's volume effect if available
+	// Volume display: read from playback service or coordinator's volume effect
 	volume := ""
-	if vol := p.coordinator.Volume(); vol != nil {
-		volume = fmt.Sprintf("Vol: %.2f", vol.Volume)
+	if p.pbSvc != nil {
+		vol := p.pbSvc.GetVolume()
+		// Volume: 0 = 100%, 1 = 200%, -1 = 50% (logarithmic scale with Base: 2)
+		volume = fmt.Sprintf("Volume: %.0f%%", math.Pow(2, vol)*100)
+	} else if vol := p.coordinator.Volume(); vol != nil {
+		volume = fmt.Sprintf("Volume: %.0f%%", math.Pow(2, vol.Volume)*100)
 	}
 
 	rightColumn := lipgloss.JoinVertical(lipgloss.Left,
@@ -1665,26 +1680,48 @@ func (p *MainAppPage) playPrev() tea.Cmd {
 	return p.playAppTrack(&tracks[idx])
 }
 
-// Helper: adjust volume by delta (range 0.0..2.0)
-func (p *MainAppPage) adjustVolume(delta float64) {
+// Helper: adjust volume by percentage (linear stepping for consistent feel)
+// percentageDelta is in percentage points (e.g., 5 means +5% or -5%)
+func (p *MainAppPage) adjustVolumeByPercent(percentageDelta int) {
 	if p.pbSvc != nil {
-		v := p.pbSvc.GetVolume()
-		v += delta
-		if v < 0 {
-			v = 0
-		} else if v > 2 {
-			v = 2
+		currentVolume := p.pbSvc.GetVolume()
+		// Convert current logarithmic volume to percentage
+		currentPercent := math.Pow(2, currentVolume) * 100
+		// Apply linear percentage change
+		newPercent := currentPercent + float64(percentageDelta)
+		// Clamp to 0% - 100% (0.0 is max)
+		if newPercent < 0 {
+			newPercent = 0
+		} else if newPercent > 100 {
+			newPercent = 100
 		}
-		p.pbSvc.SetVolume(v)
+		// Convert back to logarithmic scale
+		newVolume := math.Log2(newPercent / 100)
+		p.pbSvc.SetVolume(newVolume)
+
+		// Save volume to config
+		if cfg := p.coordinator.ConfigManager(); cfg != nil {
+			cfg.SetVolume(newVolume)
+			_ = cfg.Save()
+		}
 		return
 	}
 	// Fallback: adjust coordinator volume effect directly if present
 	if vol := p.coordinator.Volume(); vol != nil {
-		vol.Volume += delta
-		if vol.Volume < 0 {
-			vol.Volume = 0
-		} else if vol.Volume > 2 {
-			vol.Volume = 2
+		currentPercent := math.Pow(2, vol.Volume) * 100
+		newPercent := currentPercent + float64(percentageDelta)
+		// Clamp to 0% - 100% (0.0 is max)
+		if newPercent < 0 {
+			newPercent = 0
+		} else if newPercent > 100 {
+			newPercent = 100
+		}
+		vol.Volume = math.Log2(newPercent / 100)
+
+		// Save volume to config
+		if cfg := p.coordinator.ConfigManager(); cfg != nil {
+			cfg.SetVolume(vol.Volume)
+			_ = cfg.Save()
 		}
 	}
 }

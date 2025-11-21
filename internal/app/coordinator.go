@@ -262,6 +262,11 @@ func (c *Coordinator) Authenticator() *auth.Authenticator {
 	return c.authenticator
 }
 
+// ConfigManager returns the config manager
+func (c *Coordinator) ConfigManager() *config.Manager {
+	return c.configMgr
+}
+
 // SetConfigManager wires the config manager into the coordinator so that
 // configuration changes (like auth token persistence) can be persisted.
 func (c *Coordinator) SetConfigManager(cfg *config.Manager) {
