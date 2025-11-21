@@ -156,12 +156,12 @@ func (k LoginKeyMap) FullHelp() [][]key.Binding {
 func DefaultLoginKeyMap() LoginKeyMap {
 	return LoginKeyMap{
 		Up: key.NewBinding(
-			key.WithKeys("up", "k"),
-			key.WithHelp("↑/k", "up"),
+			key.WithKeys("up"),
+			key.WithHelp("↑", "up"),
 		),
 		Down: key.NewBinding(
-			key.WithKeys("down", "j"),
-			key.WithHelp("↓/j", "down"),
+			key.WithKeys("down"),
+			key.WithHelp("↓", "down"),
 		),
 		Enter: key.NewBinding(
 			key.WithKeys("enter"),
