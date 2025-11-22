@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/binary"
 	"io"
+	"os"
+	"runtime"
 	"testing"
 	"time"
 
@@ -41,6 +43,14 @@ func createSilenceWav(seconds int) []byte {
 }
 
 func TestPlaybackService_LoadInitializePlay(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		// On headless Linux CI runners (e.g., GitHub Actions) there may be no
+		// ALSA card available even with libasound2-dev installed. Skip tests
+		// that initialize the audio subsystem if there is no ALSA presence.
+		if _, err := os.Stat("/proc/asound"); os.IsNotExist(err) {
+			t.Skip("Skipping audio test since no ALSA devices are present on this runner")
+		}
+	}
 	s := NewPlaybackService()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -103,6 +113,11 @@ func (m *mockLibSvc) FetchStream(ctx context.Context, track *domain.Track) (io.R
 }
 
 func TestPlaybackService_PlayDomainTrack_Orchestration(t *testing.T) {
+	if runtime.GOOS == "linux" {
+		if _, err := os.Stat("/proc/asound"); os.IsNotExist(err) {
+			t.Skip("Skipping audio test since no ALSA devices are present on this runner")
+		}
+	}
 	s := NewPlaybackService()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
