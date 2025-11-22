@@ -52,7 +52,9 @@ func (pc *PlaybackController) AdjustVolume(percentDelta float64) {
 	newVol := math.Log2(newPct / 100)
 	pc.pbSvc.SetVolume(newVol)
 
-	log.Debug("volume adjusted", "from_pct", int(currentPct), "to_pct", int(newPct))
+	log.Debug("volume adjusted",
+		"from_pct", int(math.Round(currentPct)),
+		"to_pct", int(math.Round(newPct)))
 }
 
 // Next computes the next track selection and optionally plays it via the pbSvc

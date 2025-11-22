@@ -211,7 +211,11 @@ func (np *NowPlayingComponent) toPercent(vol float64) int {
 	} else {
 		pct = 1.0
 	}
-	return int(pct * 100)
+	// Use rounding to avoid off-by-one truncation errors when converting
+	// from the internal logarithmic volume representation to a user-facing
+	// percentage. Truncation was causing the displayed volume to occasionally
+	// change by 4% instead of 5% due to floating point precision issues.
+	return int(math.Round(pct * 100))
 }
 
 func pow2(v float64) float64 { return math.Pow(2, v) }

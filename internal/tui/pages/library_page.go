@@ -1348,9 +1348,17 @@ func (p *LibraryPage) playNext() tea.Cmd {
 		p.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
 		return nil
 	}
+	var cmds []tea.Cmd
 	if err := p.orchestrator.PlayNext(p.ctx, pc, q, p.coordinator.QueueIndex(), tracks, p.coordinator.SelectedTrack()); err != nil {
 		log.Error("playback play failed", "err", err)
 		p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+	}
+	// After orchestrator starts the next track, fetch cover art for UI playback pane
+	if ct := p.coordinator.CurrentTrack(); ct != nil && ct.Thumb != "" && p.libSvc != nil {
+		cmds = append(cmds, p.fetchCoverArtCmd(ct.Thumb))
+	}
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
 	}
 	return nil
 }
@@ -1376,8 +1384,15 @@ func (p *LibraryPage) playPrev() tea.Cmd {
 		p.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
 		return nil
 	}
+	var cmds []tea.Cmd
 	if err := p.orchestrator.PlayPrev(p.ctx, pc, q, p.coordinator.QueueIndex(), tracks, p.coordinator.SelectedTrack()); err != nil {
 		p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+	}
+	if ct := p.coordinator.CurrentTrack(); ct != nil && ct.Thumb != "" && p.libSvc != nil {
+		cmds = append(cmds, p.fetchCoverArtCmd(ct.Thumb))
+	}
+	if len(cmds) > 0 {
+		return tea.Batch(cmds...)
 	}
 	return nil
 }

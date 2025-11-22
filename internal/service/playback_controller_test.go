@@ -3,7 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"testing"
 
 	"plexmusic-tui/internal/domain"
@@ -141,5 +143,82 @@ func TestPlaybackController_PlayPrev_WithPbSvcError(t *testing.T) {
 	}
 	if newQ != 0 {
 		t.Fatalf("expected queue index 0, got %d", newQ)
+	}
+}
+
+// mock pb service that stores and returns a gaussian/log-scale volume value
+type mockPbSvcVolume struct {
+	vol float64
+}
+
+func (m *mockPbSvcVolume) Play(track *domain.Track) error { return nil }
+func (m *mockPbSvcVolume) Pause() error                   { return nil }
+func (m *mockPbSvcVolume) Resume() error                  { return nil }
+func (m *mockPbSvcVolume) Stop() error                    { return nil }
+func (m *mockPbSvcVolume) Seek(position int) error        { return nil }
+func (m *mockPbSvcVolume) SetVolume(v float64)            { m.vol = v }
+func (m *mockPbSvcVolume) GetPosition() int               { return 0 }
+func (m *mockPbSvcVolume) GetDuration() int               { return 0 }
+func (m *mockPbSvcVolume) GetState() domain.PlaybackState { return domain.PlaybackStopped }
+func (m *mockPbSvcVolume) GetVolume() float64             { return m.vol }
+func (m *mockPbSvcVolume) PlayDomainTrack(ctx context.Context, lib interface {
+	FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
+}, track *domain.Track,
+) error {
+	return nil
+}
+
+func (m *mockPbSvcVolume) Subscribe(ctx context.Context) <-chan pubsub.Event[PlaybackEvent] {
+	ch := make(chan pubsub.Event[PlaybackEvent], 1)
+	close(ch)
+	return ch
+}
+
+func TestPlaybackController_AdjustVolume_Steps(t *testing.T) {
+	// We'll verify that adjusting by +5 or -5 percent results in an exact
+	// displayed change of +/-5 percentage points after rounding.
+	cases := []struct{ startPct, delta int }{
+		{0, 5},
+		{1, 5},
+		{10, 5},
+		{50, 5},
+		{95, 5},
+		{97, 5},
+		{100, 5},
+		{195, 5},
+		{200, 5},
+		{100, -5},
+		{5, -5},
+		{1, -5},
+		{0, -5},
+	}
+	for _, c := range cases {
+		name := fmt.Sprintf("start=%d, delta=%d", c.startPct, c.delta)
+		t.Run(name, func(t *testing.T) {
+			mock := &mockPbSvcVolume{}
+			// Convert starting percent to log2 volume scale
+			startVol := math.Log2(float64(c.startPct) / 100.0)
+			// Edge: when startPct is 0, math.Log2(0) is -Inf; set to -10 (very low)
+			if c.startPct == 0 {
+				startVol = -10.0
+			}
+			mock.vol = startVol
+			pc := NewPlaybackController(mock)
+			pc.AdjustVolume(float64(c.delta))
+			// Compute resulting percentage as displayed (rounding)
+			newPct := math.Pow(2, mock.GetVolume()) * 100
+			displayed := int(math.Round(newPct))
+			// Expected value clamped to 0..200
+			expected := c.startPct + c.delta
+			if expected < 0 {
+				expected = 0
+			}
+			if expected > 200 {
+				expected = 200
+			}
+			if displayed != expected {
+				t.Fatalf("unexpected percent: got %d, expected %d (raw newPct=%.6f)", displayed, expected, newPct)
+			}
+		})
 	}
 }

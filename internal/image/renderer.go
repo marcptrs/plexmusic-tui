@@ -8,7 +8,9 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/disintegration/imaging"
@@ -44,22 +46,30 @@ func (p Protocol) String() string {
 type Renderer struct {
 	protocol Protocol
 	cache    map[string]string // Cache rendered output by key
+	// Cache derived from image content
+	pngCache  map[uintptr][]byte
+	hashCache map[uintptr]string
+	mu        sync.RWMutex
 }
 
 // NewRenderer creates a new image renderer, auto-detecting the best protocol
 func NewRenderer() *Renderer {
 	protocol := DetectImageProtocol()
 	return &Renderer{
-		protocol: protocol,
-		cache:    make(map[string]string),
+		protocol:  protocol,
+		cache:     make(map[string]string),
+		pngCache:  make(map[uintptr][]byte),
+		hashCache: make(map[uintptr]string),
 	}
 }
 
 // NewRendererWithProtocol creates a new image renderer with a specific protocol
 func NewRendererWithProtocol(p Protocol) *Renderer {
 	return &Renderer{
-		protocol: p,
-		cache:    make(map[string]string),
+		protocol:  p,
+		cache:     make(map[string]string),
+		pngCache:  make(map[uintptr][]byte),
+		hashCache: make(map[uintptr]string),
 	}
 }
 
@@ -104,10 +114,56 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		return ""
 	}
 
-	// Generate cache key based on image dimensions and requested size
+	// Compute a content hash so that different image content with the same
+	// dimensions won't reuse a stale cached rendering. We encode the image to
+	// PNG in memory for a stable byte representation for hashing. If the
+	// encoding fails for any reason, fall back to the previous cache key
+	// behavior that only includes image bounds.
+	// Use pointer address of the underlying image as cache key for our
+	// derived PNG/hash caches. Most decoded images will be concrete pointer
+	// types (e.g., *image.RGBA), so we can use reflect to extract that pointer
+	// to avoid re-encoding PNG on every Render call.
+	var contentHash string
+	var addr uintptr
+	v := reflect.ValueOf(img)
+	// If img is an interface, get its underlying value
+	if v.Kind() == reflect.Interface {
+		v = v.Elem()
+	}
+	if v.IsValid() && v.Kind() == reflect.Ptr {
+		addr = v.Pointer()
+	}
+	if addr != 0 {
+		r.mu.RLock()
+		ch, ok := r.hashCache[addr]
+		r.mu.RUnlock()
+		if ok {
+			contentHash = ch
+		} else {
+			var buf bytes.Buffer
+			if err := png.Encode(&buf, img); err == nil {
+				sum := sha256.Sum256(buf.Bytes())
+				contentHash = fmt.Sprintf("%x", sum[:8])
+				r.mu.Lock()
+				r.hashCache[addr] = contentHash
+				r.pngCache[addr] = buf.Bytes()
+				r.mu.Unlock()
+			}
+		}
+	} else {
+		// Fallback for non-pointer image types - encode directly
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err == nil {
+			sum := sha256.Sum256(buf.Bytes())
+			contentHash = fmt.Sprintf("%x", sum[:8])
+		}
+	}
+
+	// Generate cache key based on image content hash, dimensions and requested size
 	bounds := img.Bounds()
-	cacheKey := fmt.Sprintf("%s_%d_%d_%dx%d_%dx%d",
+	cacheKey := fmt.Sprintf("%s_%s_%d_%d_%dx%d_%dx%d",
 		r.protocol.String(),
+		contentHash,
 		width, height,
 		bounds.Dx(), bounds.Dy(),
 		bounds.Min.X, bounds.Min.Y)

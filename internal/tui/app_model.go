@@ -74,6 +74,15 @@ func (a *AppModel) Init() tea.Cmd {
 	return initCmd
 }
 
+// CurrentPageID returns the router's active page ID for external inspection
+// and testing purposes.
+func (a *AppModel) CurrentPageID() PageID {
+	if a.router == nil {
+		return PageID("")
+	}
+	return a.router.CurrentPageID()
+}
+
 // Update first checks for app-level/global keys. If none match it delegates
 // to the Router. The method mirrors the existing behavior where a command
 // returned by the router may produce an immediate QuitRequestedMsg; that

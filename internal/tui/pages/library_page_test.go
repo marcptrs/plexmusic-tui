@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -327,6 +329,80 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	view := page.View()
 	if !strings.Contains(view, "Track X") {
 		t.Fatalf("expected view to contain Track X after pressing Enter; got: %s", view)
+	}
+}
+
+func TestLibraryPage_PlayNext_UpdatesCoverArt(t *testing.T) {
+	// Start a test HTTP server that will serve a simple PNG for the thumb
+	mux := http.NewServeMux()
+	mux.HandleFunc("/thumb.jpg", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		img := image.NewRGBA(image.Rect(0, 0, 1, 1))
+		_ = png.Encode(w, img)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	host := u.Hostname()
+	port := u.Port()
+
+	coord := app.NewCoordinator()
+	coord.SetToken("test-token")
+	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetSelectedServer(0)
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 80
+	page.height = 40
+
+	// Initialize page so libSvc and orchestrator are created
+	cmd := page.Init()
+	if cmd == nil {
+		t.Fatalf("Init should return a command")
+	}
+
+	// Wait for libSvc to be created
+	start := time.Now()
+	for page.libSvc == nil {
+		if time.Since(start) > 2*time.Second {
+			t.Fatalf("libSvc not initialized in time")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Populate tracks in the coordinator and ensure selected is the first
+	tracks := []app.Track{{Title: "T1", Thumb: "/thumb.jpg"}, {Title: "T2", Thumb: "/thumb.jpg"}}
+	coord.SetTracks(tracks)
+	coord.SetSelectedTrack(0)
+
+	// Call playNext which should update current track and return a cmd that fetches cover art
+	cmd2 := page.playNext()
+	ct := coord.CurrentTrack()
+	if ct == nil {
+		t.Fatalf("playNext did not set current track as expected")
+	}
+	if ct.Thumb == "" {
+		t.Fatalf("playNext set current track but Thumbs not configured on track under test")
+	}
+	if page.libSvc == nil {
+		t.Fatalf("libSvc was unexpectedly nil after Init")
+	}
+	// Directly test fetch to get useful failure details when it fails
+	if _, err := page.libSvc.FetchImage(page.ctx, "/thumb.jpg"); err != nil {
+		t.Fatalf("FetchImage returned error: %v", err)
+	}
+	// Execute the returned cmd to simulate bubbletea running the background command.
+	msg := cmd2()
+	if msg == nil {
+		t.Fatalf("expected non-nil message from cmd; got nil; ct.thumb=%s libsvc=%v", ct.Thumb, page.libSvc)
+	}
+	// The message should be a CoverArtLoadedMsg which will be processed by the page.Update
+	page.Update(msg)
+
+	// Confirm the coordinator's playback art thumb was set
+	if coord.PlaybackAlbumArtThumb() == "" {
+		t.Fatalf("expected coordinator playback album art thumb to be set after playNext")
 	}
 }
 

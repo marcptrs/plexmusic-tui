@@ -52,9 +52,23 @@ func buildAppModel() *tui.AppModel {
 
 	keyMap := tui.DefaultKeyMap()
 
-	// Start with LoginPage
-	loginPage := pages.NewLoginPageWithConfig(coord, authSvc, cfgMgr)
-	router := tui.NewRouter(loginPage, tui.LoginPageID)
+	// Select initial page depending on whether we have a saved auth token
+	var initialPage tui.Page
+	var initialID tui.PageID
+	token := ""
+	if cfgMgr != nil {
+		token = cfgMgr.GetAuthToken()
+	}
+	if token != "" {
+		// We have a saved token — prefer server selection as initial page
+		initialPage = pages.NewServerSelectionPage(coord, authSvc, cfgMgr)
+		initialID = tui.ServerSelectionPageID
+		coord.SetToken(token)
+	} else {
+		initialPage = pages.NewLoginPageWithConfig(coord, authSvc, cfgMgr)
+		initialID = tui.LoginPageID
+	}
+	router := tui.NewRouter(initialPage, initialID)
 
 	// pageFactory returns a Page for a PageID; used by AppModel to create pages
 	pageFactory := func(id tui.PageID) tui.Page {
