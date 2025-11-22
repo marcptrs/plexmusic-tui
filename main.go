@@ -27,6 +27,10 @@ func buildAppModel() *tui.AppModel {
 	// all pages reuse the same instance.
 	pbSvc := service.NewPlaybackService()
 	coord.SetPlaybackService(pbSvc)
+	// Create a startup orchestrator (UI orchestrator wrappers will be created
+	// on pages too when needed). Use the orchestrator for initial bootstrapping
+	// actions (e.g., setting saved volume) rather than calling pbSvc directly.
+	orch := tui.NewOrchestrator(coord, nil, pbSvc)
 	// Start a background ticker to keep the playback service updating its
 	// position for UI progress reporting. This runs for the life of the app.
 	go func(svc *service.PlaybackService) {
@@ -41,7 +45,9 @@ func buildAppModel() *tui.AppModel {
 	// Load and apply saved volume from config
 	if cfgMgr != nil {
 		savedVolume := cfgMgr.GetVolume()
-		pbSvc.SetVolume(savedVolume)
+		// Use orchestrator to set volume so any orchestration logic or config
+		// persistence behaves consistently with UI actions.
+		orch.SetVolume(savedVolume)
 	}
 
 	keyMap := tui.DefaultKeyMap()

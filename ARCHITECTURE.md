@@ -313,6 +313,8 @@ Example:
 - Move all business logic out
 - Add graceful shutdown
 
+> Note: It's acceptable for `main.go` to directly set initial service state (for example, calling `pbSvc.SetVolume(savedVolume)`) during startup. This is considered a one-time initialization; run-time playback actions should still go through the `Orchestrator` or other service interfaces for consistent behavior and event publishing.
+
 **Phase 6: Testing**
 - Add service mocks
 - Test coordinator in isolation

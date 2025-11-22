@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"plexmusic-tui/internal/domain"
@@ -230,6 +231,15 @@ func (s *PlaybackService) Length() int {
 	return s.player.Length()
 }
 
+// GetPosition is a backward-compatible wrapper for PlaylistServicer interface
+func (s *PlaybackService) GetPosition() int { return s.player.Position() }
+
+// GetDuration is a backward-compatible wrapper for PlaylistServicer interface
+func (s *PlaybackService) GetDuration() int { return s.player.Length() }
+
+// GetState returns the current playback state (wrapper)
+func (s *PlaybackService) GetState() domain.PlaybackState { return s.player.State() }
+
 // GetVolume returns the current volume
 func (s *PlaybackService) GetVolume() float64 {
 	return s.player.GetVolume()
@@ -268,4 +278,54 @@ func (s *PlaybackService) IsPaused() bool {
 func (s *PlaybackService) Close() error {
 	s.broker.Close()
 	return s.player.Close()
+}
+
+// PlayDomainTrack orchestrates fetching the stream from the library service,
+// loading it into the player, initializing the audio subsystem, and starting playback.
+func (s *PlaybackService) PlayDomainTrack(ctx context.Context, lib interface {
+	FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
+}, track *domain.Track,
+) error {
+	if s == nil {
+		return fmt.Errorf("playback service is nil")
+	}
+	if track == nil {
+		return fmt.Errorf("track is nil")
+	}
+	if lib == nil {
+		return fmt.Errorf("library service is nil")
+	}
+
+	stream, contentType, err := lib.FetchStream(ctx, track)
+	if err != nil {
+		s.broker.Publish(pubsub.Event[PlaybackEvent]{
+			Type: "playback.load_failed",
+			Payload: PlaybackEvent{
+				Type:  "playback.load_failed",
+				Track: track,
+				Error: err,
+			},
+		})
+		log.Error("playback.load_failed", "error", err)
+		return err
+	}
+
+	// Load the stream into the player
+	if err := s.LoadStream(stream, contentType); err != nil {
+		log.Error("failed to load stream", "err", err)
+		stream.Close()
+		return err
+	}
+
+	// Initialize and play
+	if err := s.Initialize(); err != nil {
+		log.Error("failed to initialize playback", "err", err)
+		return err
+	}
+
+	if err := s.Play(track); err != nil {
+		log.Error("failed to start playback", "err", err)
+		return err
+	}
+	return nil
 }

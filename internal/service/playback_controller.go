@@ -1,7 +1,11 @@
 package service
 
 import (
+	"context"
+	"io"
 	"math"
+
+	"plexmusic-tui/internal/domain"
 
 	log "github.com/charmbracelet/log/v2"
 )
@@ -11,11 +15,11 @@ import (
 // Complex playback orchestration (play, next, prev) remains in library_page.go
 // where the full type information is available.
 type PlaybackController struct {
-	pbSvc *PlaybackService
+	pbSvc PlaybackServicer
 }
 
 // NewPlaybackController creates a new PlaybackController.
-func NewPlaybackController(pbSvc *PlaybackService) *PlaybackController {
+func NewPlaybackController(pbSvc PlaybackServicer) *PlaybackController {
 	return &PlaybackController{
 		pbSvc: pbSvc,
 	}
@@ -49,4 +53,84 @@ func (pc *PlaybackController) AdjustVolume(percentDelta float64) {
 	pc.pbSvc.SetVolume(newVol)
 
 	log.Debug("volume adjusted", "from_pct", int(currentPct), "to_pct", int(newPct))
+}
+
+// Next computes the next track selection and optionally plays it via the pbSvc
+func (pc *PlaybackController) Next(queue []domain.Track, queueIndex int, tracks []domain.Track, selected int) (isQueue bool, newQueueIndex int, newSelected int, next *domain.Track) {
+	if len(queue) > 0 {
+		idx := queueIndex
+		if idx < 0 {
+			idx = 0
+		} else {
+			idx++
+			if idx >= len(queue) {
+				idx = 0
+			}
+		}
+		return true, idx, selected, &queue[idx]
+	}
+
+	if len(tracks) == 0 {
+		return false, queueIndex, selected, nil
+	}
+	idx := selected
+	if idx < 0 || idx >= len(tracks)-1 {
+		idx = 0
+	} else {
+		idx++
+	}
+	// do not play here, only compute indices and return the selected track
+	return false, queueIndex, idx, &tracks[idx]
+}
+
+// Prev computes the previous track selection and optionally plays it via the pbSvc
+func (pc *PlaybackController) Prev(queue []domain.Track, queueIndex int, tracks []domain.Track, selected int) (isQueue bool, newQueueIndex int, newSelected int, prev *domain.Track) {
+	if len(queue) > 0 {
+		idx := queueIndex
+		if idx <= 0 {
+			idx = len(queue) - 1
+		} else {
+			idx--
+		}
+		return true, idx, selected, &queue[idx]
+	}
+
+	if len(tracks) == 0 {
+		return false, queueIndex, selected, nil
+	}
+	idx := selected
+	if idx <= 0 {
+		idx = len(tracks) - 1
+	} else {
+		idx--
+	}
+	// do not play here, only compute indices and return the selected track
+	return false, queueIndex, idx, &tracks[idx]
+}
+
+// PlayNext computes next selection and starts playback using the playback service.
+// Returns whether queue was used, the new indices, the domain.Track played, and any error.
+func (pc *PlaybackController) PlayNext(ctx context.Context, queue []domain.Track, queueIndex int, tracks []domain.Track, selected int, lib interface {
+	FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
+},
+) (isQueue bool, newQueueIndex int, newSelected int, played *domain.Track, err error) {
+	isQueue, newQueueIndex, newSelected, next := pc.Next(queue, queueIndex, tracks, selected)
+	if next == nil {
+		return isQueue, newQueueIndex, newSelected, nil, nil
+	}
+	// Do not call pbSvc directly; orchestration should be handled by the UI/orchestrator.
+	return isQueue, newQueueIndex, newSelected, next, nil
+}
+
+// PlayPrev computes previous selection and starts playback using the playback service.
+func (pc *PlaybackController) PlayPrev(ctx context.Context, queue []domain.Track, queueIndex int, tracks []domain.Track, selected int, lib interface {
+	FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
+},
+) (isQueue bool, newQueueIndex int, newSelected int, played *domain.Track, err error) {
+	isQueue, newQueueIndex, newSelected, prev := pc.Prev(queue, queueIndex, tracks, selected)
+	if prev == nil {
+		return isQueue, newQueueIndex, newSelected, nil, nil
+	}
+	// Do not call pbSvc directly; orchestration should be handled by the UI/orchestrator.
+	return isQueue, newQueueIndex, newSelected, prev, nil
 }

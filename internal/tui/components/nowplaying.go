@@ -2,11 +2,13 @@ package components
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"plexmusic-tui/internal/app"
+	"plexmusic-tui/internal/service"
 	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
@@ -14,13 +16,15 @@ import (
 // NowPlayingComponent handles rendering the Now Playing pane with track info,
 // album art, and playback controls.
 type NowPlayingComponent struct {
-	coordinator *app.Coordinator
+	coordinator app.Coordinatorer
+	pbSvc       service.PlaybackServicer // Use interface instead of concrete type for flexibility
 }
 
 // NewNowPlayingComponent creates a new NowPlayingComponent.
-func NewNowPlayingComponent(coordinator *app.Coordinator) *NowPlayingComponent {
+func NewNowPlayingComponent(coordinator app.Coordinatorer, pbSvc service.PlaybackServicer) *NowPlayingComponent {
 	return &NowPlayingComponent{
 		coordinator: coordinator,
+		pbSvc:       pbSvc,
 	}
 }
 
@@ -182,17 +186,144 @@ func (np *NowPlayingComponent) buildVolumeDisplay() string {
 	// if they have access to the playback service.
 	// Volume: 0 = 100%, 1 = 200%, -1 = 50% (logarithmic scale with Base: 2)
 
-	// Since we don't have pbSvc here, we'll check if coordinator has volume info
+	// Prefer the playback service volume if it was provided to the component
+	if np.pbSvc != nil {
+		vol := np.pbSvc.GetVolume()
+		return fmt.Sprintf("Volume: %.0f%%", float64(np.toPercent(vol)))
+	}
+	// Otherwise, check the coordinator
 	// This is a limitation of the component design; alternatively, pass pbSvc in.
 	// For now, just render a placeholder or nothing.
-	volume = fmt.Sprintf("Volume: %.0f%%", 100.0) // Placeholder
+	if v := np.coordinator.Volume(); v != nil {
+		return fmt.Sprintf("Volume: %.0f%%", float64(np.toPercent(v.Volume)))
+	}
+	volume = fmt.Sprintf("Volume: %.0f%%", 100.0)
 
 	return volume
 }
+
+// Helper to convert a logarithmic volume into percent for display
+func (np *NowPlayingComponent) toPercent(vol float64) int {
+	// Volume: 0 = 100%, 1 = 200%, -1 = 50% (logarithmic base 2)
+	pct := 1.0
+	if vol != 0 {
+		pct = pow2(vol)
+	} else {
+		pct = 1.0
+	}
+	return int(pct * 100)
+}
+
+func pow2(v float64) float64 { return math.Pow(2, v) }
 
 // SetVolume updates the volume display (called from library page when pbSvc available).
 func (np *NowPlayingComponent) SetVolume(pbVolume float64) {
 	// This is informational; the component doesn't store state.
 	// The caller should manage volume state via the playback service.
 	_ = pbVolume
+}
+
+// RenderFull produces a full-screen Now Playing view. Coordinates match the
+// previous page-level `renderNowPlayingFull` function.
+func (np *NowPlayingComponent) RenderFull(width int, height int) string {
+	if !np.coordinator.HasCurrentTrack() {
+		help := styles.NothingPlayingHintStyle()
+		return lipgloss.JoinVertical(lipgloss.Center, styles.TitleStyle.Render("Now Playing"), "", styles.NothingPlayingStyle(), "", help)
+	}
+
+	tr := np.coordinator.CurrentTrack()
+	title := styles.PrimaryTextStyle().Render(tr.Title)
+	artist := styles.SecondaryTextStyle().Render(tr.Artist)
+	album := styles.TertiaryTextStyle().Render(tr.Album)
+
+	art := np.coordinator.PlaybackAlbumArt()
+	var artView string
+	if art != nil && np.coordinator.PlaybackImgRenderer() != nil {
+		// Compute a larger art size for full-screen mode
+		artW := width * 60 / 100
+		if artW < 20 {
+			artW = 20
+		}
+		artH := height * 50 / 100
+		if artH < 10 {
+			artH = 10
+		}
+		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
+	} else {
+		thumb := np.coordinator.PlaybackAlbumArtThumb()
+		if thumb != "" {
+			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
+		} else {
+			artView = styles.BlurredStyle.Render("(Album art)")
+		}
+	}
+
+	// Playback info and controls
+	posSamples := np.coordinator.StreamPosition()
+	lengthSamples := np.coordinator.StreamLength()
+	sr := int(np.coordinator.SampleRate())
+	var posMs, lenMs int
+	if sr > 0 {
+		posMs = posSamples * 1000 / sr
+		if lengthSamples > 0 {
+			lenMs = lengthSamples * 1000 / sr
+		} else {
+			lenMs = tr.Duration
+		}
+	} else {
+		posMs = 0
+		lenMs = tr.Duration
+	}
+	posStr := util.FormatTrackDuration(posMs)
+	lenStr := util.FormatTrackDuration(lenMs)
+
+	barWidth := width - 10
+	if barWidth < 12 {
+		barWidth = 12
+	}
+	var pct float64
+	if lenMs > 0 {
+		pct = float64(posMs) / float64(lenMs)
+		if pct < 0 {
+			pct = 0
+		} else if pct > 1 {
+			pct = 1
+		}
+	} else {
+		pct = 0
+	}
+	filled := int(pct * float64(barWidth))
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > barWidth {
+		filled = barWidth
+	}
+	barFill := strings.Repeat("█", filled)
+	barEmpty := strings.Repeat(" ", barWidth-filled)
+	progressBar := fmt.Sprintf("[%s%s] %s / %s", styles.FocusedStyle.Render(barFill), styles.BlurredStyle.Render(barEmpty), posStr, lenStr)
+
+	info := lipgloss.JoinVertical(lipgloss.Left,
+		styles.TitleStyle.Render("Now Playing"),
+		"",
+		title,
+		artist,
+		album,
+		"",
+		styles.BlurredStyle.Render(progressBar),
+		"",
+		styles.BlurredStyle.Render(fmt.Sprintf("Volume: %s", styles.BlurredStyle.Render(fmt.Sprintf("%.2f", func() float64 {
+			if vol := np.coordinator.Volume(); vol != nil {
+				return vol.Volume
+			}
+			return 1.0
+		}())))),
+		"",
+		"",
+	)
+
+	return lipgloss.JoinHorizontal(lipgloss.Center,
+		lipgloss.NewStyle().Padding(1, 2).Render(artView),
+		lipgloss.NewStyle().Padding(1, 2).Render(info),
+	)
 }

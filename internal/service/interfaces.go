@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"io"
 
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
@@ -16,6 +17,7 @@ type LibraryServicer interface {
 	FetchRecentlyAdded(ctx context.Context) ([]domain.Album, error)
 	FetchPlaylists(ctx context.Context) ([]domain.Playlist, error)
 	FetchTracks(ctx context.Context, key string) ([]domain.Track, error)
+	FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
 	BuildStreamURL(track *domain.Track) (string, error)
 	SetBaseURL(baseURL string)
 	SetToken(token string)
@@ -31,15 +33,19 @@ type AuthServicer interface {
 
 // PlaybackServicer manages audio playback.
 type PlaybackServicer interface {
-	pubsub.Subscriber[domain.PlaybackInfo]
+	pubsub.Subscriber[PlaybackEvent]
 
 	Play(track *domain.Track) error
-	Pause()
-	Resume()
-	Stop()
-	Seek(position int)
+	Pause() error
+	Resume() error
+	Stop() error
+	Seek(position int) error
 	SetVolume(volume float64)
+	GetVolume() float64
 	GetPosition() int
 	GetDuration() int
 	GetState() domain.PlaybackState
+	PlayDomainTrack(ctx context.Context, lib interface {
+		FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
+	}, track *domain.Track) error
 }

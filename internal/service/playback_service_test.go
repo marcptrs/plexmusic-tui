@@ -90,3 +90,52 @@ func TestPlaybackService_LoadInitializePlay(t *testing.T) {
 		t.Fatalf("Stop error: %v", err)
 	}
 }
+
+// Mock library service providing a FetchStream method for tests
+type mockLibSvc struct {
+	data []byte
+}
+
+func (m *mockLibSvc) FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error) {
+	return io.NopCloser(bytes.NewReader(m.data)), "audio/wav", nil
+}
+
+func TestPlaybackService_PlayDomainTrack_Orchestration(t *testing.T) {
+	s := NewPlaybackService()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch := s.Subscribe(ctx)
+
+	// Create mock lib service returning a silence wav
+	wav := createSilenceWav(1)
+	lib := &mockLibSvc{data: wav}
+
+	track := &domain.Track{Title: "TestOrchestration"}
+
+	if err := s.PlayDomainTrack(ctx, lib, track); err != nil {
+		t.Fatalf("PlayDomainTrack failed: %v", err)
+	}
+
+	// Wait for playback.started
+	gotStarted := false
+	deadline := time.After(2 * time.Second)
+	for !gotStarted {
+		select {
+		case ev := <-ch:
+			if ev.Payload.Type == "playback.started" {
+				gotStarted = true
+				continue
+			}
+		case <-deadline:
+			t.Fatalf("timed out waiting for playback.started event")
+		}
+	}
+	if s.Length() == 0 {
+		t.Fatalf("expected non-zero length after PlayDomainTrack")
+	}
+
+	// Stop playback so test finishes cleanly
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+}

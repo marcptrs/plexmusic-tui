@@ -854,6 +854,41 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	}
 }
 
+func TestLibraryPage_RenderSearch_IncludesTracks(t *testing.T) {
+	coord := app.NewCoordinator()
+
+	// Add a sample track that should be matched by search
+	tracks := []app.Track{
+		{
+			Title:  "Super Track",
+			Artist: "Search Artist",
+			Album:  "Some Album",
+			Key:    "/library/metadata/1/track/1",
+		},
+	}
+	coord.SetTracks(tracks)
+	// Activate Search tab
+	coord.SetActiveTab(app.SearchTab)
+
+	// Simulate authenticated server so the page renders
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 100
+	page.height = 30
+
+	// Put the search query into the input and ensure it's visible
+	page.searchInput.SetValue("super")
+	view := page.View()
+
+	if !strings.Contains(view, "Super Track") {
+		t.Fatalf("expected Search view to include matching track title, got: %q", view)
+	}
+}
+
 // createSilenceWav returns a WAV byte slice with `seconds` seconds of silence
 func createSilenceWav(seconds int) []byte {
 	sampleRate := 44100

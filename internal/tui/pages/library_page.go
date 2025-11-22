@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"math"
 	"strings"
 	"time"
 
@@ -22,6 +21,7 @@ import (
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
+	components "plexmusic-tui/internal/tui/components"
 	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
@@ -41,8 +41,8 @@ type LibraryPage struct {
 	authEvtCh <-chan pubsub.Event[service.AuthEvent]
 	libSvc    *service.LibraryServiceWithEvents
 	libEvtCh  <-chan pubsub.Event[service.LibraryEvent]
-	pbSvc     *service.PlaybackService
-	pbEvtCh   <-chan pubsub.Event[service.PlaybackEvent]
+	// playback service is handled by the orchestrator (no pbSvc field on page)
+	pbEvtCh <-chan pubsub.Event[service.PlaybackEvent]
 
 	// Lists
 	recentlyAddedList list.Model
@@ -63,8 +63,10 @@ type LibraryPage struct {
 	lastSelectedAlbumIndex    int
 	lastSelectedPlaylistIndex int
 
-	help help.Model
-	keys tui.LibraryKeyMap
+	help         help.Model
+	keys         tui.LibraryKeyMap
+	nowPlaying   *components.NowPlayingComponent
+	orchestrator *tui.Orchestrator
 }
 
 // NewLibraryPage creates a new library browsing page and sets up a
@@ -113,6 +115,8 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		playlistList:              plList,
 		trackList:                 trList,
 		queueList:                 qList,
+		nowPlaying:                components.NewNowPlayingComponent(coord, nil),
+		orchestrator:              tui.NewOrchestrator(coord, nil, nil),
 	}
 
 	// Initialize search input (unfocused by default)
@@ -183,19 +187,24 @@ func (p *LibraryPage) Init() tea.Cmd {
 	}
 
 	// Create (or reuse) playback service and subscribe to events.
-	if p.pbSvc == nil {
-		if p.coordinator != nil && p.coordinator.PlaybackService() != nil {
-			p.pbSvc = p.coordinator.PlaybackService()
-		} else {
-			// Create a local instance and wire it into the coordinator to
-			// ensure other pages may reuse it. Clients running the app will
-			// typically set this at startup.
-			p.pbSvc = service.NewPlaybackService()
-			if p.coordinator != nil {
-				p.coordinator.SetPlaybackService(p.pbSvc)
-			}
+	// Initialize playback orchestrator using coordinator-provided service or creating a new one.
+	var pbSvc service.PlaybackServicer
+	if p.coordinator != nil && p.coordinator.PlaybackService() != nil {
+		pbSvc = p.coordinator.PlaybackService()
+	} else {
+		pbSvcLocal := service.NewPlaybackService()
+		pbSvc = pbSvcLocal
+		if p.coordinator != nil {
+			p.coordinator.SetPlaybackService(pbSvcLocal)
 		}
-		p.pbEvtCh = p.pbSvc.Subscribe(p.ctx)
+	}
+	// create or update orchestrator and nowplaying component (pass orchestrator as PlaybackServicer)
+	p.orchestrator = tui.NewOrchestrator(p.coordinator, p.libSvc, pbSvc)
+	p.pbEvtCh = p.orchestrator.Subscribe(p.ctx)
+	if p.nowPlaying == nil {
+		p.nowPlaying = components.NewNowPlayingComponent(p.coordinator, p.orchestrator)
+	} else {
+		p.nowPlaying = components.NewNowPlayingComponent(p.coordinator, p.orchestrator)
 	}
 
 	// Default to the Home tab and ensure selection indices are initialized so
@@ -320,7 +329,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			appTracks := make([]app.Track, len(msg.Tracks))
 			items := make([]list.Item, len(msg.Tracks))
 			for i, t := range msg.Tracks {
-				if at := p.domainTrackToApp(&t); at != nil {
+				if at := util.DomainTrackToApp(&t); at != nil {
 					appTracks[i] = *at
 				}
 				items[i] = util.TrackItem{Track: t}
@@ -425,7 +434,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "playback.started":
 			p.coordinator.SetPlaybackState(app.PlaybackPlaying)
 			if msg.Track != nil {
-				track := p.domainTrackToApp(msg.Track)
+				track := util.DomainTrackToApp(msg.Track)
 				p.coordinator.SetCurrentTrack(track)
 			}
 		case "playback.resumed":
@@ -505,17 +514,26 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, p.keys.Play):
 			log.Debug("Play key matched", "msg", msg)
 
-			if p.pbSvc == nil {
+			if p.orchestrator == nil {
+				p.coordinator.SetNotification("Playback unavailable: orchestrator is not initialized", "error", 5*time.Second)
 				return p, nil
 			}
 
 			// Priority: Toggle playback if active (Playing or Paused)
 			if p.coordinator.IsPlaying() {
-				_ = p.pbSvc.Pause()
+				if p.orchestrator != nil {
+					_ = p.orchestrator.Pause()
+				} else {
+					p.coordinator.SetNotification("Pause failed: playback orchestrator unavailable", "error", 5*time.Second)
+				}
 				return p, nil
 			}
 			if p.coordinator.IsPaused() {
-				_ = p.pbSvc.Resume()
+				if p.orchestrator != nil {
+					_ = p.orchestrator.Resume()
+				} else {
+					p.coordinator.SetNotification("Resume failed: playback orchestrator unavailable", "error", 5*time.Second)
+				}
 				return p, nil
 			}
 
@@ -536,7 +554,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if p.libSvc != nil {
 					if item, ok := p.trackList.SelectedItem().(util.TrackItem); ok {
 						// Convert domain.Track -> app.Track
-						at := p.domainTrackToApp(&item.Track)
+						at := util.DomainTrackToApp(&item.Track)
 						return p, p.playAppTrack(at)
 					}
 				}
@@ -556,7 +574,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							appTracks := make([]app.Track, len(tracks))
 							items := make([]list.Item, len(tracks))
 							for i, t := range tracks {
-								if at := p.domainTrackToApp(&t); at != nil {
+								if at := util.DomainTrackToApp(&t); at != nil {
 									appTracks[i] = *at
 								}
 								items[i] = util.TrackItem{Track: t}
@@ -584,7 +602,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							appTracks := make([]app.Track, len(tracks))
 							items := make([]list.Item, len(tracks))
 							for i, t := range tracks {
-								if at := p.domainTrackToApp(&t); at != nil {
+								if at := util.DomainTrackToApp(&t); at != nil {
 									appTracks[i] = *at
 								}
 								items[i] = util.TrackItem{Track: t}
@@ -743,7 +761,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			if key.Matches(msg, p.keys.Enter) {
 				if item, ok := p.queueList.SelectedItem().(util.QueueItem); ok {
-					at := p.domainTrackToApp(&item.Track)
+					at := util.DomainTrackToApp(&item.Track)
 					return p, p.playAppTrack(at)
 				}
 			}
@@ -886,7 +904,8 @@ func (p *LibraryPage) View() string {
 	}
 
 	// Main content — Now Playing becomes the primary content area.
-	mainContent := p.renderNowPlaying(rightWidth, contentHeight)
+	var mainContent string
+	mainContent = p.nowPlaying.Render(rightWidth, contentHeight)
 	if p.libSvc != nil && len(p.coordinator.Albums()) == 0 && len(p.coordinator.Playlists()) == 0 {
 		// Show a friendly, centered loading placeholder in the content area when
 		// the library service is active but no content has been loaded yet.
@@ -919,7 +938,9 @@ func (p *LibraryPage) View() string {
 			p.height,
 			lipgloss.Center,
 			lipgloss.Center,
-			p.renderNowPlayingFull(p.width, p.height),
+			func() string {
+				return p.nowPlaying.RenderFull(p.width, p.height)
+			}(),
 		)
 	}
 
@@ -1110,6 +1131,8 @@ func (p *LibraryPage) fetchRecentlyAdded() tea.Cmd {
 	}
 }
 
+// Note: playback orchestration is done via the orchestrator; helper removed.
+
 // fetchPlaylists triggers the library service to fetch playlists.
 func (p *LibraryPage) fetchPlaylists() tea.Cmd {
 	if p.libSvc == nil {
@@ -1181,14 +1204,36 @@ func (p *LibraryPage) renderSearch(width int) string {
 	results := []string{}
 	term := strings.TrimSpace(p.searchInput.Value())
 	if term != "" {
+		q := strings.ToLower(term)
+		seen := make(map[string]bool)
+		// Search albums
 		for _, a := range p.coordinator.Albums() {
-			if strings.Contains(strings.ToLower(a.Title), strings.ToLower(term)) || strings.Contains(strings.ToLower(a.Artist), strings.ToLower(term)) {
-				results = append(results, fmt.Sprintf("%s — %s", a.Title, a.Artist))
+			if strings.Contains(strings.ToLower(a.Title), q) || strings.Contains(strings.ToLower(a.Artist), q) {
+				s := fmt.Sprintf("%s — %s", a.Title, a.Artist)
+				if !seen[s] {
+					results = append(results, s)
+					seen[s] = true
+				}
 			}
 		}
+		// Search playlists
 		for _, pl := range p.coordinator.Playlists() {
-			if strings.Contains(strings.ToLower(pl.Title), strings.ToLower(term)) {
-				results = append(results, fmt.Sprintf("%s (playlist)", pl.Title))
+			if strings.Contains(strings.ToLower(pl.Title), q) {
+				s := fmt.Sprintf("%s (playlist)", pl.Title)
+				if !seen[s] {
+					results = append(results, s)
+					seen[s] = true
+				}
+			}
+		}
+		// Search tracks
+		for _, t := range p.coordinator.Tracks() {
+			if strings.Contains(strings.ToLower(t.Title), q) || strings.Contains(strings.ToLower(t.Artist), q) || strings.Contains(strings.ToLower(t.Album), q) {
+				s := fmt.Sprintf("%s — %s (track)", t.Title, t.Artist)
+				if !seen[s] {
+					results = append(results, s)
+					seen[s] = true
+				}
 			}
 		}
 	}
@@ -1216,153 +1261,6 @@ func (p *LibraryPage) renderTracks(width int) string {
 
 // renderNowPlaying shows the now playing details, a small cover-art placeholder,
 // playback progress and volume controls.
-func (p *LibraryPage) renderNowPlaying(width, height int) string {
-	// If no track is present, show a 'Nothing Playing' placeholder
-	if !p.coordinator.HasCurrentTrack() {
-		help := styles.NothingPlayingHintStyle()
-
-		// Build volume display
-		volumeStr := ""
-		if p.pbSvc != nil {
-			vol := p.pbSvc.GetVolume()
-			// Volume: 0 = 100%, 1 = 200%, -1 = 50% (logarithmic scale with Base: 2)
-			volumeStr = fmt.Sprintf("Volume: %.0f%%", math.Pow(2, vol)*100)
-		} else if vol := p.coordinator.Volume(); vol != nil {
-			volumeStr = fmt.Sprintf("Volume: %.0f%%", math.Pow(2, vol.Volume)*100)
-		}
-
-		nothingPlayingText := lipgloss.JoinVertical(lipgloss.Center, styles.NothingPlayingStyle(), "", help, "", styles.BlurredStyle.Render(volumeStr))
-		// Center both horizontally and vertically within the available space
-		return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, nothingPlayingText)
-	}
-
-	tr := p.coordinator.CurrentTrack()
-	trackTitle := styles.PrimaryTextStyle().Render(tr.Title)
-	artist := styles.SecondaryTextStyle().Render(tr.Artist)
-	album := styles.TertiaryTextStyle().Render(tr.Album)
-
-	// Render album art using the playback renderer (if available). Fall back to a thumb/url line.
-	art := p.coordinator.PlaybackAlbumArt()
-	var artView string
-	artW := 0
-	if art != nil && p.coordinator.PlaybackImgRenderer() != nil {
-		// Give the art roughly 40-50% of the detail width with a lower bound
-		artW = width * 45 / 100
-		if artW < 6 {
-			artW = 6
-		}
-		artH := artW / 2
-		// Guard against zero size
-		if artH < 3 {
-			artH = 3
-		}
-		artView = p.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
-	} else {
-		// Fallback to the thumbnail URL if image rendering is not available.
-		thumb := p.coordinator.PlaybackAlbumArtThumb()
-		if thumb != "" {
-			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
-		} else {
-			artView = styles.BlurredStyle.Render("(Album art)")
-		}
-	}
-
-	// Use sample pos/length and sample rate (if available) to compute a time-based position.
-	posSamples := p.coordinator.StreamPosition()
-	lengthSamples := p.coordinator.StreamLength()
-	sr := int(p.coordinator.SampleRate())
-
-	var posMs, lenMs int
-	if sr > 0 {
-		posMs = posSamples * 1000 / sr
-		if lengthSamples > 0 {
-			lenMs = lengthSamples * 1000 / sr
-		} else {
-			lenMs = tr.Duration
-		}
-	} else {
-		// Fallback to former approach, but prefer track.Duration if available.
-		posMs = 0
-		lenMs = tr.Duration
-	}
-
-	// If lenMs still zero, fallback to no length display.
-	if lenMs == 0 && tr != nil {
-		lenMs = tr.Duration
-	}
-
-	posStr := util.FormatTrackDuration(posMs)
-	lenStr := util.FormatTrackDuration(lenMs)
-
-	// Build a progress bar roughly sized to the detail width
-	// If art is present, we have less width for the bar
-	availableWidth := width
-	if artView != "" {
-		availableWidth = width - artW - 4 // padding
-	}
-
-	barWidth := availableWidth - 16 // approximate timestamp width
-	if barWidth < 8 {
-		barWidth = 8
-	}
-	var pct float64
-	if lenMs > 0 {
-		pct = float64(posMs) / float64(lenMs)
-		if pct < 0 {
-			pct = 0
-		} else if pct > 1 {
-			pct = 1
-		}
-	} else {
-		pct = 0
-	}
-	filled := int(pct * float64(barWidth))
-	if filled < 0 {
-		filled = 0
-	}
-	if filled > barWidth {
-		filled = barWidth
-	}
-
-	barFill := strings.Repeat("█", filled)
-	barEmpty := strings.Repeat(" ", barWidth-filled)
-	progressBar := fmt.Sprintf("[%s%s] %s / %s",
-		styles.FocusedStyle.Render(barFill),
-		styles.BlurredStyle.Render(barEmpty),
-		posStr,
-		lenStr,
-	)
-
-	// Volume display: read from playback service or coordinator's volume effect
-	volume := ""
-	if p.pbSvc != nil {
-		vol := p.pbSvc.GetVolume()
-		// Volume: 0 = 100%, 1 = 200%, -1 = 50% (logarithmic scale with Base: 2)
-		volume = fmt.Sprintf("Volume: %.0f%%", math.Pow(2, vol)*100)
-	} else if vol := p.coordinator.Volume(); vol != nil {
-		volume = fmt.Sprintf("Volume: %.0f%%", math.Pow(2, vol.Volume)*100)
-	}
-
-	rightColumn := lipgloss.JoinVertical(lipgloss.Left,
-		trackTitle,
-		artist,
-		album,
-		"",
-		styles.BlurredStyle.Render(progressBar),
-		styles.BlurredStyle.Render(volume),
-	)
-
-	// If we have artView (likely multi-line), render art and info side-by-side.
-	if artView != "" {
-		return lipgloss.JoinHorizontal(lipgloss.Left,
-			artView,
-			lipgloss.NewStyle().Padding(0, 2).Render(rightColumn),
-		)
-	}
-
-	// Fallback: render info block only
-	return rightColumn
-}
 
 // renderWithModal composes the base view layout with the queue modal overlay.
 func (p *LibraryPage) renderWithModal(base string) string {
@@ -1396,192 +1294,6 @@ func (p *LibraryPage) renderWithModal(base string) string {
 }
 
 // renderNowPlayingFull renders a full-screen focused Now Playing page.
-func (p *LibraryPage) renderNowPlayingFull(width int, height int) string {
-	// Build a large art presentation area plus metadata and controls below
-	if !p.coordinator.HasCurrentTrack() {
-		help := styles.NothingPlayingHintStyle()
-		return lipgloss.JoinVertical(lipgloss.Center, styles.TitleStyle.Render("Now Playing"), "", styles.NothingPlayingStyle(), "", help)
-	}
-
-	tr := p.coordinator.CurrentTrack()
-	title := styles.PrimaryTextStyle().Render(tr.Title)
-	artist := styles.SecondaryTextStyle().Render(tr.Artist)
-	album := styles.TertiaryTextStyle().Render(tr.Album)
-
-	art := p.coordinator.PlaybackAlbumArt()
-	var artView string
-	if art != nil && p.coordinator.PlaybackImgRenderer() != nil {
-		// Compute a larger art size for full-screen mode
-		artW := width * 60 / 100
-		if artW < 20 {
-			artW = 20
-		}
-		artH := height * 50 / 100
-		if artH < 10 {
-			artH = 10
-		}
-		artView = p.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
-	} else {
-		thumb := p.coordinator.PlaybackAlbumArtThumb()
-		if thumb != "" {
-			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
-		} else {
-			artView = styles.BlurredStyle.Render("(Album art)")
-		}
-	}
-
-	// Playback info and controls
-	posSamples := p.coordinator.StreamPosition()
-	lengthSamples := p.coordinator.StreamLength()
-	sr := int(p.coordinator.SampleRate())
-	var posMs, lenMs int
-	if sr > 0 {
-		posMs = posSamples * 1000 / sr
-		if lengthSamples > 0 {
-			lenMs = lengthSamples * 1000 / sr
-		} else {
-			lenMs = tr.Duration
-		}
-	} else {
-		posMs = 0
-		lenMs = tr.Duration
-	}
-	posStr := util.FormatTrackDuration(posMs)
-	lenStr := util.FormatTrackDuration(lenMs)
-
-	// Simple, wide progress bar
-	barWidth := width - 10
-	if barWidth < 12 {
-		barWidth = 12
-	}
-	var pct float64
-	if lenMs > 0 {
-		pct = float64(posMs) / float64(lenMs)
-		if pct < 0 {
-			pct = 0
-		} else if pct > 1 {
-			pct = 1
-		}
-	} else {
-		pct = 0
-	}
-	filled := int(pct * float64(barWidth))
-	if filled < 0 {
-		filled = 0
-	}
-	if filled > barWidth {
-		filled = barWidth
-	}
-	barFill := strings.Repeat("█", filled)
-	barEmpty := strings.Repeat(" ", barWidth-filled)
-	progressBar := fmt.Sprintf("[%s%s] %s / %s",
-		styles.FocusedStyle.Render(barFill),
-		styles.BlurredStyle.Render(barEmpty),
-		posStr,
-		lenStr,
-	)
-
-	controls := p.help.View(p.keys)
-
-	// Compose a top-to-bottom full-screen now playing view
-	info := lipgloss.JoinVertical(lipgloss.Left,
-		styles.TitleStyle.Render("Now Playing"),
-		"",
-		title,
-		artist,
-		album,
-		"",
-		styles.BlurredStyle.Render(progressBar),
-		"",
-		styles.BlurredStyle.Render(fmt.Sprintf("Volume: %s", styles.BlurredStyle.Render(fmt.Sprintf("%.2f", func() float64 {
-			if vol := p.coordinator.Volume(); vol != nil {
-				return vol.Volume
-			}
-			return 1.0
-		}())))),
-		"",
-		controls,
-	)
-
-	return lipgloss.JoinHorizontal(lipgloss.Center,
-		lipgloss.NewStyle().Padding(1, 2).Render(artView),
-		lipgloss.NewStyle().Padding(1, 2).Render(info),
-	)
-}
-
-// Helper: convert an app.Track into a domain.Track for playback calls
-func (p *LibraryPage) appTrackToDomain(at *app.Track) *domain.Track {
-	if at == nil {
-		return nil
-	}
-	dt := &domain.Track{
-		Title:       at.Title,
-		Artist:      at.Artist,
-		Album:       at.Album,
-		Duration:    at.Duration,
-		TrackNumber: at.TrackNumber,
-		Key:         at.Key,
-		RatingKey:   at.RatingKey,
-		Thumb:       at.Thumb,
-	}
-
-	// Copy Media info if present
-	if len(at.Media) > 0 {
-		dt.Media = make([]struct {
-			Part []struct {
-				Key string `json:"key"`
-			} `json:"Part"`
-		}, len(at.Media))
-		for i, m := range at.Media {
-			if len(m.Part) > 0 {
-				dt.Media[i].Part = make([]struct {
-					Key string `json:"key"`
-				}, len(m.Part))
-				for j, part := range m.Part {
-					dt.Media[i].Part[j].Key = part.Key
-				}
-			}
-		}
-	}
-	return dt
-}
-
-// Helper: convert a domain.Track into an app.Track
-func (p *LibraryPage) domainTrackToApp(dt *domain.Track) *app.Track {
-	if dt == nil {
-		return nil
-	}
-	at := &app.Track{
-		Title:       dt.Title,
-		Artist:      dt.Artist,
-		Album:       dt.Album,
-		Duration:    dt.Duration,
-		TrackNumber: dt.TrackNumber,
-		Key:         dt.Key,
-		RatingKey:   dt.RatingKey,
-		Thumb:       dt.Thumb,
-	}
-
-	// Copy Media info if present
-	if len(dt.Media) > 0 {
-		at.Media = make([]struct {
-			Part []struct {
-				Key string
-			}
-		}, len(dt.Media))
-		for i, m := range dt.Media {
-			if len(m.Part) > 0 {
-				at.Media[i].Part = make([]struct {
-					Key string
-				}, len(m.Part))
-				for j, part := range m.Part {
-					at.Media[i].Part[j].Key = part.Key
-				}
-			}
-		}
-	}
-	return at
-}
 
 // Helper: play the provided app.Track (UI & playback service)
 func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
@@ -1589,9 +1301,8 @@ func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
 		return nil
 	}
 	log.Debug("playAppTrack.called", "title", at.Title)
-	// Update UI coordinator state
+	// Update UI coordinator state preemptively for immediate UI feedback — playback.started will reconcile state later
 	p.coordinator.SetCurrentTrack(at)
-	log.Debug("coordinator.current_track_set", "track", p.coordinator.CurrentTrack())
 	p.coordinator.SetPlaybackState(app.PlaybackPlaying)
 
 	var cmds []tea.Cmd
@@ -1601,145 +1312,85 @@ func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
 		cmds = append(cmds, p.fetchCoverArtCmd(at.Thumb))
 	}
 
-	// Delegate to playback service if available.
-	if p.pbSvc != nil {
-		dt := p.appTrackToDomain(at)
-
-		// Fetch stream if library service is available
-		if p.libSvc != nil {
-			// Use the page context for the stream request.
-			// Do NOT use a short timeout context here because canceling it will
-			// close the response body and kill the stream during playback.
-			stream, contentType, err := p.libSvc.FetchStream(p.ctx, dt)
-			if err != nil {
-				log.Error("failed to fetch stream", "err", err)
-				return nil
-			}
-
-			// Load the stream into the player
-			if err := p.pbSvc.LoadStream(stream, contentType); err != nil {
-				log.Error("failed to load stream", "err", err)
-				stream.Close()
-				return nil
-			}
-
-			// Initialize the player (speaker)
-			if err := p.pbSvc.Initialize(); err != nil {
-				log.Error("failed to initialize playback", "err", err)
-				return nil
-			}
+	// Orchestrator is required to perform playback orchestration
+	if p.orchestrator != nil {
+		if err := p.orchestrator.PlayAppTrack(p.ctx, at); err != nil {
+			p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+			return nil
 		}
-
-		_ = p.pbSvc.Play(dt)
+	} else {
+		// Orchestrator missing: notify user
+		p.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
+		return nil
 	}
 	return tea.Batch(cmds...)
 }
 
 // Helper: play next track (queue preferred, otherwise tracklist)
 func (p *LibraryPage) playNext() tea.Cmd {
-	// Prefer queue if present
 	q := p.coordinator.Queue()
-	if len(q) > 0 {
-		idx := p.coordinator.QueueIndex()
-		if idx < 0 {
-			idx = 0
-		} else {
-			idx++
-			if idx >= len(q) {
-				idx = 0
-			}
-		}
-		p.coordinator.SetQueueIndex(idx)
-		return p.playAppTrack(&q[idx])
-	}
-
-	// Otherwise iterate through tracklist
 	tracks := p.coordinator.Tracks()
-	if len(tracks) == 0 {
+	// Convert app.Track slices into domain.Track slices for the playback controller
+	dq := make([]domain.Track, len(q))
+	for i, t := range q {
+		if dt := util.AppTrackToDomain(&t); dt != nil {
+			dq[i] = *dt
+		}
+	}
+	dtracks := make([]domain.Track, len(tracks))
+	for i, t := range tracks {
+		if dt := util.AppTrackToDomain(&t); dt != nil {
+			dtracks[i] = *dt
+		}
+	}
+	pc := service.NewPlaybackController(p.orchestrator)
+	if p.orchestrator == nil {
+		p.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
 		return nil
 	}
-	idx := p.coordinator.SelectedTrack()
-	if idx < 0 || idx >= len(tracks)-1 {
-		idx = 0
-	} else {
-		idx++
+	if err := p.orchestrator.PlayNext(p.ctx, pc, q, p.coordinator.QueueIndex(), tracks, p.coordinator.SelectedTrack()); err != nil {
+		log.Error("playback play failed", "err", err)
+		p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
 	}
-	p.coordinator.SetSelectedTrack(idx)
-	return p.playAppTrack(&tracks[idx])
+	return nil
 }
 
 // Helper: play previous track (queue preferred, otherwise tracklist)
 func (p *LibraryPage) playPrev() tea.Cmd {
-	// Prefer queue if present
 	q := p.coordinator.Queue()
-	if len(q) > 0 {
-		idx := p.coordinator.QueueIndex()
-		if idx <= 0 {
-			idx = len(q) - 1
-		} else {
-			idx--
-		}
-		p.coordinator.SetQueueIndex(idx)
-		return p.playAppTrack(&q[idx])
-	}
-
-	// Otherwise iterate through tracklist
 	tracks := p.coordinator.Tracks()
-	if len(tracks) == 0 {
+	dq := make([]domain.Track, len(q))
+	for i, t := range q {
+		if dt := util.AppTrackToDomain(&t); dt != nil {
+			dq[i] = *dt
+		}
+	}
+	dtracks := make([]domain.Track, len(tracks))
+	for i, t := range tracks {
+		if dt := util.AppTrackToDomain(&t); dt != nil {
+			dtracks[i] = *dt
+		}
+	}
+	pc := service.NewPlaybackController(p.orchestrator)
+	if p.orchestrator == nil {
+		p.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
 		return nil
 	}
-	idx := p.coordinator.SelectedTrack()
-	if idx <= 0 {
-		idx = len(tracks) - 1
-	} else {
-		idx--
+	if err := p.orchestrator.PlayPrev(p.ctx, pc, q, p.coordinator.QueueIndex(), tracks, p.coordinator.SelectedTrack()); err != nil {
+		p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
 	}
-	p.coordinator.SetSelectedTrack(idx)
-	return p.playAppTrack(&tracks[idx])
+	return nil
 }
 
 // Helper: adjust volume by percentage (linear stepping for consistent feel)
 // percentageDelta is in percentage points (e.g., 5 means +5% or -5%)
 func (p *LibraryPage) adjustVolumeByPercent(percentageDelta int) {
-	if p.pbSvc != nil {
-		currentVolume := p.pbSvc.GetVolume()
-		// Convert current logarithmic volume to percentage
-		currentPercent := math.Pow(2, currentVolume) * 100
-		// Apply linear percentage change
-		newPercent := currentPercent + float64(percentageDelta)
-		// Clamp to 0% - 100% (0.0 is max)
-		if newPercent < 0 {
-			newPercent = 0
-		} else if newPercent > 100 {
-			newPercent = 100
-		}
-		// Convert back to logarithmic scale
-		newVolume := math.Log2(newPercent / 100)
-		p.pbSvc.SetVolume(newVolume)
-
-		// Save volume to config
-		if cfg := p.coordinator.ConfigManager(); cfg != nil {
-			cfg.SetVolume(newVolume)
-			_ = cfg.Save()
-		}
+	// Prefer orchestrator where available to centralize pb operations
+	if p.orchestrator != nil {
+		_ = p.orchestrator.AdjustVolumeByPercent(percentageDelta)
 		return
 	}
-	// Fallback: adjust coordinator volume effect directly if present
-	if vol := p.coordinator.Volume(); vol != nil {
-		currentPercent := math.Pow(2, vol.Volume) * 100
-		newPercent := currentPercent + float64(percentageDelta)
-		// Clamp to 0% - 100% (0.0 is max)
-		if newPercent < 0 {
-			newPercent = 0
-		} else if newPercent > 100 {
-			newPercent = 100
-		}
-		vol.Volume = math.Log2(newPercent / 100)
-
-		// Save volume to config
-		if cfg := p.coordinator.ConfigManager(); cfg != nil {
-			cfg.SetVolume(vol.Volume)
-			_ = cfg.Save()
-		}
-	}
+	// Orchestrator missing: notify user of missing playback orchestrator
+	p.coordinator.SetNotification("Volume adjust failed: playback orchestrator unavailable", "error", 5*time.Second)
+	// No coordinator fallback in orchestrator-only mode
 }
