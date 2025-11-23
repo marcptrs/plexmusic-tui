@@ -6,11 +6,14 @@ import (
 	"encoding/base64"
 	"fmt"
 	"image"
+	"image/color"
 	"image/png"
 	"os"
 	"reflect"
 	"strings"
 	"sync"
+
+	log "github.com/charmbracelet/log/v2"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/disintegration/imaging"
@@ -50,6 +53,7 @@ type Renderer struct {
 	pngCache  map[uintptr][]byte
 	hashCache map[uintptr]string
 	mu        sync.RWMutex
+	debug     bool
 }
 
 // NewRenderer creates a new image renderer, auto-detecting the best protocol
@@ -73,6 +77,12 @@ func NewRendererWithProtocol(p Protocol) *Renderer {
 	}
 }
 
+// SetDebug toggles debug logging output for the renderer. This is primarily
+// for development and should be enabled via CLI flags rather than env vars.
+func (r *Renderer) SetDebug(enabled bool) {
+	r.debug = enabled
+}
+
 // SetProtocol changes the protocol used by this renderer for runtime toggles
 func (r *Renderer) SetProtocol(p Protocol) {
 	r.protocol = p
@@ -80,6 +90,7 @@ func (r *Renderer) SetProtocol(p Protocol) {
 
 // DetectImageProtocol detects the best image protocol supported by the terminal
 func DetectImageProtocol() Protocol {
+	// Detect the protocol by reading terminal environment variables.
 	// Check for Kitty terminal
 	if os.Getenv("TERM") == "xterm-kitty" || os.Getenv("KITTY_WINDOW_ID") != "" {
 		return ProtocolKitty
@@ -107,6 +118,14 @@ func DetectImageProtocol() Protocol {
 	return ProtocolUnicodeBlocks
 }
 
+// Pixel per-cell constants for Kitty and iTerm2 renderers.
+// Choose the target pixel canvas size to reduce seam artifacts produced by
+// fractional-scaling when images are resized into terminal cells.
+const (
+	pixelPerCellKitty  = 10
+	pixelPerCellITerm2 = 20
+)
+
 // Render renders an image to terminal output using the detected protocol
 // width and height are in character dimensions
 func (r *Renderer) Render(img image.Image, width, height int) string {
@@ -114,15 +133,8 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		return ""
 	}
 
-	// Compute a content hash so that different image content with the same
-	// dimensions won't reuse a stale cached rendering. We encode the image to
-	// PNG in memory for a stable byte representation for hashing. If the
-	// encoding fails for any reason, fall back to the previous cache key
-	// behavior that only includes image bounds.
-	// Use pointer address of the underlying image as cache key for our
-	// derived PNG/hash caches. Most decoded images will be concrete pointer
-	// types (e.g., *image.RGBA), so we can use reflect to extract that pointer
-	// to avoid re-encoding PNG on every Render call.
+	// Build a stable content hash (PNG encoding) and reuse cached encodings
+	// via the image pointer when possible to avoid re-encoding on every call.
 	var contentHash string
 	var addr uintptr
 	v := reflect.ValueOf(img)
@@ -159,7 +171,7 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		}
 	}
 
-	// Generate cache key based on image content hash, dimensions and requested size
+	// Generate cache key from protocol, content hash and sizes
 	bounds := img.Bounds()
 	cacheKey := fmt.Sprintf("%s_%s_%d_%d_%dx%d_%dx%d",
 		r.protocol.String(),
@@ -185,12 +197,14 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		result = r.renderImageUnicodeBlocks(img, width, height)
 	}
 
+	// Trim trailing whitespace to avoid extra blank lines from renderers.
+	result = strings.TrimRight(result, "\r\n ")
 	// Cache the result
 	r.cache[cacheKey] = result
 	return result
 }
 
-// RenderPlaceholder renders a text-based placeholder when no image is available
+// RenderPlaceholder draws a boxed text placeholder when no image is available.
 func (r *Renderer) RenderPlaceholder(width, height int, message string) string {
 	// Create a simple text-based placeholder using box drawing characters
 	var output strings.Builder
@@ -246,27 +260,37 @@ func (r *Renderer) RenderPlaceholder(width, height int, message string) string {
 // renderImageKitty renders an image using the Kitty graphics protocol
 // Uses a two-step process: transmit to memory, then place using virtual placements
 func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
-	// Resize image to desired pixel dimensions
-	pixelWidth := width * 10
-	pixelHeight := height * 10
-	resized := imaging.Fit(img, pixelWidth, pixelHeight, imaging.Lanczos)
+	// Pixel size per character for Kitty rendering. Using constants makes it
+	// explicit and easier to tune for seam/anti-alias artifacts.
+	pixelPerCell := pixelPerCellKitty
+	pixelWidth := width * pixelPerCell
+	pixelHeight := height * pixelPerCell
 
-	// Encode image to PNG in memory
+	// Fit image to pixel bounds and paste into an exact-size canvas to avoid
+	// fractional-scaling seams (maps PNG pixels -> terminal cell grid).
+	resized := imaging.Fit(img, pixelWidth, pixelHeight, imaging.Lanczos)
+	canvas := imaging.New(pixelWidth, pixelHeight, color.Transparent)
+	resized = imaging.PasteCenter(canvas, resized)
+
+	// Encode image to PNG
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, resized); err != nil {
 		return "" // Fall back to empty on error
 	}
 	imageData := buf.Bytes()
 
-	// Generate a stable ID based on content hash (use numeric ID)
+	// Generate numeric ID from PNG content hash
 	hash := sha256.Sum256(imageData)
 	// Convert first 4 bytes to a uint32 for numeric ID
 	imageID := uint32(hash[0])<<24 | uint32(hash[1])<<16 | uint32(hash[2])<<8 | uint32(hash[3])
 
-	// Encode to base64
+	// Base64 encode PNG
 	encoded := base64.StdEncoding.EncodeToString(imageData)
 
 	var output strings.Builder
+	if r.debug {
+		log.Debug("KittyRender", "charW", width, "charH", height, "pixelW", pixelWidth, "pixelH", pixelHeight, "resizedW", resized.Bounds().Dx(), "resizedH", resized.Bounds().Dy())
+	}
 
 	// Step 1: Transmit image data to Kitty's memory (a=t for transmit only, not display)
 	chunkSize := 4096
@@ -334,10 +358,19 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 
 // renderImageITerm2 renders an image using iTerm2's inline image protocol
 func (r *Renderer) renderImageITerm2(img image.Image, width, height int) string {
-	// Resize image - using 20 pixels per character for both dimensions
-	pixelWidth := width * 20
-	pixelHeight := height * 20
+	// Pixel size per character for iTerm2 rendering.
+	pixelPerCell := pixelPerCellITerm2
+	pixelWidth := width * pixelPerCell
+	pixelHeight := height * pixelPerCell
+
+	// Use Fit + exact canvas to avoid fractional scaling seams just like
+	// Kitty rendering.
 	resized := imaging.Fit(img, pixelWidth, pixelHeight, imaging.Lanczos)
+	if r.debug {
+		log.Debug("ITerm2Render", "charW", width, "charH", height, "pixelW", pixelWidth, "pixelH", pixelHeight, "resizedW", resized.Bounds().Dx(), "resizedH", resized.Bounds().Dy())
+	}
+	canvas := imaging.New(pixelWidth, pixelHeight, color.Transparent)
+	resized = imaging.PasteCenter(canvas, resized)
 
 	// Encode to PNG
 	var buf bytes.Buffer
@@ -345,7 +378,7 @@ func (r *Renderer) renderImageITerm2(img image.Image, width, height int) string 
 		return ""
 	}
 
-	// Encode to base64
+	// Base64 encode PNG
 	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
 
 	// iTerm2 inline image format
@@ -357,10 +390,7 @@ func (r *Renderer) renderImageITerm2(img image.Image, width, height int) string 
 
 // renderImageSixel renders an image using the Sixel protocol
 func (r *Renderer) renderImageSixel(img image.Image, width, height int) string {
-	// Note: Full Sixel encoding is complex. For a complete implementation,
-	// you would need a proper Sixel encoder library.
-	// This is a placeholder that falls back to Unicode blocks
-	// A proper implementation would use a library like github.com/mattn/go-sixel
+	// Sixel not implemented; fallback to Unicode blocks.
 	return r.renderImageUnicodeBlocks(img, width, height)
 }
 

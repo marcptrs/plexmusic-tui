@@ -11,6 +11,9 @@ type Config struct {
 	AuthToken          string  `json:"authToken"`
 	LastSelectedServer string  `json:"lastSelectedServer,omitempty"` // Server canonical key in the form host/name
 	Volume             float64 `json:"volume,omitempty"`             // Audio volume "stops" (logarithmic scale, Base:2). 0 = 100%, 1 = 200%, -1 = 50%
+	// CoverArtPosition determines where the cover art is rendered relative to
+	// playlists/queue. Valid values: "left" or "right". Defaults to "left".
+	CoverArtPosition string `json:"coverArtPosition,omitempty"`
 }
 
 // Manager wraps Config with convenience methods
@@ -57,6 +60,23 @@ func (m *Manager) GetVolume() float64 {
 		return 0.0 // Default to 0 (100% display)
 	}
 	return m.cfg.Volume
+}
+
+// GetCoverArtPosition returns the configured position of the cover art.
+// Valid values are "left" or "right". If unset, default to "left".
+func (m *Manager) GetCoverArtPosition() string {
+	if m.cfg.CoverArtPosition == "right" {
+		return "right"
+	}
+	return "left"
+}
+
+// SetCoverArtPosition sets the cover art position. Use "left" or "right".
+func (m *Manager) SetCoverArtPosition(pos string) {
+	if pos != "right" {
+		pos = "left"
+	}
+	m.cfg.CoverArtPosition = pos
 }
 
 // SetVolume sets the volume level

@@ -1,9 +1,11 @@
 package pages
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"image"
+	"os"
 	"strings"
 	"time"
 
@@ -49,6 +51,7 @@ type LibraryPage struct {
 	playlistList      list.Model
 	trackList         list.Model
 	queueList         list.Model
+	settingsList      list.Model
 
 	// Search and inline content UI
 	searchInput  textinput.Model
@@ -57,6 +60,8 @@ type LibraryPage struct {
 
 	// showingTracks indicates the left-pane is showing track list for a selected album/playlist.
 	showingTracks bool
+	// drawerOpen indicates whether an overlay drawer (for library/search/settings) is open
+	drawerOpen bool
 
 	focusedNowPlaying bool
 	// Track last selected indices to detect selection changes and fetch tracks lazily
@@ -69,8 +74,7 @@ type LibraryPage struct {
 	orchestrator *tui.Orchestrator
 }
 
-// NewLibraryPage creates a new library browsing page and sets up a
-// cancellable background context for event subscriptions.
+// NewLibraryPage creates a library page and its cancellable event context.
 func NewLibraryPage(coord app.Coordinatorer) *LibraryPage {
 	return NewLibraryPageWithAuth(coord, nil)
 }
@@ -97,6 +101,10 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 	qList.Title = "Queue"
 	qList.SetShowHelp(false)
 
+	// Create a separate delegate for the settings list so we can style it.
+	settingsDelegate := list.NewDefaultDelegate()
+	settingsList := list.New(nil, settingsDelegate, 0, 0)
+
 	p := &LibraryPage{
 		coordinator:   coord,
 		ctx:           ctx,
@@ -105,6 +113,7 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		searchActive:  false,
 		searchTerm:    "",
 		showingTracks: false,
+		drawerOpen:    false,
 		// Track last selected indices so we can fetch tracks lazily when selection changes
 		// without issuing repeated fetches.
 		lastSelectedAlbumIndex:    -1,
@@ -115,6 +124,7 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		playlistList:              plList,
 		trackList:                 trList,
 		queueList:                 qList,
+		settingsList:              settingsList,
 		nowPlaying:                components.NewNowPlayingComponent(coord, nil),
 		orchestrator:              tui.NewOrchestrator(coord, nil, nil),
 	}
@@ -130,29 +140,21 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 	if authSvc != nil {
 		p.authEvtCh = authSvc.Subscribe(p.ctx)
 	}
+	// Initialize settings list items from available config
+	if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
+		pos := p.coordinator.ConfigManager().GetCoverArtPosition()
+		// Build the settings list items (grouped)
+		items := []list.Item{}
+		items = append(items, util.SettingsItem{Group: "Layout", Name: "Cover art position", Key: "coverArtPos", Kind: "choice", Value: pos})
+		p.settingsList.SetItems(items)
+	}
 	return p
 }
 
-// modalForActiveTab maps a TabType -> ModalType so that switching to a
-// modal-associated tab can result in opening the appropriate modal.
-
-// tabForModal maps a modal to the tab type (used for highlighting the nav
-// row while the modal is active but without switching page content).
-// Note: modal/tabForModal removed; tabs now control left-pane rendering directly.
-
-// drawerTickMsg is an internal message used to animate the drawer slide.
-
-// drawerTickCmd returns a command that sends a drawerTickMsg on a short interval.
-// drawerTickMsg/drawerTickCmd removed; drawers are deprecated in favor of
-// inline left-pane rendering managed by `showingTracks`.
-
-// Init initializes the library page. This attempts to set up library and
-// playback services for the current server (if present) and kick off the
-// initial fetches for Recently Added + Playlists.
+// Init sets up services and triggers initial data fetches for the page.
 func (p *LibraryPage) Init() tea.Cmd {
 	server := p.coordinator.GetCurrentServer()
-	// Prefer the server-specific access token (resource.AccessToken) when available;
-	// otherwise fall back to the user auth token stored on the coordinator.
+	// Prefer server-specific token; otherwise fall back to coordinator token.
 	token := ""
 	if server != nil && server.AccessToken != "" {
 		token = server.AccessToken
@@ -160,9 +162,7 @@ func (p *LibraryPage) Init() tea.Cmd {
 		token = p.coordinator.GetToken()
 	}
 
-	// Only initialize services when a server is selected and we have an auth token.
-	// When returning early here, the router/pages will handle transitions until
-	// the token/server become available (so we avoid creating services with nil token).
+	// Only initialize services when a server and token exist.
 	if server == nil || token == "" {
 		// Nothing to fetch yet — render a prompt that a server must be selected
 		return nil
@@ -215,6 +215,13 @@ func (p *LibraryPage) Init() tea.Cmd {
 	p.coordinator.SetSelectedTrack(0)
 
 	// Kick off fetching of libraries, recently added and playlists, and begin subscriptions.
+	// Initialize settings list items based on current config.
+	if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
+		pos := p.coordinator.ConfigManager().GetCoverArtPosition()
+		items := []list.Item{}
+		items = append(items, util.SettingsItem{Group: "Layout", Name: "Cover art position", Key: "coverArtPos", Kind: "choice", Value: pos, DescriptionText: "Position of cover art within the layout: left or right"})
+		p.settingsList.SetItems(items)
+	}
 	return tea.Batch(
 		p.subscribeToLibraryEvents(),
 		p.subscribeToPlaybackEvents(),
@@ -233,22 +240,14 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.height = msg.Height
 		log.Debug("LibraryPage: WindowSizeMsg", "width", p.width, "height", p.height)
 
-		// Resize lists
-		// We use the same calculation as in View() to ensure consistency
+		// Resize lists and compute heights consistent with View().
 		usableWidth := p.width - 4
 		leftWidth := usableWidth * 40 / 100
 		if leftWidth < 30 {
 			leftWidth = 30
 		}
 
-		// Adjust height to accommodate help view at the bottom (approx 2 lines)
-		// and header/footer/borders.
-		// In View(), contentHeight := p.height - 8
-		// The list is inside the pane, which has borders (2 lines).
-		// So list height should be contentHeight - 2?
-		// Or does SetSize include borders? bubbles/list usually handles its own sizing.
-		// If we put the list inside a pane, the pane adds borders.
-		// So the list should be sized to fit INSIDE the pane.
+		// Compute content height considering header/footer/help and pane borders.
 
 		contentHeight := p.height - 8
 		if contentHeight < 6 {
@@ -268,7 +267,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, nil
 
 	case service.LibraryEvent:
-		// Update coordinator state based on library events
+		// Update coordinator based on library events
 		switch msg.Type {
 		case "libraries.loaded":
 			appLibs := make([]app.MusicLibrary, len(msg.Libraries))
@@ -280,7 +279,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				p.coordinator.SetSelectedLibrary(0)
 			}
 		case "recently_added.loaded":
-			// Convert domain.Album to app.Album and update coordinator
+			// Convert domain.Album to app.Album and update the coordinator
 			appAlbums := make([]app.Album, len(msg.Albums))
 			items := make([]list.Item, len(msg.Albums))
 			for i, a := range msg.Albums {
@@ -356,12 +355,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				log.Error("Library fetch failed", "event_type", msg.Type, "full_error", msg.Error.Error())
 			}
 		}
-		// Re-subscribe to library and playback events so we continue receiving them
+		// Re-subscribe to continue receiving library/playback events
 		return p, tea.Batch(p.subscribeToLibraryEvents(), p.subscribeToPlaybackEvents())
 
 	case service.AuthEvent:
-		// React to auth events (mainly servers.loaded) to create a library service
-		// for the currently selected server and begin fetching library data.
+		// Handle auth events (servers.loaded) to create libSvc and fetch libraries.
 		switch msg.Type {
 		case "servers.loaded":
 			// Convert to app-level servers and set them in the coordinator.
@@ -415,7 +413,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, tea.Batch(p.subscribeToAuthEvents(), p.subscribeToLibraryEvents(), p.subscribeToPlaybackEvents())
 
 	case service.PlaybackEvent:
-		// Keep coordinator synchronized with playback events (UI-only reflection).
+		// Update coordinator from playback events for UI reflection.
 		switch msg.Type {
 		case "playback.load_failed":
 			if msg.Error != nil {
@@ -457,19 +455,22 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				p.coordinator.SetSampleRate(beep.SampleRate(msg.SampleRate))
 			}
 		}
-		// Re-subscribe to playback and library events so we continue receiving them
+		// Re-subscribe to continue receiving playback/library events
 		return p, tea.Batch(p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	// animation messages removed - no-op
 
 	case CoverArtLoadedMsg:
+		// Dump before/after views to assist in debugging VSCode terminal rendering
+		p.dumpPageView("before_art_load")
 		p.coordinator.SetPlaybackAlbumArt(msg.Image, msg.Path)
+		p.dumpPageView("after_art_load")
 		return p, nil
 
 	case tea.KeyMsg:
-		// When the Search tab is active, let the text input widget handle keys.
+		// Let the search input handle keys while on Search tab.
 		if p.coordinator.ActiveTab() == app.SearchTab {
 			switch msg.String() {
-			case "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6":
+			case "1", "2", "3", "4", "5", "6":
 				// Allow these to fall through into the main key handling below
 			default:
 				var cmd tea.Cmd
@@ -491,15 +492,20 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Key handling for the library page.
+		// Page-level key handling.
 		var cmd tea.Cmd
 
-		// Handle global keys first
+		// Check global keys first
 		switch {
 		case key.Matches(msg, p.keys.Back):
 			// If the queue modal is open, close it first; otherwise go back to server selection.
 			if p.coordinator.ShowQueueModal() {
 				p.coordinator.SetShowQueueModal(false)
+				return p, nil
+			}
+			// Close left-pane drawer or tracklist if open instead of closing the page.
+			if p.drawerOpen {
+				p.drawerOpen = false
 				return p, nil
 			}
 			// Close left-pane tracklist if open instead of closing a drawer/modal.
@@ -519,7 +525,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return p, nil
 			}
 
-			// Priority: Toggle playback if active (Playing or Paused)
+			// Toggle playback if already active.
 			if p.coordinator.IsPlaying() {
 				if p.orchestrator != nil {
 					_ = p.orchestrator.Pause()
@@ -548,8 +554,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, p.keys.PlaySelected):
 			log.Debug("PlaySelected key matched", "msg", msg)
 
-			// Attempt to fetch and play the first track from the selected album
-			// or playlist, or play the selected queue item.
+			// Try to play the selected/first track from album, playlist or queue.
 			if p.showingTracks {
 				if p.libSvc != nil {
 					if item, ok := p.trackList.SelectedItem().(util.TrackItem); ok {
@@ -621,9 +626,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return p, nil
 			}
 
-			// Fallback: if we have tracks loaded in the coordinator but not showingTracks (e.g. queue view?)
-			// or if we just want to play the selected track from the current list if nothing else matched.
-			// The original code had a fallback here.
+			// Fallback: play selected track from Tracks or Queue.
 			tracks := p.coordinator.Tracks()
 			if len(tracks) > 0 {
 				idx := p.coordinator.SelectedTrack()
@@ -671,18 +674,25 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, nil
 		case key.Matches(msg, p.keys.SwitchView):
 			switch msg.String() {
-			case "ctrl+1":
+			case "1":
 				p.coordinator.SetActiveTab(app.HomeTab)
-			case "ctrl+2":
+			case "2":
 				p.coordinator.SetActiveTab(app.LibraryTab)
-			case "ctrl+3":
+			case "3":
 				p.coordinator.SetActiveTab(app.PlaylistsTab)
-			case "ctrl+4":
+			case "4":
 				p.coordinator.SetActiveTab(app.SearchTab)
-			case "ctrl+5":
+			case "5":
 				p.coordinator.SetActiveTab(app.QueueTab)
-			case "ctrl+6":
+			case "6":
 				p.coordinator.SetActiveTab(app.SettingsTab)
+			}
+			// For browsing-focused tabs, open the drawer; queue tab should keep drawer closed
+			switch msg.String() {
+			case "1", "2", "3", "4", "6":
+				p.drawerOpen = true
+			case "5":
+				p.drawerOpen = false
 			}
 			if p.showingTracks {
 				p.showingTracks = false
@@ -690,8 +700,28 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, nil
 		}
 
-		// Delegate to active list
+		// Delegate to the active list
 		active := p.coordinator.ActiveTab()
+
+		// In Settings tab, handle quick shortcuts (e.g., 'c' toggles cover-art side).
+		if active == app.SettingsTab {
+			if km := msg; true {
+				switch km.String() {
+				case "c":
+					if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
+						cur := p.coordinator.ConfigManager().GetCoverArtPosition()
+						if cur == "left" {
+							p.coordinator.ConfigManager().SetCoverArtPosition("right")
+						} else {
+							p.coordinator.ConfigManager().SetCoverArtPosition("left")
+						}
+						_ = p.coordinator.ConfigManager().Save()
+						p.coordinator.SetNotification("Cover art position updated", "success", 3*time.Second)
+					}
+					return p, nil
+				}
+			}
+		}
 
 		if p.showingTracks {
 			p.trackList, cmd = p.trackList.Update(msg)
@@ -712,8 +742,6 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				newIdx := p.recentlyAddedList.Index()
 				if newIdx != p.lastSelectedAlbumIndex && p.libSvc != nil {
 					p.lastSelectedAlbumIndex = newIdx
-					// On selection change prefetch tracks in the background.
-					// The UI should only open the track list on Enter.
 					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Album.Key))
 				}
 			}
@@ -733,13 +761,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.playlistList, cmd = p.playlistList.Update(msg)
 			p.coordinator.SetSelectedPlaylist(p.playlistList.Index())
 
-			// If selection changed, fetch tracks for the selected playlist in the background
 			if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
 				newIdx := p.playlistList.Index()
 				if newIdx != p.lastSelectedPlaylistIndex && p.libSvc != nil {
 					p.lastSelectedPlaylistIndex = newIdx
-					// On selection change prefetch tracks in the background.
-					// The UI should only open the track list on Enter.
 					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Playlist.Key))
 				}
 			}
@@ -763,6 +788,44 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if item, ok := p.queueList.SelectedItem().(util.QueueItem); ok {
 					at := util.DomainTrackToApp(&item.Track)
 					return p, p.playAppTrack(at)
+				}
+			}
+		case app.SettingsTab:
+			p.settingsList, cmd = p.settingsList.Update(msg)
+			// Handle Enter to toggle boolean/choice settings
+			if key.Matches(msg, p.keys.Enter) {
+				if item, ok := p.settingsList.SelectedItem().(util.SettingsItem); ok {
+					switch item.Key {
+					case "coverArtPos":
+						// Toggle left/right choice
+						cur := "left"
+						if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
+							cur = p.coordinator.ConfigManager().GetCoverArtPosition()
+						}
+						newVal := "left"
+						if cur == "left" {
+							newVal = "right"
+						}
+						if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
+							p.coordinator.ConfigManager().SetCoverArtPosition(newVal)
+							// persist the change if possible
+							_ = p.coordinator.ConfigManager().Save()
+						}
+						// update the item in the settings list
+						items := make([]list.Item, len(p.settingsList.Items()))
+						for i, it := range p.settingsList.Items() {
+							if s, ok2 := it.(util.SettingsItem); ok2 {
+								if s.Key == "coverArtPos" {
+									s.Value = newVal
+								}
+								items[i] = s
+							} else {
+								items[i] = it
+							}
+						}
+						p.settingsList.SetItems(items)
+						p.coordinator.SetNotification("Cover art position updated", "success", 2*time.Second)
+					}
 				}
 			}
 		}
@@ -834,12 +897,10 @@ func (p *LibraryPage) View() string {
 	// and right showing the Now Playing (detailWidth). Ensure both fit into the
 	// available width, adjusting when necessary.
 
-	// Calculate widths to fill available space
-	// We want roughly 40% left, 60% right, or 50/50?
-	// The previous logic used fixed percentages in views.go which might leave gaps.
-	// Let's use a simpler split: 40% left, 60% right of usable width.
-	usableWidth := p.width - 4 // 2 chars padding/border on each side roughly
-	leftWidth := usableWidth * 40 / 100
+	// Calculate widths to be 50/50 by default, but swap sides if the user has
+	// configured the cover art to be on the right.
+	usableWidth := p.width - 4 // padding on each side
+	leftWidth := usableWidth / 2
 	rightWidth := usableWidth - leftWidth
 
 	// Ensure minimums
@@ -903,25 +964,135 @@ func (p *LibraryPage) View() string {
 		leftContent = p.renderRecentlyAdded(leftWidth)
 	}
 
-	// Main content — Now Playing becomes the primary content area.
-	var mainContent string
-	mainContent = p.nowPlaying.Render(rightWidth, contentHeight)
-	if p.libSvc != nil && len(p.coordinator.Albums()) == 0 && len(p.coordinator.Playlists()) == 0 {
-		// Show a friendly, centered loading placeholder in the content area when
-		// the library service is active but no content has been loaded yet.
-		mainContent = lipgloss.JoinVertical(lipgloss.Center, styles.BlurredStyle.Render("Loading library..."))
-	}
+	// Main content — split the UI across left/right panes. If the user has
+	// configured the cover art position, swap the roles accordingly.
+	// We'll render cover art at the top of the left pane followed by Now Playing
+	// info, while the right pane will display the queue list.
+	// The page's content is composed from left/right panes.
 	// Adjust height to accommodate help view at the bottom (approx 2 lines)
 	// contentHeight calculated above
 
-	// Force height on the pane style to ensure borders extend fully
-	contentPane := styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(mainContent)
+	// Decide on left/right roles based on configured position early so we
+	// can determine if drawerOpen should affect the left or right pane.
+	pos := "left"
+	if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
+		pos = p.coordinator.ConfigManager().GetCoverArtPosition()
+	}
 
+	// Build right-side content - Queue by default, or drawer content when open.
+	p.queueList.SetSize(rightWidth, listHeight)
+	queueContent := p.renderQueue(rightWidth)
+
+	// Calculate the art size and info view so they can be used regardless of
+	// drawer state (we render art and info separately when the drawer is on
+	// the right side or when art is configured on the right).
+	artHeight := leftWidth
+	if artHeight > contentHeight-4 {
+		artHeight = contentHeight - 4
+	}
+	if artHeight < 6 {
+		artHeight = 6
+	}
+	infoHeight := contentHeight - artHeight
+	if infoHeight < 6 {
+		infoHeight = 6
+	}
+
+	// Render art if available, otherwise show fallback. Then center it within the
+	// left pane's art area so the layout appears balanced.
+	artView := ""
+	if p.coordinator.PlaybackAlbumArt() != nil && p.coordinator.PlaybackImgRenderer() != nil {
+		artView = p.coordinator.PlaybackImgRenderer().Render(p.coordinator.PlaybackAlbumArt(), leftWidth, artHeight)
+		artView = strings.TrimRight(artView, "\r\n ")
+	} else {
+		if p.coordinator.PlaybackAlbumArtThumb() != "" {
+			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", p.coordinator.PlaybackAlbumArtThumb()))
+		} else {
+			artView = styles.BlurredStyle.Render("(Album art)")
+		}
+	}
+	// Normalize the artView to have exactly artHeight lines, then center it.
+	artView = padOrCropLines(artView, leftWidth, artHeight)
+	// Center the art view horizontally and keep it at the top of the art area
+	artView = lipgloss.Place(leftWidth, artHeight, lipgloss.Center, lipgloss.Top, artView)
+
+	// Render info via the component method and ensure it centers in the reserved area
+	infoView := p.nowPlaying.RenderInfo(leftWidth, infoHeight)
+	infoView = padOrCropLines(infoView, leftWidth, infoHeight)
+
+	// If either the tracklist is showing, or the drawer is open on the left,
+	// render the left pane as the list content; otherwise render the cover
+	// art stacked with the now playing info.
 	leftContentHeight := contentHeight
-	leftPane := styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(leftContent)
+	var leftPane string
+	// The left pane shows the list when the art is on the right AND either a
+	// tracklist is active or a drawer is open. Otherwise, the left pane
+	// renders the cover art + info.
+	if pos == "right" && (p.showingTracks || p.drawerOpen) {
+		// When art is on the right, render the left list content (keeps layout stable).
+		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(leftContent)
+	} else {
+		// Stacked artwork + info
+		// Choose an art height that is roughly square but doesn't consume all
+		// the available vertical space; reserve at least 4 lines for the info.
+		artHeight := leftWidth
+		if artHeight > contentHeight-4 {
+			artHeight = contentHeight - 4
+		}
+		if artHeight < 6 {
+			artHeight = 6
+		}
+		infoHeight := contentHeight - artHeight
+		if infoHeight < 6 {
+			infoHeight = 6
+		}
 
-	// Compose the two-pane layout: left column (content) and right pane (Now Playing)
-	panesRow := lipgloss.JoinHorizontal(lipgloss.Left, leftPane, contentPane)
+		// Render art if available, otherwise show fallback
+		artView := ""
+		if p.coordinator.PlaybackAlbumArt() != nil && p.coordinator.PlaybackImgRenderer() != nil {
+			artView = p.coordinator.PlaybackImgRenderer().Render(p.coordinator.PlaybackAlbumArt(), leftWidth, artHeight)
+			artView = strings.TrimRight(artView, "\r\n ")
+		} else {
+			if p.coordinator.PlaybackAlbumArtThumb() != "" {
+				artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", p.coordinator.PlaybackAlbumArtThumb()))
+			} else {
+				artView = styles.BlurredStyle.Render("(Album art)")
+			}
+		}
+
+		// Render info via the component method
+		infoView := p.nowPlaying.RenderInfo(leftWidth, infoHeight)
+		infoView = padOrCropLines(infoView, leftWidth, infoHeight)
+
+		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
+	}
+
+	// pos already set earlier
+
+	var leftColumn, rightColumn string
+	if pos == "right" {
+		// Swap roles: left contains the Queue or content (if showingTracks/drawerOpen),
+		// right contains the cover art + info.
+		if p.drawerOpen || p.showingTracks {
+			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(leftContent)
+		} else {
+			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(queueContent)
+		}
+		rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
+	} else {
+		// Default: cover art left, queue right
+		leftColumn = leftPane
+		// When a drawer is open or the tracklist is active (and art is left),
+		// render the active content in the right pane; otherwise show the queue.
+		if p.drawerOpen || p.showingTracks {
+			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(leftContent)
+		} else {
+			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(queueContent)
+		}
+	}
+
+	// Compose left and right panes.
+	panesRow := lipgloss.JoinHorizontal(lipgloss.Left, leftColumn, rightColumn)
 	layout := panesRow
 
 	// If Queue modal is visible, overlay it
@@ -929,8 +1100,7 @@ func (p *LibraryPage) View() string {
 		return p.renderWithModal(layout)
 	}
 
-	// If the user has activated the focused Now Playing panel (full screen),
-	// show it immediately.
+	// If Now Playing is focused, show it full screen.
 	if p.focusedNowPlaying {
 		// Leave the rest of the layout behind — a full-screen now-playing UI is focused.
 		return lipgloss.Place(
@@ -944,18 +1114,14 @@ func (p *LibraryPage) View() string {
 		)
 	}
 
-	// Drawers are removed; no overlay drawer behavior needed.
-	// If the drawer is not present and the (ancillary) modal was requested but
-	// the drawer offset is zero (maybe animation not yet started), fall back to the
-	// previous centered modal behavior to prevent a confusing blank state.
-	// No centered modal fallback - drawers were removed.
+	// Drawers removed; no overlay logic.
 
 	server = p.coordinator.GetCurrentServer()
 	pageTitle := "Plex Music"
 	if server != nil && server.Name != "" {
 		pageTitle = fmt.Sprintf("Plex Music — %s", server.Name)
 	}
-	// Build a compact status line showing server, auth, and counts of content.
+	// Build status line with server/auth/content counts.
 	serverName := "none"
 	if server != nil && server.Name != "" {
 		serverName = server.Name
@@ -1025,7 +1191,6 @@ func (p *LibraryPage) View() string {
 	// Place the main layout in the available space
 	finalView := lipgloss.JoinVertical(lipgloss.Left,
 		mainLayout,
-		"",
 		helpView,
 	)
 
@@ -1038,7 +1203,53 @@ func (p *LibraryPage) View() string {
 	)
 }
 
-// Close cancels any subscriptions and releases resources used by the page.
+// padOrCropLines ensures a string has exactly `height` lines, trimming or
+// padding lines to stabilize block height and prevent layout jumps.
+func padOrCropLines(s string, width, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	// Normalize CRLF endings to LF
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	lines := strings.Split(s, "\n")
+	// Trim trailing empty lines
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	// Pad with blank lines (each a space to maintain width in some renderers)
+	blank := strings.Repeat(" ", width)
+	for len(lines) < height {
+		lines = append(lines, blank)
+	}
+	var b bytes.Buffer
+	for i, l := range lines {
+		b.WriteString(l)
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// dumpPageView writes the raw Page.View to /tmp/plexmusic_view_debug.txt when
+// coordinator.DumpView() is enabled; useful for reproducing terminal render quirks.
+func (p *LibraryPage) dumpPageView(label string) {
+	if !p.coordinator.DumpView() {
+		return
+	}
+	f, err := os.OpenFile("/tmp/plexmusic_view_debug.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = fmt.Fprintf(f, "=== %s (%s) ===\n", label, time.Now().Format(time.RFC3339))
+	_, _ = fmt.Fprintf(f, "%s\n\n", p.View())
+}
+
+// Close cancels subscriptions and releases resources.
 func (p *LibraryPage) Close() {
 	if p.cancel != nil {
 		p.cancel()
@@ -1050,8 +1261,7 @@ func (p *LibraryPage) Close() {
 
 // ---- Helpers ----
 
-// subscribeToLibraryEvents returns a command that listens for library events
-// and returns them as tea messages (LibraryEvent) for processing in Update.
+// subscribeToLibraryEvents forwards library events as Tea messages to Update.
 func (p *LibraryPage) subscribeToLibraryEvents() tea.Cmd {
 	if p.libEvtCh == nil {
 		return nil
@@ -1072,7 +1282,7 @@ func (p *LibraryPage) subscribeToLibraryEvents() tea.Cmd {
 	}
 }
 
-// and returns them as tea messages for processing in Update.
+// and returns them as Tea messages for Update.
 func (p *LibraryPage) subscribeToPlaybackEvents() tea.Cmd {
 	if p.pbEvtCh == nil {
 		return nil
@@ -1085,8 +1295,7 @@ func (p *LibraryPage) subscribeToPlaybackEvents() tea.Cmd {
 	}
 }
 
-// subscribeToAuthEvents listens for AuthService events and forwards ones
-// relevant to server discovery to the page as tea messages.
+// subscribeToAuthEvents forwards auth events relevant to server discovery.
 func (p *LibraryPage) subscribeToAuthEvents() tea.Cmd {
 	if p.authEvtCh == nil {
 		if p.authSvc == nil {
@@ -1105,7 +1314,7 @@ func (p *LibraryPage) subscribeToAuthEvents() tea.Cmd {
 	}
 }
 
-// fetchLibraries triggers the library service to fetch available libraries.
+// fetchLibraries triggers fetching available libraries.
 func (p *LibraryPage) fetchLibraries() tea.Cmd {
 	if p.libSvc == nil {
 		return nil
@@ -1118,7 +1327,7 @@ func (p *LibraryPage) fetchLibraries() tea.Cmd {
 	}
 }
 
-// fetchRecentlyAdded triggers the library service to fetch recently added.
+// fetchRecentlyAdded triggers fetching recently added albums.
 func (p *LibraryPage) fetchRecentlyAdded() tea.Cmd {
 	if p.libSvc == nil {
 		return nil
@@ -1133,7 +1342,7 @@ func (p *LibraryPage) fetchRecentlyAdded() tea.Cmd {
 
 // Note: playback orchestration is done via the orchestrator; helper removed.
 
-// fetchPlaylists triggers the library service to fetch playlists.
+// fetchPlaylists triggers fetching playlists.
 func (p *LibraryPage) fetchPlaylists() tea.Cmd {
 	if p.libSvc == nil {
 		return nil
@@ -1146,9 +1355,8 @@ func (p *LibraryPage) fetchPlaylists() tea.Cmd {
 	}
 }
 
-// fetchTracksCmd returns a tea.Cmd that fetches tracks for the given key
-// using the library service and returns nil as the tea.Message (we rely on
-// library events to update the UI when the response arrives).
+// fetchTracksCmd returns a command to fetch tracks for the given key; UI
+// updates are delivered via library events.
 func (p *LibraryPage) fetchTracksCmd(key string) tea.Cmd {
 	if p.libSvc == nil || key == "" {
 		return nil
@@ -1246,11 +1454,17 @@ func (p *LibraryPage) renderSearch(width int) string {
 // renderSettings displays a simple settings placeholder in the left pane.
 func (p *LibraryPage) renderSettings(width int) string {
 	title := styles.TitleStyle.Render("Settings")
-	lines := []string{
-		styles.BlurredStyle.Render("No settings available yet."),
-		styles.BlurredStyle.Render("Press Esc to close."),
+	// Configure the settings list size based on current layout
+	contentHeight := p.height - 8
+	if contentHeight < 6 {
+		contentHeight = 6
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", lipgloss.JoinVertical(lipgloss.Left, lines...))
+	listHeight := contentHeight - 2
+	if listHeight < 0 {
+		listHeight = 0
+	}
+	p.settingsList.SetSize(width, listHeight)
+	return lipgloss.JoinVertical(lipgloss.Left, title, "", p.settingsList.View())
 }
 
 // renderTracks displays the currently selected tracks in the left pane.
@@ -1283,13 +1497,13 @@ func (p *LibraryPage) renderWithModal(base string) string {
 	modal := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	modalStyled := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2).Width(60).Render(modal)
 
-	// Center overlay
+	// Center overlay without extra spacer line
 	return lipgloss.Place(
 		p.width,
 		p.height,
 		lipgloss.Center,
 		lipgloss.Center,
-		lipgloss.JoinVertical(lipgloss.Center, base, "", modalStyled),
+		lipgloss.JoinVertical(lipgloss.Center, base, modalStyled),
 	)
 }
 

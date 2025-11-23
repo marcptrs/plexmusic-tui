@@ -14,11 +14,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"plexmusic-tui/internal/app"
+	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/service"
+	util "plexmusic-tui/internal/tui/util"
 )
 
 func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
@@ -65,18 +68,19 @@ func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 	}
 	page.Update(evt)
 
-	// Open drawer for the selected tab (Enter) so the "Recently Added" list is shown over Now Playing
-	m, _ := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m.(*LibraryPage)
-
+	// Confirm Nothing Playing placeholder is visible by default (no drawer)
 	view := page.View()
-	if !strings.Contains(view, "Test Album") {
-		t.Fatalf("expected Home view to include recently added album title, got: %q", view)
-	}
-	// Home should also show now playing placeholder (Nothing Playing) when no track is selected
 	if !strings.Contains(view, "Nothing Playing") {
 		t.Fatalf("expected Home view to show Now Playing placeholder, got: %q", view)
 	}
+
+	// Open the drawer explicitly so the "Recently Added" list is shown over Now Playing
+	page.drawerOpen = true
+	view = page.View()
+	if !strings.Contains(view, "Test Album") {
+		t.Fatalf("expected Home view to include recently added album title, got: %q", view)
+	}
+	// When drawer is open, Now Playing may be hidden; ensure the left pane shows the list
 	// Left pane should show navigation help for the list
 	if !strings.Contains(view, "↑/k") {
 		t.Fatalf("expected left pane view to include list navigation help, got: %q", view)
@@ -124,13 +128,332 @@ func TestLibraryPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 	}
 	page.Update(evt)
 
-	// Open drawer for the selected tab (Enter) so the playlist list is shown over Now Playing
-	m, _ := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	page = m.(*LibraryPage)
+	// Open the drawer explicitly so the playlist list is shown over Now Playing
+	page.drawerOpen = true
 
 	view := page.View()
 	if !strings.Contains(view, "Test Playlist") {
 		t.Fatalf("expected Playlists view to include playlist title, got: %q", view)
+	}
+}
+
+func TestLibraryPage_DefaultLayout_ShowsNowPlayingAndQueue(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.coordinator.SetActiveTab(app.HomeTab)
+	page.width = 120
+	page.height = 30
+
+	view := page.View()
+	if !strings.Contains(view, "Nothing Playing") {
+		t.Fatalf("expected Now Playing placeholder in default view; got: %q", view)
+	}
+	if !strings.Contains(view, "Queue") {
+		t.Fatalf("expected Queue pane in default view; got: %q", view)
+	}
+}
+
+func TestLibraryPage_DrawerOnRight_KeepsNowPlayingVisible(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	// Ensure we have items to show in drawer
+	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
+	coord.SetAlbums(albums)
+	coord.SetActiveTab(app.HomeTab)
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 30
+
+	// Drawer defaults to closed; open it and verify it appears on the right and
+	// that Now Playing (left) remains visible. Populate the left list so the
+	// drawer has content to render on the right.
+	// Send a library event simulating the server returned recently added albums
+	evt := service.LibraryEvent{
+		Type:   "recently_added.loaded",
+		Albums: []domain.Album{{Title: "Test Album", Artist: "X", Year: 2020, Key: "/library/metadata/1"}},
+	}
+	page.Update(evt)
+	page.drawerOpen = true
+	view := page.View()
+
+	if !strings.Contains(view, "Nothing Playing") {
+		t.Fatalf("expected Now Playing placeholder in left pane when drawer opened; got: %q", view)
+	}
+	if !strings.Contains(view, "Test Album") {
+		t.Fatalf("expected drawer contents to include Test Album on right; got: %q", view)
+	}
+}
+
+func TestLibraryPage_Settings_ToggleCoverArtPosition(t *testing.T) {
+	// Isolate config path by setting HOME to a temp dir.
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	cfgMgr, err := config.NewManager()
+	if err != nil {
+		t.Fatalf("failed to create config manager: %v", err)
+	}
+
+	coord := app.NewCoordinator()
+	coord.SetConfigManager(cfgMgr)
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	if page.Init() == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+
+	// Wait for settingsList to be populated by Init
+	start := time.Now()
+	for len(page.settingsList.Items()) == 0 {
+		if time.Since(start) > 2*time.Second {
+			t.Fatalf("settingsList not initialized in time")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Ensure settings item exists and is a coverArtPos choice
+	idx := -1
+	for i, it := range page.settingsList.Items() {
+		if s, ok := it.(util.SettingsItem); ok {
+			if s.Key == "coverArtPos" {
+				idx = i
+				break
+			}
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("expected coverArtPos setting item")
+	}
+
+	// Open settings and select the item
+	coord.SetActiveTab(app.SettingsTab)
+	page.drawerOpen = true
+	page.settingsList.Select(idx)
+
+	// The initial setting should be the default (left)
+	if cfgMgr.GetCoverArtPosition() != "left" {
+		// default may be "left" if not set; ensure test is predictable by forcing default
+		cfgMgr.SetCoverArtPosition("left")
+	}
+
+	// Press Enter to toggle the setting
+	m, _ := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	_ = m
+
+	// The setting should now be toggled to 'right'
+	if cfgMgr.GetCoverArtPosition() != "right" {
+		t.Fatalf("expected cover art to be toggled to right; got %s", cfgMgr.GetCoverArtPosition())
+	}
+}
+
+func TestLibraryPage_SwitchView_PressesOpenDrawer(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// Press '1' to select Home and open drawer if closed — numeric-only
+	m, _ := page.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+	_ = m
+	if !page.drawerOpen {
+		t.Fatalf("expected drawerOpen true after pressing '1'")
+	}
+}
+
+func TestLibraryPage_LineCountStableOnSwitchView(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	// prepare some albums so the drawer has content
+	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
+	coord.SetAlbums(albums)
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// Ensure page renders consistently before opening drawer
+	before := page.View()
+	beforeLines := strings.Count(before, "\n")
+
+	// Press '1' to switch and open drawer
+	page.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'1'}})
+
+	after := page.View()
+	afterLines := strings.Count(after, "\n")
+
+	if beforeLines != afterLines {
+		t.Fatalf("expected same number of lines before/after SwitchView; before=%d after=%d\npre:\n%s\npost:\n%s", beforeLines, afterLines, before, after)
+	}
+}
+
+func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_LeftArt(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
+	coord.SetAlbums(albums)
+	coord.SetSelectedAlbum(0)
+	coord.SetActiveTab(app.HomeTab)
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// Prepare a tracklist for the album and set showingTracks directly
+	tracks := []domain.Track{{Title: "T1", Artist: "X", Album: "Test Album"}}
+	items := make([]list.Item, len(tracks))
+	for i, t := range tracks {
+		items[i] = util.TrackItem{Track: t}
+	}
+	page.trackList.SetItems(items)
+	page.trackList.Select(0)
+	page.coordinator.SetTracks([]app.Track{{Title: "T1", Artist: "X", Album: "Test Album"}})
+	page.showingTracks = true
+	// Also open the drawer to simulate the case that previously caused duplication
+	page.drawerOpen = true
+
+	view := page.View()
+	// Expect the track title to show once in the view overall and not be duplicated
+	if strings.Count(view, "T1") != 1 {
+		t.Fatalf("expected track title once in view, got: %d occurrences\nview:\n%s", strings.Count(view, "T1"), view)
+	}
+}
+
+func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_RightArt(t *testing.T) {
+	// Set cover art position to right so content remains left; verify duplication does not occur
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	cfgMgr, _ := config.NewManager()
+	cfgMgr.SetCoverArtPosition("right")
+
+	coord := app.NewCoordinator()
+	coord.SetConfigManager(cfgMgr)
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
+	coord.SetAlbums(albums)
+	coord.SetSelectedAlbum(0)
+	coord.SetActiveTab(app.HomeTab)
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// Prepare a tracklist and set showingTracks directly
+	tracks := []domain.Track{{Title: "T1", Artist: "X", Album: "Test Album"}}
+	items := make([]list.Item, len(tracks))
+	for i, t := range tracks {
+		items[i] = util.TrackItem{Track: t}
+	}
+	page.trackList.SetItems(items)
+	page.trackList.Select(0)
+	page.coordinator.SetTracks([]app.Track{{Title: "T1", Artist: "X", Album: "Test Album"}})
+	page.showingTracks = true
+	// Also open the drawer to simulate the case where the drawer conflicts
+	page.drawerOpen = true
+
+	view := page.View()
+	if strings.Count(view, "T1") != 1 {
+		t.Fatalf("expected track title once in view, got: %d occurrences\nview:\n%s", strings.Count(view, "T1"), view)
+	}
+}
+
+func TestLibraryPage_ArtLoad_NoExtraLine(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// initial render with no art
+	before := page.View()
+	beforeLines := strings.Count(before, "\n")
+
+	// Simulate loading of a tiny image
+	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
+	page.coordinator.SetPlaybackAlbumArt(img, "/thumb.png")
+
+	// Now render again — no extra blank lines should appear due to trailing newline
+	after := page.View()
+	afterLines := strings.Count(after, "\n")
+
+	if beforeLines != afterLines {
+		t.Fatalf("expected same number of lines before and after art load; before=%d after=%d\nviewBefore:\n%s\nviewAfter:\n%s", beforeLines, afterLines, before, after)
+	}
+}
+
+// Debug test: assert the view lines are consistent and print the first differing line
+func TestLibraryPage_ArtLoad_LineDiff(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	before := page.View()
+	beforeLines := strings.Split(before, "\n")
+
+	// Simulate loading art
+	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
+	page.coordinator.SetPlaybackAlbumArt(img, "/thumb.png")
+	after := page.View()
+	afterLines := strings.Split(after, "\n")
+
+	// Count blank/empty lines (after trimming whitespace) in both views
+	beforeEmpty := 0
+	for _, l := range beforeLines {
+		if strings.TrimSpace(l) == "" {
+			beforeEmpty++
+		}
+	}
+	afterEmpty := 0
+	for _, l := range afterLines {
+		if strings.TrimSpace(l) == "" {
+			afterEmpty++
+		}
+	}
+	if afterEmpty > beforeEmpty {
+		t.Fatalf("expected no additional blank lines after art load; before empty=%d after empty=%d\nviewBefore:\n%s\nviewAfter:\n%s", beforeEmpty, afterEmpty, before, after)
 	}
 }
 
@@ -318,6 +641,8 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	if page.showingTracks {
 		t.Fatalf("did not expect page to show tracks on selection change")
 	}
+	// Open the drawer on the right so track list is visible
+	page.drawerOpen = true
 	// Press Enter to open the track list and ensure it now displays Track X
 	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	page = m.(*LibraryPage)
@@ -566,6 +891,8 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	if page.showingTracks {
 		t.Fatalf("did not expect page to show tracks on selection change")
 	}
+	// Open the drawer on the right so track list is visible
+	page.drawerOpen = true
 	// Press Enter to open the track list and ensure it now displays Track X
 	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	page = m.(*LibraryPage)
@@ -676,6 +1003,8 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	if page.showingTracks {
 		t.Fatalf("did not expect page to show tracks on selection change")
 	}
+	// Open the drawer on the right so track list is visible
+	page.drawerOpen = true
 	// Press Enter to open the track list and ensure it now displays PTrack X
 	m2, cmd2 = page.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	page = m2.(*LibraryPage)
@@ -748,7 +1077,11 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	page.coordinator.SetActiveTab(app.HomeTab)
 	page.coordinator.SetSelectedAlbum(0)
 
+	// Open the drawer on the right so the track list shows
+	page.drawerOpen = true
 	// Press Enter and expect the track list to open (no immediate playback)
+	// ensure the drawer is open so the playlist contents appear
+	page.drawerOpen = true
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	page = m.(*LibraryPage)
 	if cmd != nil {
@@ -958,6 +1291,8 @@ func TestLibraryPage_RenderSearch_IncludesTracks(t *testing.T) {
 
 	// Put the search query into the input and ensure it's visible
 	page.searchInput.SetValue("super")
+	// Open search drawer so results are visible
+	page.drawerOpen = true
 	view := page.View()
 
 	if !strings.Contains(view, "Super Track") {

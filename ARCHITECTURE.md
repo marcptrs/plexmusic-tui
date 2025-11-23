@@ -180,6 +180,12 @@ This resolves subtle input-handling issues by ensuring a single source of truth 
 - Pages should be self-contained `tea.Model` implementations and should not perform global quit handling — they can document "Press q to quit" in help text but rely on the AppModel for actual behavior.
 - Keep `ctrl+c` as a secondary quit binding and advise users that some terminal environments may not deliver `ctrl+c` as a normal key event; `q` should be the primary.
 
+### Image Renderer decisions
+
+- The image renderer builds an exact-size pixel canvas for Kitty/iTerm2 to avoid fractional-scaling seams when placing images in terminal cell grids. The implementation uses constants for pixels-per-cell (Kitty: 10, iTerm2: 20) which are tunable in code; see `internal/image/renderer.go` for details.
+- For debugging, the renderer exposes CLI flags (`-force-renderer`, `-render-debug`, `-dump-view`) so developers can reproduce terminal-specific rendering differences without environment variables.
+- The renderer caches encoded PNGs and uses a content hash (sha256 of PNG bytes) as part of cache keys to avoid re-rendering the same content. For Kitty, a numeric image ID is derived from the content hash and used to transmit/place images via the Kitty protocol.
+
 ### Migration checklist (to convert existing code to AppModel + pageFactory)
 
 1. Extract top-level state and key handling from `main.go` into `internal/tui/app_model.go` (the AppModel).

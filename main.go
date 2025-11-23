@@ -5,7 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"time"
+
+	termimg "plexmusic-tui/internal/image"
 
 	"plexmusic-tui/internal/logging"
 
@@ -21,18 +24,23 @@ import (
 )
 
 func buildAppModel() *tui.AppModel {
-	coord := app.NewCoordinator()
+	// default options: no forced renderer; no render debug; no dump view
+	return buildAppModelWithOptions(nil, false, false)
+}
+
+func buildAppModelWithOptions(forceRenderer *termimg.Protocol, renderDebug bool, dumpView bool) *tui.AppModel {
+	// Create service instances first then pass to coordinator so pages can use them
 	authSvc := service.NewAuthService()
-	// Create a singleton playback service and wire it to the coordinator so
-	// all pages reuse the same instance.
+	var libSvc service.LibraryServicer = nil
+	// Create a singleton playback service now and pass to coordinator
 	pbSvc := service.NewPlaybackService()
+	// pass through rendering options to the coordinator so pages can use them
+	coord := app.NewCoordinatorWithServices(authSvc, libSvc, pbSvc, forceRenderer, renderDebug, dumpView)
+	// Playback service has already been created above; wire it to the coordinator
 	coord.SetPlaybackService(pbSvc)
-	// Create a startup orchestrator (UI orchestrator wrappers will be created
-	// on pages too when needed). Use the orchestrator for initial bootstrapping
-	// actions (e.g., setting saved volume) rather than calling pbSvc directly.
+	// Create orchestrator: used for playback and initial bootstrapping.
 	orch := tui.NewOrchestrator(coord, nil, pbSvc)
-	// Start a background ticker to keep the playback service updating its
-	// position for UI progress reporting. This runs for the life of the app.
+	// Background ticker updates playback position for UI progress reporting.
 	go func(svc *service.PlaybackService) {
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
@@ -42,7 +50,7 @@ func buildAppModel() *tui.AppModel {
 	}(pbSvc)
 	cfgMgr, _ := config.NewManager()
 	coord.SetConfigManager(cfgMgr)
-	// Load and apply saved volume from config
+	// Load and apply saved volume from config (persisted setting)
 	if cfgMgr != nil {
 		savedVolume := cfgMgr.GetVolume()
 		// Use orchestrator to set volume so any orchestration logic or config
@@ -52,7 +60,7 @@ func buildAppModel() *tui.AppModel {
 
 	keyMap := tui.DefaultKeyMap()
 
-	// Select initial page depending on whether we have a saved auth token
+	// Choose initial page based on saved auth token.
 	var initialPage tui.Page
 	var initialID tui.PageID
 	token := ""
@@ -92,6 +100,11 @@ func main() {
 	showLogs := flag.Bool("logs", false, "Show recent log entries and exit")
 	tailLines := flag.Int("tail", 50, "Number of log lines to show (default: 50)")
 	showHelp := flag.Bool("help", false, "Show help message")
+	// Add debugging CLI flags
+	debugFlag := flag.Bool("debug", false, "Enable debug logging (overrides default info level)")
+	forceRenderer := flag.String("force-renderer", "", "Force the image renderer: kitty|iterm2|sixel|unicode")
+	renderDebug := flag.Bool("render-debug", false, "Enable detailed image renderer debug logs")
+	dumpViewFlag := flag.Bool("dump-view", false, "Write raw page view to /tmp/plexmusic_view_debug.txt for debugging")
 	flag.Parse()
 
 	// Handle help flag
@@ -106,9 +119,9 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Determine log level from environment variable or default to Info
+	// Determine log level from CLI flag or default to Info
 	logLevel := log.InfoLevel
-	if debugEnv := os.Getenv("PLEXMUSIC_DEBUG"); debugEnv != "" {
+	if *debugFlag {
 		logLevel = log.DebugLevel
 	}
 
@@ -121,7 +134,25 @@ func main() {
 	}
 	log.Info("main() started")
 
-	appModel := buildAppModel()
+	// Map forceRenderer string to a protocol constant (if provided)
+	var forcedProtocol *termimg.Protocol
+	if *forceRenderer != "" {
+		switch strings.ToLower(*forceRenderer) {
+		case "kitty":
+			p := termimg.ProtocolKitty
+			forcedProtocol = &p
+		case "iterm2", "iterm":
+			p := termimg.ProtocolITerm2
+			forcedProtocol = &p
+		case "sixel":
+			p := termimg.ProtocolSixel
+			forcedProtocol = &p
+		case "unicode", "blocks":
+			p := termimg.ProtocolUnicodeBlocks
+			forcedProtocol = &p
+		}
+	}
+	appModel := buildAppModelWithOptions(forcedProtocol, *renderDebug, *dumpViewFlag)
 
 	p := tea.NewProgram(
 		appModel,
@@ -189,6 +220,10 @@ OPTIONS:
   -logs               Show recent log entries and exit
   -tail N             Number of log lines to show (default: 50)
   -help               Show this help message
+	-debug              Enable debug logging
+	-force-renderer STR Force image renderer: kitty | iterm2 | sixel | unicode
+	-render-debug       Enable detailed image renderer debug logs
+	-dump-view          Enable raw View() dumps for debugging (writes /tmp/plexmusic_view_debug.txt)
 
 EXAMPLES:
   # Run the interactive TUI

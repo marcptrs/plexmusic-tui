@@ -1,6 +1,7 @@
 package components
 
 import (
+	"bytes"
 	"fmt"
 	"math"
 	"strings"
@@ -12,6 +13,33 @@ import (
 	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
+
+// padOrCropLines ensures the provided string is exactly `height` lines.
+func padOrCropLinesComp(s string, width, height int) string {
+	if height <= 0 {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	lines := strings.Split(s, "\n")
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > height {
+		lines = lines[:height]
+	}
+	blank := strings.Repeat(" ", width)
+	for len(lines) < height {
+		lines = append(lines, blank)
+	}
+	var b bytes.Buffer
+	for i, l := range lines {
+		b.WriteString(l)
+		if i < len(lines)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
 
 // NowPlayingComponent handles rendering the Now Playing pane with track info,
 // album art, and playback controls.
@@ -56,6 +84,8 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 			artH = 3
 		}
 		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
+		artView = strings.TrimRight(artView, "\r\n ")
+		artView = padOrCropLinesComp(artView, artW, artH)
 	} else {
 		// Fallback to the thumbnail URL if image rendering is not available.
 		thumb := np.coordinator.PlaybackAlbumArtThumb()
@@ -91,6 +121,35 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 
 	// Fallback: render info block only
 	return rightColumn
+}
+
+// RenderInfo renders only the textual/info section of Now Playing without the
+// album art. This is used when the album art is displayed separately in a
+// stacked/column layout (e.g. left column art + info under it).
+func (np *NowPlayingComponent) RenderInfo(width, height int) string {
+	// If no track present show 'Nothing Playing' placeholder area
+	if !np.coordinator.HasCurrentTrack() {
+		return np.renderNothingPlaying(width, height)
+	}
+
+	tr := np.coordinator.CurrentTrack()
+	trackTitle := styles.PrimaryTextStyle().Render(tr.Title)
+	artist := styles.SecondaryTextStyle().Render(tr.Artist)
+	album := styles.TertiaryTextStyle().Render(tr.Album)
+	progressBar := np.buildProgressBar(width, 0, tr.Duration)
+	volume := np.buildVolumeDisplay()
+
+	// Stack text fields vertically with a small spacer and center them
+	info := lipgloss.JoinVertical(lipgloss.Center,
+		trackTitle,
+		artist,
+		album,
+		"",
+		styles.BlurredStyle.Render(progressBar),
+		styles.BlurredStyle.Render(volume),
+	)
+	// Center the info block within the provided width/height
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, info)
 }
 
 // renderNothingPlaying renders the placeholder when no track is playing.
@@ -253,6 +312,8 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 			artH = 10
 		}
 		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
+		artView = strings.TrimRight(artView, "\r\n ")
+		artView = padOrCropLinesComp(artView, artW, artH)
 	} else {
 		thumb := np.coordinator.PlaybackAlbumArtThumb()
 		if thumb != "" {

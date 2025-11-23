@@ -126,4 +126,7 @@ type Coordinatorer interface {
 	// Server and helper accessors
 	GetCurrentServer() *PlexServer
 	ConfigManager() *config.Manager
+	// Debug/troubleshooting toggles
+	SetDumpView(bool)
+	DumpView() bool
 }

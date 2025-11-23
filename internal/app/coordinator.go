@@ -16,10 +16,7 @@ import (
 	"plexmusic-tui/internal/service"
 )
 
-// Coordinator manages application state using service interfaces
-// This is the new architecture - gradually migrate from coordinator.go
-// Coordinator manages application state using service interfaces.
-// This is the refactored coordinator and the canonical state container.
+// Coordinator is the application's canonical state container.
 type Coordinator struct {
 	// Services (interfaces for testability)
 	authService     service.AuthServicer
@@ -97,6 +94,8 @@ type Coordinator struct {
 
 	// Config Manager for persistence
 	configMgr *config.Manager
+	// Debug/troubleshooting
+	dumpView bool
 }
 
 // NewCoordinatorWithServices creates a new coordinator with service dependencies
@@ -104,6 +103,9 @@ func NewCoordinatorWithServices(
 	authSvc service.AuthServicer,
 	librarySvc service.LibraryServicer,
 	playbackSvc *service.PlaybackService,
+	forceProtocol *termimg.Protocol,
+	renderDebug bool,
+	dumpView bool,
 ) *Coordinator {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -120,7 +122,7 @@ func NewCoordinatorWithServices(
 	passwordInput.CharLimit = 100
 	passwordInput.Width = 40
 
-	return &Coordinator{
+	c := &Coordinator{
 		authService:         authSvc,
 		libraryService:      librarySvc,
 		playbackService:     playbackSvc,
@@ -131,7 +133,17 @@ func NewCoordinatorWithServices(
 		passwordInput:       passwordInput,
 		imgRenderer:         termimg.NewRenderer(),
 		playbackImgRenderer: termimg.NewRendererWithProtocol(termimg.ProtocolUnicodeBlocks),
+		dumpView:            dumpView,
 	}
+	// If forcing a protocol, create a renderer with that protocol instead
+	if forceProtocol != nil {
+		c.imgRenderer = termimg.NewRendererWithProtocol(*forceProtocol)
+	}
+	if renderDebug {
+		c.imgRenderer.SetDebug(true)
+		c.playbackImgRenderer.SetDebug(true)
+	}
+	return c
 }
 
 // NewCoordinator creates a Coordinator wired with default services that are
@@ -143,7 +155,7 @@ func NewCoordinator() *Coordinator {
 	// Playback service should be instantiated as a pointer-backed service
 	// so we can satisfy callers expecting a concrete pointer.
 	pbSvc := service.NewPlaybackService()
-	return NewCoordinatorWithServices(authSvc, libSvc, pbSvc)
+	return NewCoordinatorWithServices(authSvc, libSvc, pbSvc, nil, false, false)
 }
 
 // Close releases resources and cancels event subscriptions
@@ -177,6 +189,16 @@ var _ Coordinatorer = (*Coordinator)(nil)
 // ConfigManager setter (not part of interface but used by main.go)
 func (c *Coordinator) SetConfigManager(cfg *config.Manager) {
 	c.configMgr = cfg
+}
+
+// SetDumpView toggles writing raw Page views to /tmp/plexmusic_view_debug.txt
+// for debugging. This can be toggled at app start via CLI flag or by the UI.
+func (c *Coordinator) SetDumpView(v bool) {
+	c.dumpView = v
+}
+
+func (c *Coordinator) DumpView() bool {
+	return c.dumpView
 }
 
 func (c *Coordinator) ConfigManager() *config.Manager {

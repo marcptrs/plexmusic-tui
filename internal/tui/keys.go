@@ -114,8 +114,8 @@ func DefaultLibraryKeyMap() LibraryKeyMap {
 			key.WithHelp(",", "settings"),
 		),
 		SwitchView: key.NewBinding(
-			key.WithKeys("ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6"),
-			key.WithHelp("ctrl+1-6", "switch view"),
+			key.WithKeys("1", "2", "3", "4", "5", "6"),
+			key.WithHelp("1-6", "switch view"),
 		),
 		FocusNowPlaying: key.NewBinding(
 			key.WithKeys("f"),
