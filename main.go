@@ -28,14 +28,25 @@ func buildAppModel() *tui.AppModel {
 	return buildAppModelWithOptions(nil, false, false)
 }
 
-func buildAppModelWithOptions(forceRenderer *termimg.Protocol, renderDebug bool, dumpView bool) *tui.AppModel {
+func buildAppModelWithOptions(
+	forceRenderer *termimg.Protocol,
+	renderDebug bool,
+	dumpView bool,
+) *tui.AppModel {
 	// Create service instances first then pass to coordinator so pages can use them
 	authSvc := service.NewAuthService()
 	var libSvc service.LibraryServicer = nil
 	// Create a singleton playback service now and pass to coordinator
 	pbSvc := service.NewPlaybackService()
 	// pass through rendering options to the coordinator so pages can use them
-	coord := app.NewCoordinatorWithServices(authSvc, libSvc, pbSvc, forceRenderer, renderDebug, dumpView)
+	coord := app.NewCoordinatorWithServices(
+		authSvc,
+		libSvc,
+		pbSvc,
+		forceRenderer,
+		renderDebug,
+		dumpView,
+	)
 	// Playback service has already been created above; wire it to the coordinator
 	coord.SetPlaybackService(pbSvc)
 	// Create orchestrator: used for playback and initial bootstrapping.
@@ -101,9 +112,17 @@ func main() {
 	tailLines := flag.Int("tail", 50, "Number of log lines to show (default: 50)")
 	showHelp := flag.Bool("help", false, "Show help message")
 	debugFlag := flag.Bool("debug", false, "Enable debug logging (overrides default info level)")
-	forceRenderer := flag.String("force-renderer", "", "Force the image renderer: kitty|iterm2|sixel|unicode")
+	forceRenderer := flag.String(
+		"force-renderer",
+		"",
+		"Force the image renderer: kitty|iterm2|sixel|unicode",
+	)
 	renderDebug := flag.Bool("render-debug", false, "Enable detailed image renderer debug logs")
-	dumpViewFlag := flag.Bool("dump-view", false, "Write raw page view to /tmp/plexmusic_view_debug.txt for debugging")
+	dumpViewFlag := flag.Bool(
+		"dump-view",
+		false,
+		"Write raw page view to /tmp/plexmusic_view_debug.txt for debugging",
+	)
 	flag.Parse()
 
 	if *showHelp {
@@ -124,7 +143,13 @@ func main() {
 	// Initialize file-backed logger for startup diagnostics
 	logger, err := logging.InitFileLogger("/tmp/plexmusic-startup.log", logLevel)
 	if err != nil {
-		log.Error("Failed to initialize startup logger", "path", "/tmp/plexmusic-startup.log", "err", err)
+		log.Error(
+			"Failed to initialize startup logger",
+			"path",
+			"/tmp/plexmusic-startup.log",
+			"err",
+			err,
+		)
 	} else {
 		logging.SetDefaultLogger(logger)
 	}

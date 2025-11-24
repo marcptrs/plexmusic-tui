@@ -70,7 +70,14 @@ func decodePlexPlaylistContainer(body []byte, out *domain.PlexPlaylistContainer)
 		return err
 	}
 
-	candidates := []string{"MediaContainer", "mediaContainer", "Response", "response", "Metadata", "Playlist"}
+	candidates := []string{
+		"MediaContainer",
+		"mediaContainer",
+		"Response",
+		"response",
+		"Metadata",
+		"Playlist",
+	}
 	for _, k := range candidates {
 		if raw, ok := topObj[k]; ok {
 			var inner domain.PlexPlaylistContainer
@@ -193,14 +200,26 @@ func (s *LibraryService) FetchLibraries(ctx context.Context) ([]domain.MusicLibr
 	var container domain.PlexMediaContainer
 	// Try direct decoding of the typical Plex MediaContainer structure.
 	if err := decodePlexMediaContainer(body, &container); err != nil {
-		log.Error("FetchLibraries: failed to decode", "error", err, "body_preview", string(body[:min(len(body), 500)]))
+		log.Error(
+			"FetchLibraries: failed to decode",
+			"error",
+			err,
+			"body_preview",
+			string(body[:min(len(body), 500)]),
+		)
 		return nil, 0, fmt.Errorf("failed to decode libraries: %w", err)
 	}
 
 	// Filter to music libraries only. Use a whitelist of known music section
 	// types to avoid including TV/movie/photo sections that some servers
 	// may return unexpectedly.
-	allowed := map[string]bool{"artist": true, "music": true, "album": true, "collection": true, "music_video": true}
+	allowed := map[string]bool{
+		"artist":      true,
+		"music":       true,
+		"album":       true,
+		"collection":  true,
+		"music_video": true,
+	}
 	var libraries []domain.MusicLibrary
 	for _, dir := range container.Directory {
 		if allowed[strings.ToLower(dir.Type)] {
@@ -219,7 +238,10 @@ func min(a, b int) int {
 }
 
 // FetchAlbums fetches all albums from a specific library.
-func (s *LibraryService) FetchAlbums(ctx context.Context, libraryKey string) ([]domain.Album, int, error) {
+func (s *LibraryService) FetchAlbums(
+	ctx context.Context,
+	libraryKey string,
+) ([]domain.Album, int, error) {
 	endpoint := fmt.Sprintf("%s/library/sections/%s/albums", s.baseURL, libraryKey)
 	return s.fetchAlbums(ctx, endpoint)
 }
@@ -232,13 +254,19 @@ func (s *LibraryService) FetchRecentlyAdded(ctx context.Context) ([]domain.Album
 }
 
 // FetchRecentlyAddedInLibrary fetches recently added albums scoped to a specific library.
-func (s *LibraryService) FetchRecentlyAddedInLibrary(ctx context.Context, libraryKey string) ([]domain.Album, int, error) {
+func (s *LibraryService) FetchRecentlyAddedInLibrary(
+	ctx context.Context,
+	libraryKey string,
+) ([]domain.Album, int, error) {
 	endpoint := fmt.Sprintf("%s/library/sections/%s/recentlyAdded?type=9", s.baseURL, libraryKey)
 	return s.fetchAlbums(ctx, endpoint)
 }
 
 // fetchAlbums is a helper for fetching albums from any endpoint.
-func (s *LibraryService) fetchAlbums(ctx context.Context, endpoint string) ([]domain.Album, int, error) {
+func (s *LibraryService) fetchAlbums(
+	ctx context.Context,
+	endpoint string,
+) ([]domain.Album, int, error) {
 	log.Debug("fetchAlbums: starting request", "endpoint", endpoint)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
@@ -350,7 +378,11 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			return nil, 0, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+			return nil, 0, fmt.Errorf(
+				"server returned status %d: %s",
+				resp.StatusCode,
+				string(body),
+			)
 		}
 		// Read body and use decode helper to support wrapped responses
 		body, rerr := io.ReadAll(resp.Body)
@@ -388,7 +420,11 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 				defer resp.Body.Close()
 				if resp.StatusCode != http.StatusOK {
 					body, _ := io.ReadAll(resp.Body)
-					return nil, 0, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+					return nil, 0, fmt.Errorf(
+						"server returned status %d: %s",
+						resp.StatusCode,
+						string(body),
+					)
 				}
 				body, rerr := io.ReadAll(resp.Body)
 				if rerr != nil {
@@ -443,7 +479,10 @@ func (s *LibraryService) BuildStreamURL(track *domain.Track) (string, error) {
 }
 
 // FetchStream fetches the audio stream for a track.
-func (s *LibraryService) FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error) {
+func (s *LibraryService) FetchStream(
+	ctx context.Context,
+	track *domain.Track,
+) (io.ReadCloser, string, error) {
 	urlStr, err := s.BuildStreamURL(track)
 	if err != nil {
 		return nil, "", err
@@ -539,10 +578,18 @@ func (s *LibraryService) SetToken(token string) {
 }
 
 // FetchSectionCounts fetches the total count of artists, albums, and tracks for a library section.
-func (s *LibraryService) FetchSectionCounts(ctx context.Context, sectionKey string) (int, int, int, error) {
+func (s *LibraryService) FetchSectionCounts(
+	ctx context.Context,
+	sectionKey string,
+) (int, int, int, error) {
 	// Helper to fetch count for a specific type
 	fetchCount := func(typeID int) (int, error) {
-		endpoint := fmt.Sprintf("%s/library/sections/%s/all?type=%d&X-Plex-Container-Start=0&X-Plex-Container-Size=0", s.baseURL, sectionKey, typeID)
+		endpoint := fmt.Sprintf(
+			"%s/library/sections/%s/all?type=%d&X-Plex-Container-Start=0&X-Plex-Container-Size=0",
+			s.baseURL,
+			sectionKey,
+			typeID,
+		)
 		req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 		if err != nil {
 			return 0, err
@@ -566,7 +613,15 @@ func (s *LibraryService) FetchSectionCounts(ctx context.Context, sectionKey stri
 			log.Debug("Failed to decode stats response", "type", typeID, "body", string(body))
 			return 0, err
 		}
-		log.Debug("fetchCount success", "type", typeID, "totalSize", container.TotalSize, "body_len", len(body))
+		log.Debug(
+			"fetchCount success",
+			"type",
+			typeID,
+			"totalSize",
+			container.TotalSize,
+			"body_len",
+			len(body),
+		)
 		return container.TotalSize, nil
 	}
 

@@ -12,7 +12,8 @@ type AlbumItem struct {
 	Album domain.Album
 }
 
-func (i AlbumItem) Title() string       { return i.Album.Title }
+func (i AlbumItem) Title() string { return i.Album.Title }
+
 func (i AlbumItem) Description() string { return fmt.Sprintf("%s (%d)", i.Album.Artist, i.Album.Year) }
 func (i AlbumItem) FilterValue() string { return i.Album.Title + " " + i.Album.Artist }
 

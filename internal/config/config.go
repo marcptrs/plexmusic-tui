@@ -10,7 +10,8 @@ import (
 type Config struct {
 	AuthToken          string  `json:"authToken"`
 	LastSelectedServer string  `json:"lastSelectedServer,omitempty"` // Server canonical key in the form host/name
-	Volume             float64 `json:"volume,omitempty"`             // Audio volume "stops" (logarithmic scale, Base:2). 0 = 100%, 1 = 200%, -1 = 50%
+	Volume             float64 `json:"volume,omitempty"`             // Audio volume "stops" (logarithmic scale, Base:2).
+	// 0 = 100%, 1 = 200%, -1 = 50%
 	// CoverArtPosition determines where the cover art is rendered relative to
 	// playlists/queue. Valid values: "left" or "right". Defaults to "left".
 	CoverArtPosition string `json:"coverArtPosition,omitempty"`

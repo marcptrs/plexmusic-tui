@@ -197,7 +197,9 @@ type StreamResultMsg struct {
 }
 
 // FetchStreamCmd returns a command that fetches an audio stream
-func (c *Coordinator) FetchStreamCmd(fn func() (beep.StreamSeekCloser, beep.Format, error)) tea.Cmd {
+func (c *Coordinator) FetchStreamCmd(
+	fn func() (beep.StreamSeekCloser, beep.Format, error),
+) tea.Cmd {
 	return func() tea.Msg {
 		streamer, format, err := fn()
 		return StreamResultMsg{

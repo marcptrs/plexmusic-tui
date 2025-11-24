@@ -114,7 +114,10 @@ func TestPlaybackController_PlayNext_WithPbSvcError(t *testing.T) {
 	// want the controller to use the first queued item (index 0) as the next.
 	isQ, newQ, _, played, err := pc.PlayNext(context.Background(), q, -1, tracks, 0, nil)
 	if err != nil {
-		t.Fatalf("did not expect error from PlayNext since controller no longer calls pbSvc: %v", err)
+		t.Fatalf(
+			"did not expect error from PlayNext since controller no longer calls pbSvc: %v",
+			err,
+		)
 	}
 	if played == nil {
 		t.Fatalf("expected played track returned despite error")
@@ -137,7 +140,10 @@ func TestPlaybackController_PlayPrev_WithPbSvcError(t *testing.T) {
 	// want the controller to use the queue's last item as the prev selection.
 	isQ, newQ, _, played, err := pc.PlayPrev(context.Background(), q, -1, tracks, 0, nil)
 	if err != nil {
-		t.Fatalf("did not expect error from PlayPrev since controller no longer calls pbSvc: %v", err)
+		t.Fatalf(
+			"did not expect error from PlayPrev since controller no longer calls pbSvc: %v",
+			err,
+		)
 	}
 	if played == nil {
 		t.Fatalf("expected prev track returned despite error")
@@ -221,7 +227,12 @@ func TestPlaybackController_AdjustVolume_Steps(t *testing.T) {
 				expected = 200
 			}
 			if displayed != expected {
-				t.Fatalf("unexpected percent: got %d, expected %d (raw newPct=%.6f)", displayed, expected, newPct)
+				t.Fatalf(
+					"unexpected percent: got %d, expected %d (raw newPct=%.6f)",
+					displayed,
+					expected,
+					newPct,
+				)
 			}
 		})
 	}

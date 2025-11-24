@@ -48,7 +48,11 @@ func NewLoginPage(coord app.Coordinatorer, authSvc service.AuthServicer) *LoginP
 	return NewLoginPageWithConfig(coord, authSvc, nil)
 }
 
-func NewLoginPageWithConfig(coord app.Coordinatorer, authSvc service.AuthServicer, cfgMgr *config.Manager) *LoginPage {
+func NewLoginPageWithConfig(
+	coord app.Coordinatorer,
+	authSvc service.AuthServicer,
+	cfgMgr *config.Manager,
+) *LoginPage {
 	usernameInput := textinput.New()
 	usernameInput.Placeholder = "Email or username"
 	usernameInput.Focus()

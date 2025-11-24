@@ -101,7 +101,8 @@ func (c *QueueComponent) View() string {
 
 func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
 	// Navigation keys (up/down/k/j or rune fallback) are handled by the list component.
-	if key.Matches(msg, c.keys.Up) || key.Matches(msg, c.keys.Down) || isRuneKey(msg, 'k') || isRuneKey(msg, 'j') {
+	if key.Matches(msg, c.keys.Up) || key.Matches(msg, c.keys.Down) || isRuneKey(msg, 'k') ||
+		isRuneKey(msg, 'j') {
 		var cmd tea.Cmd
 		c.list, cmd = c.list.Update(msg)
 		c.coordinator.SetQueueIndex(c.list.Index())
@@ -206,7 +207,15 @@ func (c *QueueComponent) UpdateListFromCoordinator() {
 			}
 			qItems[i] = qi
 		} else {
-			qi := util.QueueItem{Track: domain.Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration}, Index: i}
+			qi := util.QueueItem{
+				Track: domain.Track{
+					Title:    t.Title,
+					Artist:   t.Artist,
+					Album:    t.Album,
+					Duration: t.Duration,
+				},
+				Index: i,
+			}
 			if c.coordinator.QueueIndex() == i {
 				qi.Playing = true
 			}
@@ -248,7 +257,11 @@ func (c *QueueComponent) playAppTrack(at *app.Track) tea.Cmd {
 		// We should probably store ctx in the component or pass it.
 		// For now, let's use context.TODO()
 		if err := c.orchestrator.PlayAppTrack(context.TODO(), at); err != nil {
-			c.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+			c.coordinator.SetNotification(
+				fmt.Sprintf("Play failed: %v", err),
+				"error",
+				10*time.Second,
+			)
 			return nil
 		}
 	} else {

@@ -33,12 +33,16 @@ func NewLibraryServiceWithEvents(baseURL, token string) *LibraryServiceWithEvent
 }
 
 // Subscribe returns a channel for receiving library events
-func (s *LibraryServiceWithEvents) Subscribe(ctx context.Context) <-chan pubsub.Event[LibraryEvent] {
+func (s *LibraryServiceWithEvents) Subscribe(
+	ctx context.Context,
+) <-chan pubsub.Event[LibraryEvent] {
 	return s.broker.Subscribe(ctx)
 }
 
 // FetchLibraries fetches libraries and publishes events
-func (s *LibraryServiceWithEvents) FetchLibraries(ctx context.Context) ([]domain.MusicLibrary, int, error) {
+func (s *LibraryServiceWithEvents) FetchLibraries(
+	ctx context.Context,
+) ([]domain.MusicLibrary, int, error) {
 	libraries, total, err := s.LibraryService.FetchLibraries(ctx)
 	if err != nil {
 		s.broker.Publish(pubsub.Event[LibraryEvent]{
@@ -64,7 +68,10 @@ func (s *LibraryServiceWithEvents) FetchLibraries(ctx context.Context) ([]domain
 }
 
 // FetchAlbums fetches albums and publishes events
-func (s *LibraryServiceWithEvents) FetchAlbums(ctx context.Context, libraryKey string) ([]domain.Album, int, error) {
+func (s *LibraryServiceWithEvents) FetchAlbums(
+	ctx context.Context,
+	libraryKey string,
+) ([]domain.Album, int, error) {
 	albums, total, err := s.LibraryService.FetchAlbums(ctx, libraryKey)
 	if err != nil {
 		s.broker.Publish(pubsub.Event[LibraryEvent]{
@@ -90,7 +97,9 @@ func (s *LibraryServiceWithEvents) FetchAlbums(ctx context.Context, libraryKey s
 }
 
 // FetchRecentlyAdded fetches recently added albums and publishes events
-func (s *LibraryServiceWithEvents) FetchRecentlyAdded(ctx context.Context) ([]domain.Album, int, error) {
+func (s *LibraryServiceWithEvents) FetchRecentlyAdded(
+	ctx context.Context,
+) ([]domain.Album, int, error) {
 	albums, total, err := s.LibraryService.FetchRecentlyAdded(ctx)
 	if err != nil {
 		s.broker.Publish(pubsub.Event[LibraryEvent]{
@@ -116,7 +125,9 @@ func (s *LibraryServiceWithEvents) FetchRecentlyAdded(ctx context.Context) ([]do
 }
 
 // FetchPlaylists fetches playlists and publishes events
-func (s *LibraryServiceWithEvents) FetchPlaylists(ctx context.Context) ([]domain.Playlist, int, error) {
+func (s *LibraryServiceWithEvents) FetchPlaylists(
+	ctx context.Context,
+) ([]domain.Playlist, int, error) {
 	playlists, total, err := s.LibraryService.FetchPlaylists(ctx)
 	if err != nil {
 		s.broker.Publish(pubsub.Event[LibraryEvent]{
@@ -142,7 +153,10 @@ func (s *LibraryServiceWithEvents) FetchPlaylists(ctx context.Context) ([]domain
 }
 
 // FetchTracks fetches tracks and publishes events
-func (s *LibraryServiceWithEvents) FetchTracks(ctx context.Context, key string) ([]domain.Track, int, error) {
+func (s *LibraryServiceWithEvents) FetchTracks(
+	ctx context.Context,
+	key string,
+) ([]domain.Track, int, error) {
 	tracks, total, err := s.LibraryService.FetchTracks(ctx, key)
 	if err != nil {
 		s.broker.Publish(pubsub.Event[LibraryEvent]{
@@ -168,7 +182,10 @@ func (s *LibraryServiceWithEvents) FetchTracks(ctx context.Context, key string) 
 }
 
 // FetchSectionCounts fetches counts and publishes events (optional, mostly for UI update)
-func (s *LibraryServiceWithEvents) FetchSectionCounts(ctx context.Context, sectionKey string) (int, int, int, error) {
+func (s *LibraryServiceWithEvents) FetchSectionCounts(
+	ctx context.Context,
+	sectionKey string,
+) (int, int, int, error) {
 	artists, albums, tracks, err := s.LibraryService.FetchSectionCounts(ctx, sectionKey)
 	if err != nil {
 		// We can publish a generic error or specific one

@@ -12,7 +12,13 @@ linters:
     - whitespace
     - tparallel
     - sqlclosecheck
+    - lll
   disable:
     - errcheck
     - ineffassign
     - unused
+
+linters-settings:
+  lll:
+    line-length: 120
+

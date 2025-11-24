@@ -35,7 +35,8 @@ func startTestServer(respBody string) *httptest.Server {
 }
 
 func TestFetchRecentlyAddedReturnsAlbums(t *testing.T) {
-	body := `{"MediaContainer":{"Metadata":[{"title":"Test Album","parentTitle":"Test Artist","year":2022,"key":"/library/metadata/123","thumb":"/thumb.jpg"}]}}`
+	body := `{"MediaContainer":{"Metadata":[{"title":"Test Album","parentTitle":"Test Artist",` +
+		`"year":2022,"key":"/library/metadata/123","thumb":"/thumb.jpg"}]}}`
 	srv := startTestServer(body)
 	defer srv.Close()
 
@@ -56,7 +57,8 @@ func TestFetchRecentlyAddedReturnsAlbums(t *testing.T) {
 }
 
 func TestAddPlexHeadersSetsHeaderAndQuery(t *testing.T) {
-	body := `{"MediaContainer":{"Metadata":[{"title":"Test Album","parentTitle":"Artist","year":2020,"key":"/library/metadata/99","thumb":"/thumb.jpg"}]}}`
+	body := `{"MediaContainer":{"Metadata":[{"title":"Test Album","parentTitle":"Artist",` +
+		`"year":2020,"key":"/library/metadata/99","thumb":"/thumb.jpg"}]}}`
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
 		// Verify header and query param
@@ -85,7 +87,8 @@ func TestAddPlexHeadersSetsHeaderAndQuery(t *testing.T) {
 }
 
 func TestFetchPlaylistsReturnsPlaylists(t *testing.T) {
-	body := `{"MediaContainer":{"Metadata":[{"title":"Test Playlist","key":"/playlists/1","leafCount":3,"duration":120000,"playlistType":"audio"}]}}`
+	body := `{"MediaContainer":{"Metadata":[{"title":"Test Playlist","key":"/playlists/1",` +
+		`"leafCount":3,"duration":120000,"playlistType":"audio"}]}}`
 	srv := startTestServer(body)
 	defer srv.Close()
 
@@ -106,7 +109,8 @@ func TestFetchPlaylistsReturnsPlaylists(t *testing.T) {
 }
 
 func TestFetchAlbumsReturnsAlbums(t *testing.T) {
-	body := `{"MediaContainer":{"Metadata":[{"title":"Album A","parentTitle":"Artist A","year":2021,"key":"/library/metadata/1","thumb":"/thumb1.jpg"}]}}`
+	body := `{"MediaContainer":{"Metadata":[{"title":"Album A","parentTitle":"Artist A",` +
+		`"year":2021,"key":"/library/metadata/1","thumb":"/thumb1.jpg"}]}}`
 	srv := startTestServer(body)
 	defer srv.Close()
 
@@ -128,7 +132,8 @@ func TestFetchAlbumsReturnsAlbums(t *testing.T) {
 
 func TestFetchRecentlyAddedHandlesPlaylistFormat(t *testing.T) {
 	// Some plex servers return playlists as top-level Playlist array in MediaContainer
-	body := `{"Playlist":[{"title":"Test Playlist","key":"/playlists/1","leafCount":3,"duration":120000,"playlistType":"audio"}]}`
+	body := `{"Playlist":[{"title":"Test Playlist","key":"/playlists/1",` +
+		`"leafCount":3,"duration":120000,"playlistType":"audio"}]}`
 	srv := startTestServer(body)
 	defer srv.Close()
 
@@ -147,7 +152,8 @@ func TestFetchRecentlyAddedHandlesPlaylistFormat(t *testing.T) {
 }
 
 func TestFetchRecentlyAddedInLibraryReturnsAlbums(t *testing.T) {
-	body := `{"MediaContainer":{"Metadata":[{"title":"Lib Album","parentTitle":"Lib Artist","year":2023,"key":"/library/metadata/456","thumb":"/thumb2.jpg"}]}}`
+	body := `{"MediaContainer":{"Metadata":[{"title":"Lib Album","parentTitle":"Lib Artist",` +
+		`"year":2023,"key":"/library/metadata/456","thumb":"/thumb2.jpg"}]}}`
 	srv := startTestServer(body)
 	defer srv.Close()
 
@@ -218,7 +224,11 @@ func TestFetchTracksChildrenFallback(t *testing.T) {
 	})
 	mux.HandleFunc("/library/metadata/1/children", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"Metadata":[{"title":"Child Track","grandparentTitle":"Artist","parentTitle":"Album","duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Child Track","grandparentTitle":"Artist","parentTitle":"Album",`+
+				`"duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}`,
+		)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -248,7 +258,11 @@ func TestFetchTracksChildrenFallbackAbsoluteKey(t *testing.T) {
 	})
 	mux.HandleFunc("/library/metadata/1/children", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintln(w, `{"Metadata":[{"title":"Child Track Absolute","grandparentTitle":"Artist","parentTitle":"Album","duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Child Track Absolute","grandparentTitle":"Artist","parentTitle":"Album",`+
+				`"duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}`,
+		)
 	})
 
 	srv := httptest.NewServer(mux)

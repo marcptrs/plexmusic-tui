@@ -142,7 +142,13 @@ func TestLibraryPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 
 func TestLibraryPage_DefaultLayout_ShowsNowPlayingAndQueue(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -166,7 +172,13 @@ func TestLibraryPage_DefaultLayout_ShowsNowPlayingAndQueue(t *testing.T) {
 
 func TestLibraryPage_DrawerOnRight_KeepsNowPlayingVisible(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -185,8 +197,10 @@ func TestLibraryPage_DrawerOnRight_KeepsNowPlayingVisible(t *testing.T) {
 	// drawer has content to render on the right.
 	// Send a library event simulating the server returned recently added albums
 	evt := service.LibraryEvent{
-		Type:   "recently_added.loaded",
-		Albums: []domain.Album{{Title: "Test Album", Artist: "X", Year: 2020, Key: "/library/metadata/1"}},
+		Type: "recently_added.loaded",
+		Albums: []domain.Album{
+			{Title: "Test Album", Artist: "X", Year: 2020, Key: "/library/metadata/1"},
+		},
 	}
 	page.Update(evt)
 	page.drawerOpen = true
@@ -212,7 +226,13 @@ func TestLibraryPage_Settings_ToggleCoverArtPosition(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetConfigManager(cfgMgr)
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -270,7 +290,13 @@ func TestLibraryPage_Settings_ToggleCoverArtPosition(t *testing.T) {
 
 func TestLibraryPage_SwitchView_PressesOpenDrawer(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -289,7 +315,13 @@ func TestLibraryPage_SwitchView_PressesOpenDrawer(t *testing.T) {
 
 func TestLibraryPage_LineCountStableOnSwitchView(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -313,13 +345,25 @@ func TestLibraryPage_LineCountStableOnSwitchView(t *testing.T) {
 	afterLines := strings.Count(after, "\n")
 
 	if beforeLines != afterLines {
-		t.Fatalf("expected same number of lines before/after SwitchView; before=%d after=%d\npre:\n%s\npost:\n%s", beforeLines, afterLines, before, after)
+		t.Fatalf(
+			"expected same number of lines before/after SwitchView; before=%d after=%d\npre:\n%s\npost:\n%s",
+			beforeLines,
+			afterLines,
+			before,
+			after,
+		)
 	}
 }
 
 func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_LeftArt(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -349,7 +393,11 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_LeftArt(t *testing.T)
 	view := page.View()
 	// Expect the track title to show once in the view overall and not be duplicated
 	if strings.Count(view, "T1") != 1 {
-		t.Fatalf("expected track title once in view, got: %d occurrences\nview:\n%s", strings.Count(view, "T1"), view)
+		t.Fatalf(
+			"expected track title once in view, got: %d occurrences\nview:\n%s",
+			strings.Count(view, "T1"),
+			view,
+		)
 	}
 }
 
@@ -363,7 +411,13 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_RightArt(t *testing.T
 
 	coord := app.NewCoordinator()
 	coord.SetConfigManager(cfgMgr)
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -392,13 +446,23 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_RightArt(t *testing.T
 
 	view := page.View()
 	if strings.Count(view, "T1") != 1 {
-		t.Fatalf("expected track title once in view, got: %d occurrences\nview:\n%s", strings.Count(view, "T1"), view)
+		t.Fatalf(
+			"expected track title once in view, got: %d occurrences\nview:\n%s",
+			strings.Count(view, "T1"),
+			view,
+		)
 	}
 }
 
 func TestLibraryPage_ArtLoad_NoExtraLine(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -420,14 +484,26 @@ func TestLibraryPage_ArtLoad_NoExtraLine(t *testing.T) {
 	afterLines := strings.Count(after, "\n")
 
 	if beforeLines != afterLines {
-		t.Fatalf("expected same number of lines before and after art load; before=%d after=%d\nviewBefore:\n%s\nviewAfter:\n%s", beforeLines, afterLines, before, after)
+		t.Fatalf(
+			"expected same number of lines before and after art load; before=%d after=%d\nviewBefore:\n%s\nviewAfter:\n%s",
+			beforeLines,
+			afterLines,
+			before,
+			after,
+		)
 	}
 }
 
 // Debug test: assert the view lines are consistent and print the first differing line
 func TestLibraryPage_ArtLoad_LineDiff(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -459,7 +535,13 @@ func TestLibraryPage_ArtLoad_LineDiff(t *testing.T) {
 		}
 	}
 	if afterEmpty > beforeEmpty {
-		t.Fatalf("expected no additional blank lines after art load; before empty=%d after empty=%d\nviewBefore:\n%s\nviewAfter:\n%s", beforeEmpty, afterEmpty, before, after)
+		t.Fatalf(
+			"expected no additional blank lines after art load; before empty=%d after empty=%d\nviewBefore:\n%s\nviewAfter:\n%s",
+			beforeEmpty,
+			afterEmpty,
+			before,
+			after,
+		)
 	}
 }
 
@@ -467,13 +549,24 @@ func TestLibraryPage_FetchesLibraryDataFromServer(t *testing.T) {
 	// Start a test HTTP server to simulate Plex responses.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`,
+		)
 	})
 	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Test Album","parentTitle":"Test Artist","year":2022,"key":"/library/metadata/123","thumb":"/thumb.jpg"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Metadata":[{"title":"Test Album","parentTitle":"Test Artist",`+
+				`"year":2022,"key":"/library/metadata/123","thumb":"/thumb.jpg"}]}}`,
+		)
 	})
 	mux.HandleFunc("/playlists", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Test Playlist","key":"/playlists/1","leafCount":3,"duration":120000,"playlistType":"audio"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Metadata":[{"title":"Test Playlist","key":"/playlists/1",`+
+				`"leafCount":3,"duration":120000,"playlistType":"audio"}]}}`,
+		)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -485,7 +578,17 @@ func TestLibraryPage_FetchesLibraryDataFromServer(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Test Server",
+				Host:        host,
+				Port:        port,
+				Scheme:      u.Scheme,
+				AccessToken: "test-token",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
@@ -548,17 +651,30 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	// Start a test HTTP server to simulate Plex responses.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Album 1","parentTitle":"Artist 1","year":2022,"key":"/library/metadata/1","thumb":"/thumb1.jpg"},{"title":"Album 2","parentTitle":"Artist 2","year":2021,"key":"/library/metadata/2","thumb":"/thumb2.jpg"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Metadata":[{"title":"Album 1","parentTitle":"Artist 1","year":2022,`+
+				`"key":"/library/metadata/1","thumb":"/thumb1.jpg"},{"title":"Album 2","parentTitle":"Artist 2",`+
+				`"year":2021,"key":"/library/metadata/2","thumb":"/thumb2.jpg"}]}}`,
+		)
 	})
 	// Simulate a server that only returns track data under /children for album 2
 	mux.HandleFunc("/library/metadata/1", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"Track 1","grandparentTitle":"Artist 1","parentTitle":"Album 1","duration":60000,"index":1,"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Track 1","grandparentTitle":"Artist 1","parentTitle":"Album 1",`+
+				`"duration":60000,"index":1,"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"}]}`,
+		)
 	})
 	mux.HandleFunc("/library/metadata/2", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"Metadata":[]}`)
 	})
 	mux.HandleFunc("/library/metadata/2/children", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"Track X","grandparentTitle":"Artist 2","parentTitle":"Album 2","duration":50000,"index":1,"key":"/library/metadata/2/track/1","thumb":"/thumb2.jpg"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Track X","grandparentTitle":"Artist 2","parentTitle":"Album 2",`+
+				`"duration":50000,"index":1,"key":"/library/metadata/2/track/1","thumb":"/thumb2.jpg"}]}`,
+		)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -570,7 +686,17 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Test Server",
+				Host:        host,
+				Port:        port,
+				Scheme:      u.Scheme,
+				AccessToken: "test-token",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
@@ -669,17 +795,32 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
 		// Use absolute URL for album keys (some Plex servers return absolute urls)
 		base := fmt.Sprintf("http://%s", r.Host)
-		fmt.Fprintf(w, `{"MediaContainer":{"Metadata":[{"title":"Album 1","parentTitle":"Artist 1","year":2022,"key":"%s/library/metadata/1","thumb":"/thumb1.jpg"},{"title":"Album 2","parentTitle":"Artist 2","year":2021,"key":"%s/library/metadata/2","thumb":"/thumb2.jpg"}]}}`+"\n", base, base)
+		fmt.Fprintf(
+			w,
+			`{"MediaContainer":{"Metadata":[{"title":"Album 1","parentTitle":"Artist 1","year":2022,`+
+				`"key":"%s/library/metadata/1","thumb":"/thumb1.jpg"},{"title":"Album 2","parentTitle":"Artist 2",`+
+				`"year":2021,"key":"%s/library/metadata/2","thumb":"/thumb2.jpg"}]}}`+"\n",
+			base,
+			base,
+		)
 	})
 	// Simulate a server that only returns track data under /children for album 2
 	mux.HandleFunc("/library/metadata/1", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"Track 1","grandparentTitle":"Artist 1","parentTitle":"Album 1","duration":60000,"index":1,"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Track 1","grandparentTitle":"Artist 1","parentTitle":"Album 1",`+
+				`"duration":60000,"index":1,"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"}]}`,
+		)
 	})
 	mux.HandleFunc("/library/metadata/2", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, `{"Metadata":[]}`)
 	})
 	mux.HandleFunc("/library/metadata/2/children", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"Track X","grandparentTitle":"Artist 2","parentTitle":"Album 2","duration":50000,"index":1,"key":"/library/metadata/2/track/1","thumb":"/thumb2.jpg"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Track X","grandparentTitle":"Artist 2","parentTitle":"Album 2",`+
+				`"duration":50000,"index":1,"key":"/library/metadata/2/track/1","thumb":"/thumb2.jpg"}]}`,
+		)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -691,7 +832,17 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Test Server",
+				Host:        host,
+				Port:        port,
+				Scheme:      u.Scheme,
+				AccessToken: "test-token",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
@@ -790,13 +941,24 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/playlists", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Pl 1","key":"/playlists/1"},{"title":"Pl 2","key":"/playlists/2"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Metadata":[{"title":"Pl 1","key":"/playlists/1"},{"title":"Pl 2","key":"/playlists/2"}]}}`,
+		)
 	})
 	mux.HandleFunc("/playlists/1", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"PTrack 1","grandparentTitle":"Artist P","parentTitle":"Pl 1","duration":40000,"index":1,"key":"/playlists/1/track/1"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"PTrack 1","grandparentTitle":"Artist P","parentTitle":"Pl 1",`+
+				`"duration":40000,"index":1,"key":"/playlists/1/track/1"}]}`,
+		)
 	})
 	mux.HandleFunc("/playlists/2", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"PTrack X","grandparentTitle":"Artist P2","parentTitle":"Pl 2","duration":30000,"index":1,"key":"/playlists/2/track/1"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"PTrack X","grandparentTitle":"Artist P2","parentTitle":"Pl 2",`+
+				`"duration":30000,"index":1,"key":"/playlists/2/track/1"}]}`,
+		)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -808,7 +970,17 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Test Server",
+				Host:        host,
+				Port:        port,
+				Scheme:      u.Scheme,
+				AccessToken: "test-token",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
@@ -894,13 +1066,24 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`,
+		)
 	})
 	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Album 1","parentTitle":"Artist 1","year":2022,"key":"/library/metadata/1","thumb":"/thumb1.jpg"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Metadata":[{"title":"Album 1","parentTitle":"Artist 1","year":2022,`+
+				`"key":"/library/metadata/1","thumb":"/thumb1.jpg"}]}}`,
+		)
 	})
 	mux.HandleFunc("/library/metadata/1/children", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"T1","grandparentTitle":"Artist 1","parentTitle":"Album 1","duration":60000,"index":1,"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"T1","grandparentTitle":"Artist 1","parentTitle":"Album 1",`+
+				`"duration":60000,"index":1,"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"}]}`,
+		)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -912,7 +1095,17 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Test Server",
+				Host:        host,
+				Port:        port,
+				Scheme:      u.Scheme,
+				AccessToken: "test-token",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 	coord.SetActiveTab(app.HomeTab)
 
@@ -978,7 +1171,11 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Pl 1","key":"/playlists/1"}]}}`)
 	})
 	mux.HandleFunc("/playlists/1", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"P1","grandparentTitle":"Artist P","parentTitle":"Pl 1","duration":40000,"index":1,"key":"/playlists/1/track/1","thumb":"/thumbp.jpg"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"P1","grandparentTitle":"Artist P","parentTitle":"Pl 1",`+
+				`"duration":40000,"index":1,"key":"/playlists/1/track/1","thumb":"/thumbp.jpg"}]}`,
+		)
 	})
 
 	srv := httptest.NewServer(mux)
@@ -990,7 +1187,17 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Test Server",
+				Host:        host,
+				Port:        port,
+				Scheme:      u.Scheme,
+				AccessToken: "test-token",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 	coord.SetActiveTab(app.PlaylistsTab)
 
@@ -1036,23 +1243,40 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 		t.Fatalf("expected page.showingTracks after pressing Enter on playlist")
 	}
 	if coord.HasCurrentTrack() {
-		t.Fatalf("did not expect coordinator to have current track after pressing Enter on playlist")
+		t.Fatalf(
+			"did not expect coordinator to have current track after pressing Enter on playlist",
+		)
 	}
 	if coord.IsPlaying() {
-		t.Fatalf("did not expect coordinator playback state to be Playing after pressing Enter on playlist")
+		t.Fatalf(
+			"did not expect coordinator playback state to be Playing after pressing Enter on playlist",
+		)
 	}
 }
 
 func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`,
+		)
 	})
 	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Album 1","parentTitle":"Artist 1","year":2022,"key":"/library/metadata/1","thumb":"/thumb1.jpg"}]}}`)
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Metadata":[{"title":"Album 1","parentTitle":"Artist 1","year":2022,`+
+				`"key":"/library/metadata/1","thumb":"/thumb1.jpg"}]}}`,
+		)
 	})
 	mux.HandleFunc("/library/metadata/1/children", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"T1","grandparentTitle":"Artist 1","parentTitle":"Album 1","duration":60000,"index":1,"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"},{"title":"T2","grandparentTitle":"Artist 1","parentTitle":"Album 1","duration":50000,"index":2,"key":"/library/metadata/1/track/2","thumb":"/thumb2.jpg"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"T1","grandparentTitle":"Artist 1","parentTitle":"Album 1",`+
+				`"duration":60000,"index":1,"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"},`+
+				`{"title":"T2","grandparentTitle":"Artist 1","parentTitle":"Album 1","duration":50000,"index":2,`+
+				`"key":"/library/metadata/1/track/2","thumb":"/thumb2.jpg"}]}`,
+		)
 	})
 	// Return a minimal WAV for the track stream endpoints so playback succeeds
 	mux.HandleFunc("/library/metadata/1/track/1", func(w http.ResponseWriter, r *http.Request) {
@@ -1073,7 +1297,17 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Test Server",
+				Host:        host,
+				Port:        port,
+				Scheme:      u.Scheme,
+				AccessToken: "test-token",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 	coord.SetActiveTab(app.HomeTab)
 
@@ -1130,10 +1364,15 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
 	}
 	if page.showingTracks {
-		t.Fatalf("expected page.showingTracks to be false after pressing p on album (should switch to queue)")
+		t.Fatalf(
+			"expected page.showingTracks to be false after pressing p on album (should switch to queue)",
+		)
 	}
 	if coord.ActiveTab() != app.QueueTab {
-		t.Fatalf("expected active tab to be QueueTab after pressing p on album, got %v", coord.ActiveTab())
+		t.Fatalf(
+			"expected active tab to be QueueTab after pressing p on album, got %v",
+			coord.ActiveTab(),
+		)
 	}
 	view := page.View()
 	if !strings.Contains(view, "T1") {
@@ -1178,7 +1417,17 @@ func TestLibraryPage_PlaySelected_QueuesTracksFromSelection(t *testing.T) {
 	coord := app.NewCoordinator()
 	// Simulate authenticated server so page can build layout; orchestrator will be swapped with a mock below.
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Local Server",
+				Host:        "127.0.0.1",
+				Port:        "32400",
+				AccessToken: "token",
+				Scheme:      "http",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
@@ -1235,7 +1484,17 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 	coord := app.NewCoordinator()
 
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Local Server",
+				Host:        "127.0.0.1",
+				Port:        "32400",
+				AccessToken: "token",
+				Scheme:      "http",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
@@ -1277,7 +1536,10 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 		t.Fatalf("expected coordinator to have a current track set after auto-advance")
 	}
 	if coord.CurrentTrack().Title != "Q2" {
-		t.Fatalf("expected current track to be Q2 after auto-advance, got %s", coord.CurrentTrack().Title)
+		t.Fatalf(
+			"expected current track to be Q2 after auto-advance, got %s",
+			coord.CurrentTrack().Title,
+		)
 	}
 }
 
@@ -1286,7 +1548,13 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -1300,7 +1568,14 @@ func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
 
 	// Provide a recently-added album so a different list is visible
 	items := []list.Item{
-		util.AlbumItem{Album: domain.Album{Title: "Album A", Artist: "Artist", Year: 2020, Key: "/library/metadata/1"}},
+		util.AlbumItem{
+			Album: domain.Album{
+				Title:  "Album A",
+				Artist: "Artist",
+				Year:   2020,
+				Key:    "/library/metadata/1",
+			},
+		},
 	}
 	page.recentlyAddedComponent.SetItems(items)
 	page.recentlyAddedComponent.Select(0)
@@ -1342,7 +1617,13 @@ func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
 func TestLibraryPage_QueueFocusTogglesWithKeyOnQueueTab(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -1389,7 +1670,10 @@ func TestLibraryPage_QueueFocusTogglesWithKeyOnQueueTab(t *testing.T) {
 		_ = cmd2()
 	}
 	if page.queueComponent.Index() != oldIdx+1 {
-		t.Fatalf("expected queue index to advance when queue is focused, got %d", page.queueComponent.Index())
+		t.Fatalf(
+			"expected queue index to advance when queue is focused, got %d",
+			page.queueComponent.Index(),
+		)
 	}
 
 	// Toggle focus off again
@@ -1405,7 +1689,13 @@ func TestLibraryPage_QueueFocusTogglesWithKeyOnQueueTab(t *testing.T) {
 
 func TestLibraryPage_QueueVisibleInterceptsUpDown(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -1428,7 +1718,14 @@ func TestLibraryPage_QueueVisibleInterceptsUpDown(t *testing.T) {
 
 	// Provide a recently-added album so a different list is visible
 	items := []list.Item{
-		util.AlbumItem{Album: domain.Album{Title: "Album A", Artist: "Artist", Year: 2020, Key: "/library/metadata/1"}},
+		util.AlbumItem{
+			Album: domain.Album{
+				Title:  "Album A",
+				Artist: "Artist",
+				Year:   2020,
+				Key:    "/library/metadata/1",
+			},
+		},
 	}
 	page.recentlyAddedComponent.SetItems(items)
 	page.recentlyAddedComponent.Select(0)
@@ -1484,7 +1781,13 @@ func TestLibraryPage_RenderSearch_IncludesTracks(t *testing.T) {
 	coord.SetActiveTab(app.SearchTab)
 
 	// Simulate authenticated server so the page renders
-	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
 	coord.SetServers([]app.PlexServer{server})
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
@@ -1548,7 +1851,13 @@ func TestLibraryPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Pl 1","key":"/playlists/1"}]}}`)
 	})
 	mux.HandleFunc("/playlists/1", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"Metadata":[{"title":"P1","grandparentTitle":"Artist P","parentTitle":"Pl 1","duration":40000,"index":1,"key":"/playlists/1/track/1","thumb":"/thumbp.jpg"},{"title":"P2","grandparentTitle":"Artist P","parentTitle":"Pl 1","duration":30000,"index":2,"key":"/playlists/1/track/2","thumb":"/thumbp2.jpg"}]}`)
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"P1","grandparentTitle":"Artist P","parentTitle":"Pl 1",`+
+				`"duration":40000,"index":1,"key":"/playlists/1/track/1","thumb":"/thumbp.jpg"},`+
+				`{"title":"P2","grandparentTitle":"Artist P","parentTitle":"Pl 1","duration":30000,"index":2,`+
+				`"key":"/playlists/1/track/2","thumb":"/thumbp2.jpg"}]}`,
+		)
 	})
 	// Add stream endpoints for playlist tracks
 	mux.HandleFunc("/playlists/1/track/1", func(w http.ResponseWriter, r *http.Request) {
@@ -1569,7 +1878,17 @@ func TestLibraryPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token"}})
+	coord.SetServers(
+		[]app.PlexServer{
+			{
+				Name:        "Test Server",
+				Host:        host,
+				Port:        port,
+				Scheme:      u.Scheme,
+				AccessToken: "test-token",
+			},
+		},
+	)
 	coord.SetSelectedServer(0)
 	coord.SetActiveTab(app.PlaylistsTab)
 
@@ -1615,7 +1934,9 @@ func TestLibraryPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 		t.Fatalf("expected coordinator to have current track after pressing space on playlist")
 	}
 	if !coord.IsPlaying() {
-		t.Fatalf("expected coordinator playback state to be Playing after pressing space on playlist")
+		t.Fatalf(
+			"expected coordinator playback state to be Playing after pressing space on playlist",
+		)
 	}
 	queue := coord.Queue()
 	if len(queue) != 2 {
@@ -1625,10 +1946,15 @@ func TestLibraryPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
 	}
 	if page.showingTracks {
-		t.Fatalf("expected page.showingTracks to be false after pressing p on playlist (should switch to queue)")
+		t.Fatalf(
+			"expected page.showingTracks to be false after pressing p on playlist (should switch to queue)",
+		)
 	}
 	if coord.ActiveTab() != app.QueueTab {
-		t.Fatalf("expected active tab to be QueueTab after pressing p on playlist, got %v", coord.ActiveTab())
+		t.Fatalf(
+			"expected active tab to be QueueTab after pressing p on playlist, got %v",
+			coord.ActiveTab(),
+		)
 	}
 }
 

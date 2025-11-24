@@ -52,6 +52,19 @@ git diff --cached --name-only --diff-filter=ACM -z \
         # Only format files that still exist in the index (not removed)
         if [ -f "$file" ]; then
           print "  formatting: $file"
+          
+          # Run golines if available (handles line length)
+          GOLINES_CMD="golines"
+          if ! command -v golines >/dev/null 2>&1; then
+            if [ -f "$HOME/go/bin/golines" ]; then
+              GOLINES_CMD="$HOME/go/bin/golines"
+            fi
+          fi
+
+          if command -v "$GOLINES_CMD" >/dev/null 2>&1 || [ -f "$GOLINES_CMD" ]; then
+             "$GOLINES_CMD" -w -m 120 "$file" || true
+          fi
+
           # Prefer gofumpt if installed
           if command -v gofumpt >/dev/null 2>&1; then
             # gofumpt accepts the same flags as gofmt: -w modifies files in-place

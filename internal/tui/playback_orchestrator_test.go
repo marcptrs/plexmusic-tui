@@ -49,7 +49,10 @@ func (m *mockPbSvcErr) Subscribe(ctx context.Context) <-chan pubsub.Event[servic
 // Mock library service that returns an error when fetching a stream
 type mockLibFetchErr struct{}
 
-func (m *mockLibFetchErr) FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error) {
+func (m *mockLibFetchErr) FetchStream(
+	ctx context.Context,
+	track *domain.Track,
+) (io.ReadCloser, string, error) {
 	return nil, "", errors.New("fetch error")
 }
 
@@ -164,7 +167,10 @@ func TestOrchestrator_PlayAppTrack_Success(t *testing.T) {
 		t.Fatalf("expected coordinator to have current track set after PlayAppTrack success")
 	}
 	if coord.CurrentTrack().Title != "Track OK" {
-		t.Fatalf("expected coordinator current track title 'Track OK', got '%s'", coord.CurrentTrack().Title)
+		t.Fatalf(
+			"expected coordinator current track title 'Track OK', got '%s'",
+			coord.CurrentTrack().Title,
+		)
 	}
 	if coord.PlaybackState() != app.PlaybackPlaying {
 		t.Fatalf("expected playback state to be playing")

@@ -8,7 +8,12 @@ import "plexmusic-tui/internal/app"
 // the queue is complete by returning a queue index of -1 (no next queued item).
 //
 // given the current queue, queue index, tracks, and selected track index.
-func NextIndices(queue []app.Track, queueIndex int, tracks []app.Track, selected int) (isQueue bool, newQueueIndex int, newSelected int) {
+func NextIndices(
+	queue []app.Track,
+	queueIndex int,
+	tracks []app.Track,
+	selected int,
+) (isQueue bool, newQueueIndex int, newSelected int) {
 	if len(queue) > 0 {
 		idx := queueIndex
 		// If no current queue index (e.g. -1), start at the first item.
@@ -41,7 +46,12 @@ func NextIndices(queue []app.Track, queueIndex int, tracks []app.Track, selected
 
 // PrevIndices returns whether queue is used, the updated queue index, and the updated selected track index
 // given the current queue, queue index, tracks, and selected track index.
-func PrevIndices(queue []app.Track, queueIndex int, tracks []app.Track, selected int) (isQueue bool, newQueueIndex int, newSelected int) {
+func PrevIndices(
+	queue []app.Track,
+	queueIndex int,
+	tracks []app.Track,
+	selected int,
+) (isQueue bool, newQueueIndex int, newSelected int) {
 	if len(queue) > 0 {
 		idx := queueIndex
 		if idx <= 0 {

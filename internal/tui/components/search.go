@@ -108,7 +108,8 @@ func (s *SearchComponent) PerformSearch() {
 
 		// Search albums
 		for _, a := range s.coordinator.Albums() {
-			if strings.Contains(strings.ToLower(a.Title), q) || strings.Contains(strings.ToLower(a.Artist), q) {
+			if strings.Contains(strings.ToLower(a.Title), q) ||
+				strings.Contains(strings.ToLower(a.Artist), q) {
 				str := fmt.Sprintf("%s — %s", a.Title, a.Artist)
 				if !seen[str] {
 					s.results = append(s.results, str)
@@ -130,7 +131,9 @@ func (s *SearchComponent) PerformSearch() {
 
 		// Search tracks
 		for _, t := range s.coordinator.Tracks() {
-			if strings.Contains(strings.ToLower(t.Title), q) || strings.Contains(strings.ToLower(t.Artist), q) || strings.Contains(strings.ToLower(t.Album), q) {
+			if strings.Contains(strings.ToLower(t.Title), q) ||
+				strings.Contains(strings.ToLower(t.Artist), q) ||
+				strings.Contains(strings.ToLower(t.Album), q) {
 				str := fmt.Sprintf("%s — %s (track)", t.Title, t.Artist)
 				if !seen[str] {
 					s.results = append(s.results, str)

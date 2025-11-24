@@ -19,11 +19,17 @@ func (m *MockAuthService) Subscribe(ctx context.Context) <-chan pubsub.Event[ser
 	return make(chan pubsub.Event[service.AuthEvent])
 }
 
-func (m *MockAuthService) AuthenticateUser(ctx context.Context, username, password string) (string, error) {
+func (m *MockAuthService) AuthenticateUser(
+	ctx context.Context,
+	username, password string,
+) (string, error) {
 	return "mock-token", nil
 }
 
-func (m *MockAuthService) FetchServers(ctx context.Context, token string) ([]domain.PlexServer, error) {
+func (m *MockAuthService) FetchServers(
+	ctx context.Context,
+	token string,
+) ([]domain.PlexServer, error) {
 	return []domain.PlexServer{}, nil
 }
 
@@ -49,7 +55,11 @@ func TestLoginPage_View_RendersHelp(t *testing.T) {
 
 	for _, part := range expectedHelpParts {
 		if !contains(view, part) {
-			t.Errorf("Expected view to contain help text part %q, but it didn't.\nView:\n%s", part, view)
+			t.Errorf(
+				"Expected view to contain help text part %q, but it didn't.\nView:\n%s",
+				part,
+				view,
+			)
 		}
 	}
 }

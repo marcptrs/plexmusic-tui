@@ -271,14 +271,21 @@ func (p *ServerSelectionPage) handleAuthEvent(event service.AuthEvent) tea.Cmd {
 		// attempt a retry up to maxServerFetchAttempts.
 		retryable := false
 		if event.Error != nil {
-			if errors.Is(event.Error, context.Canceled) || errors.Is(event.Error, context.DeadlineExceeded) {
+			if errors.Is(event.Error, context.Canceled) ||
+				errors.Is(event.Error, context.DeadlineExceeded) {
 				retryable = true
 			}
 		}
 
 		if retryable && p.serverFetchAttempts < maxServerFetchAttempts {
 			// Debug: fetch failed; log via charm log rather than writing to a file
-			log.Debug("ServerSelectionPage: fetch failed; retrying", "attempt", p.serverFetchAttempts, "error", event.Error)
+			log.Debug(
+				"ServerSelectionPage: fetch failed; retrying",
+				"attempt",
+				p.serverFetchAttempts,
+				"error",
+				event.Error,
+			)
 			// Re-issue the fetch command to retry.
 			return p.fetchServers()
 		}

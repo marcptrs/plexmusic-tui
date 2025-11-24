@@ -58,7 +58,12 @@ func (pc *PlaybackController) AdjustVolume(percentDelta float64) {
 }
 
 // Next computes the next track selection and optionally plays it via the pbSvc
-func (pc *PlaybackController) Next(queue []domain.Track, queueIndex int, tracks []domain.Track, selected int) (isQueue bool, newQueueIndex int, newSelected int, next *domain.Track) {
+func (pc *PlaybackController) Next(
+	queue []domain.Track,
+	queueIndex int,
+	tracks []domain.Track,
+	selected int,
+) (isQueue bool, newQueueIndex int, newSelected int, next *domain.Track) {
 	// Queue-first behavior. If queue is non-empty, advance to the next
 	// queued index if available. Do NOT wrap the queue. When the end
 	// of the queue is reached, return newQueueIndex == -1 and next == nil.
@@ -95,7 +100,12 @@ func (pc *PlaybackController) Next(queue []domain.Track, queueIndex int, tracks 
 }
 
 // Prev computes the previous track selection and optionally plays it via the pbSvc
-func (pc *PlaybackController) Prev(queue []domain.Track, queueIndex int, tracks []domain.Track, selected int) (isQueue bool, newQueueIndex int, newSelected int, prev *domain.Track) {
+func (pc *PlaybackController) Prev(
+	queue []domain.Track,
+	queueIndex int,
+	tracks []domain.Track,
+	selected int,
+) (isQueue bool, newQueueIndex int, newSelected int, prev *domain.Track) {
 	if len(queue) > 0 {
 		idx := queueIndex
 		if idx <= 0 {
@@ -121,9 +131,15 @@ func (pc *PlaybackController) Prev(queue []domain.Track, queueIndex int, tracks 
 
 // PlayNext computes next selection and starts playback using the playback service.
 // Returns whether queue was used, the new indices, the domain.Track played, and any error.
-func (pc *PlaybackController) PlayNext(ctx context.Context, queue []domain.Track, queueIndex int, tracks []domain.Track, selected int, lib interface {
-	FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
-},
+func (pc *PlaybackController) PlayNext(
+	ctx context.Context,
+	queue []domain.Track,
+	queueIndex int,
+	tracks []domain.Track,
+	selected int,
+	lib interface {
+		FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
+	},
 ) (isQueue bool, newQueueIndex int, newSelected int, played *domain.Track, err error) {
 	isQueue, newQueueIndex, newSelected, next := pc.Next(queue, queueIndex, tracks, selected)
 	// If the controller indicates the queue has completed (newQueueIndex == -1),
@@ -136,9 +152,15 @@ func (pc *PlaybackController) PlayNext(ctx context.Context, queue []domain.Track
 }
 
 // PlayPrev computes previous selection and starts playback using the playback service.
-func (pc *PlaybackController) PlayPrev(ctx context.Context, queue []domain.Track, queueIndex int, tracks []domain.Track, selected int, lib interface {
-	FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
-},
+func (pc *PlaybackController) PlayPrev(
+	ctx context.Context,
+	queue []domain.Track,
+	queueIndex int,
+	tracks []domain.Track,
+	selected int,
+	lib interface {
+		FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
+	},
 ) (isQueue bool, newQueueIndex int, newSelected int, played *domain.Track, err error) {
 	isQueue, newQueueIndex, newSelected, prev := pc.Prev(queue, queueIndex, tracks, selected)
 	if prev == nil {

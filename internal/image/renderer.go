@@ -289,7 +289,21 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 
 	var output strings.Builder
 	if r.debug {
-		log.Debug("KittyRender", "charW", width, "charH", height, "pixelW", pixelWidth, "pixelH", pixelHeight, "resizedW", resized.Bounds().Dx(), "resizedH", resized.Bounds().Dy())
+		log.Debug(
+			"KittyRender",
+			"charW",
+			width,
+			"charH",
+			height,
+			"pixelW",
+			pixelWidth,
+			"pixelH",
+			pixelHeight,
+			"resizedW",
+			resized.Bounds().Dx(),
+			"resizedH",
+			resized.Bounds().Dy(),
+		)
 	}
 
 	// Step 1: Transmit image data to Kitty's memory (a=t for transmit only, not display)
@@ -367,7 +381,21 @@ func (r *Renderer) renderImageITerm2(img image.Image, width, height int) string 
 	// Kitty rendering.
 	resized := imaging.Fit(img, pixelWidth, pixelHeight, imaging.Lanczos)
 	if r.debug {
-		log.Debug("ITerm2Render", "charW", width, "charH", height, "pixelW", pixelWidth, "pixelH", pixelHeight, "resizedW", resized.Bounds().Dx(), "resizedH", resized.Bounds().Dy())
+		log.Debug(
+			"ITerm2Render",
+			"charW",
+			width,
+			"charH",
+			height,
+			"pixelW",
+			pixelWidth,
+			"pixelH",
+			pixelHeight,
+			"resizedW",
+			resized.Bounds().Dx(),
+			"resizedH",
+			resized.Bounds().Dy(),
+		)
 	}
 	canvas := imaging.New(pixelWidth, pixelHeight, color.Transparent)
 	resized = imaging.PasteCenter(canvas, resized)

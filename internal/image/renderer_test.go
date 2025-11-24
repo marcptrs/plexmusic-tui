@@ -51,10 +51,28 @@ func TestRenderCacheKeyIncludesContentHash(t *testing.T) {
 	bounds1 := img1.Bounds()
 	bounds2 := img2.Bounds()
 	// Build keys using the short hashed prefix used by the renderer
-	key1 := fmt.Sprintf("%s_%x_%d_%d_%dx%d_%dx%d",
-		r.protocol.String(), h1[0:8], width, height, bounds1.Dx(), bounds1.Dy(), bounds1.Min.X, bounds1.Min.Y)
-	key2 := fmt.Sprintf("%s_%x_%d_%d_%dx%d_%dx%d",
-		r.protocol.String(), h2[0:8], width, height, bounds2.Dx(), bounds2.Dy(), bounds2.Min.X, bounds2.Min.Y)
+	key1 := fmt.Sprintf(
+		"%s_%x_%d_%d_%dx%d_%dx%d",
+		r.protocol.String(),
+		h1[0:8],
+		width,
+		height,
+		bounds1.Dx(),
+		bounds1.Dy(),
+		bounds1.Min.X,
+		bounds1.Min.Y,
+	)
+	key2 := fmt.Sprintf(
+		"%s_%x_%d_%d_%dx%d_%dx%d",
+		r.protocol.String(),
+		h2[0:8],
+		width,
+		height,
+		bounds2.Dx(),
+		bounds2.Dy(),
+		bounds2.Min.X,
+		bounds2.Min.Y,
+	)
 
 	if _, ok := r.cache[key1]; !ok {
 		t.Fatalf("expected renderer cache to contain key for first image: %s", key1)
@@ -148,6 +166,12 @@ func TestRenderKittyCanvasHasExpectedPNGSize(t *testing.T) {
 	}
 	bounds := decoded.Bounds()
 	if bounds.Dx() != expectedPxW || bounds.Dy() != expectedPxH {
-		t.Fatalf("expected cached PNG size %dx%d, got %dx%d", expectedPxW, expectedPxH, bounds.Dx(), bounds.Dy())
+		t.Fatalf(
+			"expected cached PNG size %dx%d, got %dx%d",
+			expectedPxW,
+			expectedPxH,
+			bounds.Dx(),
+			bounds.Dy(),
+		)
 	}
 }

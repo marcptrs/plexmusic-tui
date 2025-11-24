@@ -39,7 +39,10 @@ func (s *AuthService) Subscribe(ctx context.Context) <-chan pubsub.Event[AuthEve
 }
 
 // AuthenticateUser authenticates a user with Plex credentials
-func (s *AuthService) AuthenticateUser(ctx context.Context, username, password string) (string, error) {
+func (s *AuthService) AuthenticateUser(
+	ctx context.Context,
+	username, password string,
+) (string, error) {
 	token, err := s.auth.AuthenticateUser(ctx, username, password)
 	if err != nil {
 		// Do not publish auth failure events for context cancellations.

@@ -57,7 +57,17 @@ func (k LibraryKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter, k.PlaySelected, k.Back},
 		{k.Play, k.Next, k.Prev, k.VolumeUp, k.VolumeDown, k.FocusNowPlaying},
-		{k.Queue, k.Refresh, k.Search, k.Settings, k.SwitchView, k.Quit, k.QueueMoveUp, k.QueueMoveDown, k.QueueRemove},
+		{
+			k.Queue,
+			k.Refresh,
+			k.Search,
+			k.Settings,
+			k.SwitchView,
+			k.Quit,
+			k.QueueMoveUp,
+			k.QueueMoveDown,
+			k.QueueRemove,
+		},
 	}
 }
 

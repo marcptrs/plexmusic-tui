@@ -108,7 +108,10 @@ type mockLibSvc struct {
 	data []byte
 }
 
-func (m *mockLibSvc) FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error) {
+func (m *mockLibSvc) FetchStream(
+	ctx context.Context,
+	track *domain.Track,
+) (io.ReadCloser, string, error) {
 	return io.NopCloser(bytes.NewReader(m.data)), "audio/wav", nil
 }
 

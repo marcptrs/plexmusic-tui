@@ -187,7 +187,19 @@ func (p *LibraryPage) Init() tea.Cmd {
 	if server.Port != "" {
 		baseURL = fmt.Sprintf("%s:%s", baseURL, server.Port)
 	}
-	log.Debug("LibraryPage: connecting to server", "name", server.Name, "baseURL", baseURL, "scheme", server.Scheme, "host", server.Host, "port", server.Port)
+	log.Debug(
+		"LibraryPage: connecting to server",
+		"name",
+		server.Name,
+		"baseURL",
+		baseURL,
+		"scheme",
+		server.Scheme,
+		"host",
+		server.Host,
+		"port",
+		server.Port,
+	)
 
 	// Create (or reuse) library service and subscribe to events. This ensures we
 	// only fetch library content when we have the necessary server + token.
@@ -287,7 +299,12 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				p.coordinator.SetSelectedLibrary(0)
 				// Trigger stats fetch now that we have libraries
 				p.loadingStats = true
-				return p, tea.Batch(p.subscribeToLibraryEvents(), p.subscribeToPlaybackEvents(), p.fetchLibraryStats(), p.spinner.Tick)
+				return p, tea.Batch(
+					p.subscribeToLibraryEvents(),
+					p.subscribeToPlaybackEvents(),
+					p.fetchLibraryStats(),
+					p.spinner.Tick,
+				)
 			} else {
 				log.Warn("LibraryPage: No libraries found, stats fetch skipped")
 			}
@@ -366,7 +383,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		// Error cases: log and display notification
-		case "libraries.fetch_failed", "recently_added.fetch_failed", "playlists.fetch_failed", "albums.fetch_failed", "tracks.fetch_failed":
+		case "libraries.fetch_failed",
+			"recently_added.fetch_failed",
+			"playlists.fetch_failed",
+			"albums.fetch_failed",
+			"tracks.fetch_failed":
 			if msg.Error != nil {
 				// Extract just the error message without full error chain for display
 				errMsg := msg.Error.Error()
@@ -527,7 +548,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Early interception: route Up/Down (including k/j) to the queue handler if
 		// the queue is explicitly in scope (modal visible OR explicit queue focus OR visible in layout).
 		// This takes precedence over other list handlers so Up/Down will scroll the queue.
-		if (key.Matches(msg, p.keys.Up) || key.Matches(msg, p.keys.Down) || isRuneKey(msg, 'k') || isRuneKey(msg, 'j')) && p.coordinator != nil {
+		if (key.Matches(msg, p.keys.Up) ||
+			key.Matches(msg, p.keys.Down) ||
+			isRuneKey(msg, 'k') ||
+			isRuneKey(msg, 'j')) && p.coordinator != nil {
 			if p.coordinator.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible() {
 				if len(p.coordinator.Queue()) > 0 {
 					// If we are now routing Up/Down to the queue, prefer to mark the queue
@@ -561,7 +585,16 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check global keys first
 		switch {
-		case p.coordinator != nil && (p.coordinator.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible()) && len(p.coordinator.Queue()) > 0 && (key.Matches(msg, p.keys.Up) || key.Matches(msg, p.keys.Down) || key.Matches(msg, p.keys.PlaySelected) || key.Matches(msg, p.keys.QueueMoveUp) || key.Matches(msg, p.keys.QueueMoveDown) || key.Matches(msg, p.keys.QueueRemove) || key.Matches(msg, p.keys.Enter)):
+		case p.coordinator != nil &&
+			(p.coordinator.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible()) &&
+			len(p.coordinator.Queue()) > 0 &&
+			(key.Matches(msg, p.keys.Up) ||
+				key.Matches(msg, p.keys.Down) ||
+				key.Matches(msg, p.keys.PlaySelected) ||
+				key.Matches(msg, p.keys.QueueMoveUp) ||
+				key.Matches(msg, p.keys.QueueMoveDown) ||
+				key.Matches(msg, p.keys.QueueRemove) ||
+				key.Matches(msg, p.keys.Enter)):
 			// When the queue modal is visible, or when the queue has explicit keyboard focus,
 			// or when the queue is visible as a pane, route queue-specific keys to the unified handler.
 			// This overrides other lists when the queue has explicit focus or is visible to the user.
@@ -1011,7 +1044,9 @@ func (p *LibraryPage) View() string {
 			p.height,
 			lipgloss.Center,
 			lipgloss.Center,
-			lipgloss.NewStyle().Padding(1, 2).Render(lipgloss.JoinVertical(lipgloss.Center, title, "", content, "", help)),
+			lipgloss.NewStyle().
+				Padding(1, 2).
+				Render(lipgloss.JoinVertical(lipgloss.Center, title, "", content, "", help)),
 		)
 	}
 
@@ -1114,7 +1149,13 @@ func (p *LibraryPage) View() string {
 			logoStr = retroLogoVertical
 		}
 		logo := styles.PrimaryTextStyle().Render(logoStr)
-		queueContent = lipgloss.Place(rightWidth, listHeight, lipgloss.Center, lipgloss.Center, logo)
+		queueContent = lipgloss.Place(
+			rightWidth,
+			listHeight,
+			lipgloss.Center,
+			lipgloss.Center,
+			logo,
+		)
 	} else {
 		queueContent = p.renderQueue(rightWidth)
 	}
@@ -1148,7 +1189,8 @@ func (p *LibraryPage) View() string {
 	// left pane's art area so the layout appears balanced.
 	artView := ""
 	if p.coordinator.PlaybackAlbumArt() != nil && p.coordinator.PlaybackImgRenderer() != nil {
-		artView = p.coordinator.PlaybackImgRenderer().Render(p.coordinator.PlaybackAlbumArt(), leftWidth, artHeight)
+		artView = p.coordinator.PlaybackImgRenderer().
+			Render(p.coordinator.PlaybackAlbumArt(), leftWidth, artHeight)
 		artView = strings.TrimRight(artView, "\r\n ")
 	} else {
 		if p.coordinator.PlaybackAlbumArtThumb() != "" {
@@ -1176,7 +1218,9 @@ func (p *LibraryPage) View() string {
 	// renders the cover art + info.
 	if pos == "right" && (p.showingTracks || p.drawerOpen) {
 		// When art is on the right, render the left list content (keeps layout stable).
-		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(leftContent)
+		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).
+			Height(leftContentHeight).
+			Render(leftContent)
 	} else {
 		// Stacked artwork + info
 		// Choose an art height that is roughly square but doesn't consume all
@@ -1221,7 +1265,9 @@ func (p *LibraryPage) View() string {
 		infoView := p.nowPlaying.RenderInfo(leftWidth, infoHeight)
 		infoView = padOrCropLines(infoView, leftWidth, infoHeight)
 
-		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
+		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).
+			Height(leftContentHeight).
+			Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
 	}
 
 	// pos already set earlier
@@ -1231,11 +1277,15 @@ func (p *LibraryPage) View() string {
 		// Swap roles: left contains the Queue or content (if showingTracks/drawerOpen),
 		// right contains the cover art + info.
 		if p.drawerOpen || p.showingTracks {
-			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(leftContent)
+			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).
+				Height(leftContentHeight).
+				Render(leftContent)
 		} else {
 			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(queueContent)
 		}
-		rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
+		rightColumn = styles.PaneStyle(rightWidth, contentHeight).
+			Height(contentHeight).
+			Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
 	} else {
 		// Default: cover art left, queue right
 		leftColumn = leftPane
@@ -1292,14 +1342,17 @@ func (p *LibraryPage) View() string {
 
 	var statusLine string
 	if p.loadingStats {
-		statusLine = styles.BlurredStyle.Render(fmt.Sprintf("Server: %s • %s Loading stats...", serverName, p.spinner.View()))
+		statusLine = styles.BlurredStyle.Render(
+			fmt.Sprintf("Server: %s • %s Loading stats...", serverName, p.spinner.View()),
+		)
 	} else {
-		statusLine = styles.BlurredStyle.Render(fmt.Sprintf("Server: %s • Artists: %s • Albums: %s • Playlists: %s • Tracks: %s",
-			serverName,
-			util.FormatNumber(artistsCount),
-			util.FormatNumber(albumsCount),
-			util.FormatNumber(playlistsCount),
-			util.FormatNumber(tracksCount)))
+		statusLine = styles.BlurredStyle.Render(
+			fmt.Sprintf("Server: %s • Artists: %s • Albums: %s • Playlists: %s • Tracks: %s",
+				serverName,
+				util.FormatNumber(artistsCount),
+				util.FormatNumber(albumsCount),
+				util.FormatNumber(playlistsCount),
+				util.FormatNumber(tracksCount)))
 	}
 
 	// Render a transient top notification line if set on the coordinator.
@@ -1399,7 +1452,11 @@ func (p *LibraryPage) dumpPageView(label string) {
 	if !p.coordinator.DumpView() {
 		return
 	}
-	f, err := os.OpenFile("/tmp/plexmusic_view_debug.txt", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(
+		"/tmp/plexmusic_view_debug.txt",
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		0o600,
+	)
 	if err != nil {
 		return
 	}
@@ -1499,8 +1556,6 @@ func (p *LibraryPage) fetchRecentlyAdded() tea.Cmd {
 	}
 }
 
-// Note: playback orchestration is done via the orchestrator; helper removed.
-
 // fetchPlaylists triggers fetching playlists.
 func (p *LibraryPage) fetchPlaylists() tea.Cmd {
 	if p.libSvc == nil {
@@ -1571,7 +1626,15 @@ func (p *LibraryPage) fetchLibraryStats() tea.Cmd {
 				// Return zero stats to clear loading state
 				return LibraryStatsMsg{Artists: 0, Albums: 0, Tracks: 0}
 			}
-			log.Debug("fetchLibraryStats: success", "artists", artists, "albums", albums, "tracks", tracks)
+			log.Debug(
+				"fetchLibraryStats: success",
+				"artists",
+				artists,
+				"albums",
+				albums,
+				"tracks",
+				tracks,
+			)
 			return LibraryStatsMsg{Artists: artists, Albums: albums, Tracks: tracks}
 		},
 	)
@@ -1654,7 +1717,11 @@ func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
 	// Orchestrator is required to perform playback orchestration
 	if p.orchestrator != nil {
 		if err := p.orchestrator.PlayAppTrack(p.ctx, at); err != nil {
-			p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+			p.coordinator.SetNotification(
+				fmt.Sprintf("Play failed: %v", err),
+				"error",
+				10*time.Second,
+			)
 			return nil
 		}
 	} else {
@@ -1758,11 +1825,22 @@ func (p *LibraryPage) playNext() tea.Cmd {
 	}
 	pc := service.NewPlaybackController(p.orchestrator)
 	if p.orchestrator == nil {
-		p.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
+		p.coordinator.SetNotification(
+			"Play failed: playback orchestrator unavailable",
+			"error",
+			10*time.Second,
+		)
 		return nil
 	}
 	var cmds []tea.Cmd
-	if err := p.orchestrator.PlayNext(p.ctx, pc, q, p.coordinator.QueueIndex(), tracks, p.coordinator.SelectedTrack()); err != nil {
+	if err := p.orchestrator.PlayNext(
+		p.ctx,
+		pc,
+		q,
+		p.coordinator.QueueIndex(),
+		tracks,
+		p.coordinator.SelectedTrack(),
+	); err != nil {
 		log.Error("playback play failed", "err", err)
 		p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
 	}
@@ -1794,11 +1872,22 @@ func (p *LibraryPage) playPrev() tea.Cmd {
 	}
 	pc := service.NewPlaybackController(p.orchestrator)
 	if p.orchestrator == nil {
-		p.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
+		p.coordinator.SetNotification(
+			"Play failed: playback orchestrator unavailable",
+			"error",
+			10*time.Second,
+		)
 		return nil
 	}
 	var cmds []tea.Cmd
-	if err := p.orchestrator.PlayPrev(p.ctx, pc, q, p.coordinator.QueueIndex(), tracks, p.coordinator.SelectedTrack()); err != nil {
+	if err := p.orchestrator.PlayPrev(
+		p.ctx,
+		pc,
+		q,
+		p.coordinator.QueueIndex(),
+		tracks,
+		p.coordinator.SelectedTrack(),
+	); err != nil {
 		p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
 	}
 	if ct := p.coordinator.CurrentTrack(); ct != nil && ct.Thumb != "" && p.libSvc != nil {
@@ -1819,6 +1908,10 @@ func (p *LibraryPage) adjustVolumeByPercent(percentageDelta int) {
 		return
 	}
 	// Orchestrator missing: notify user of missing playback orchestrator
-	p.coordinator.SetNotification("Volume adjust failed: playback orchestrator unavailable", "error", 5*time.Second)
+	p.coordinator.SetNotification(
+		"Volume adjust failed: playback orchestrator unavailable",
+		"error",
+		5*time.Second,
+	)
 	// No coordinator fallback in orchestrator-only mode
 }

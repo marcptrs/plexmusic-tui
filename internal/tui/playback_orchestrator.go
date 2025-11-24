@@ -39,7 +39,11 @@ func (o *Orchestrator) Pause() error {
 	}
 	if err := o.pbSvc.Pause(); err != nil {
 		if o.coordinator != nil {
-			o.coordinator.SetNotification(fmt.Sprintf("Pause failed: %v", err), "error", 5*time.Second)
+			o.coordinator.SetNotification(
+				fmt.Sprintf("Pause failed: %v", err),
+				"error",
+				5*time.Second,
+			)
 		}
 		return err
 	}
@@ -56,7 +60,11 @@ func (o *Orchestrator) Resume() error {
 	}
 	if err := o.pbSvc.Resume(); err != nil {
 		if o.coordinator != nil {
-			o.coordinator.SetNotification(fmt.Sprintf("Resume failed: %v", err), "error", 5*time.Second)
+			o.coordinator.SetNotification(
+				fmt.Sprintf("Resume failed: %v", err),
+				"error",
+				5*time.Second,
+			)
 		}
 		return err
 	}
@@ -73,7 +81,11 @@ func (o *Orchestrator) Stop() error {
 	}
 	if err := o.pbSvc.Stop(); err != nil {
 		if o.coordinator != nil {
-			o.coordinator.SetNotification(fmt.Sprintf("Stop failed: %v", err), "error", 5*time.Second)
+			o.coordinator.SetNotification(
+				fmt.Sprintf("Stop failed: %v", err),
+				"error",
+				5*time.Second,
+			)
 		}
 		return err
 	}
@@ -90,7 +102,11 @@ func (o *Orchestrator) Seek(pos int) error {
 	}
 	if err := o.pbSvc.Seek(pos); err != nil {
 		if o.coordinator != nil {
-			o.coordinator.SetNotification(fmt.Sprintf("Seek failed: %v", err), "error", 5*time.Second)
+			o.coordinator.SetNotification(
+				fmt.Sprintf("Seek failed: %v", err),
+				"error",
+				5*time.Second,
+			)
 		}
 		return err
 	}
@@ -196,7 +212,11 @@ func (o *Orchestrator) PlayAppTrack(ctx context.Context, at *app.Track) error {
 			if err := o.pbSvc.PlayDomainTrack(ctx, o.libSvc, dt); err != nil {
 				// Set coordinator notification
 				if o.coordinator != nil {
-					o.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+					o.coordinator.SetNotification(
+						fmt.Sprintf("Play failed: %v", err),
+						"error",
+						10*time.Second,
+					)
 				}
 				return err
 			}
@@ -221,7 +241,14 @@ func (o *Orchestrator) PlayAppTrack(ctx context.Context, at *app.Track) error {
 
 // PlayNext is a helper that uses the given PlaybackController to compute and start
 // playing the next track, reverting to returning an error if orchestration fails.
-func (o *Orchestrator) PlayNext(ctx context.Context, pc *service.PlaybackController, queue []app.Track, queueIndex int, tracks []app.Track, selected int) error {
+func (o *Orchestrator) PlayNext(
+	ctx context.Context,
+	pc *service.PlaybackController,
+	queue []app.Track,
+	queueIndex int,
+	tracks []app.Track,
+	selected int,
+) error {
 	// Convert app.Track to domain.Track slices
 	dq := make([]domain.Track, len(queue))
 	for i, t := range queue {
@@ -235,11 +262,22 @@ func (o *Orchestrator) PlayNext(ctx context.Context, pc *service.PlaybackControl
 			dtracks[i] = *dt
 		}
 	}
-	isQueue, newQueueIdx, newSelected, next, err := pc.PlayNext(ctx, dq, queueIndex, dtracks, selected, o.libSvc)
+	isQueue, newQueueIdx, newSelected, next, err := pc.PlayNext(
+		ctx,
+		dq,
+		queueIndex,
+		dtracks,
+		selected,
+		o.libSvc,
+	)
 	if err != nil {
 		// Although controller no longer calls pbSvc, preserve handling if controller returns error
 		if o.coordinator != nil {
-			o.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+			o.coordinator.SetNotification(
+				fmt.Sprintf("Play failed: %v", err),
+				"error",
+				10*time.Second,
+			)
 		}
 		return err
 	}
@@ -252,7 +290,11 @@ func (o *Orchestrator) PlayNext(ctx context.Context, pc *service.PlaybackControl
 		if o.pbSvc != nil {
 			if err := o.pbSvc.Stop(); err != nil {
 				if o.coordinator != nil {
-					o.coordinator.SetNotification(fmt.Sprintf("Stop failed: %v", err), "error", 10*time.Second)
+					o.coordinator.SetNotification(
+						fmt.Sprintf("Stop failed: %v", err),
+						"error",
+						10*time.Second,
+					)
 				}
 				return err
 			}
@@ -283,7 +325,11 @@ func (o *Orchestrator) PlayNext(ctx context.Context, pc *service.PlaybackControl
 			if o.libSvc != nil {
 				if err := o.pbSvc.PlayDomainTrack(ctx, o.libSvc, next); err != nil {
 					if o.coordinator != nil {
-						o.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+						o.coordinator.SetNotification(
+							fmt.Sprintf("Play failed: %v", err),
+							"error",
+							10*time.Second,
+						)
 					}
 					return err
 				}
@@ -306,7 +352,14 @@ func (o *Orchestrator) PlayNext(ctx context.Context, pc *service.PlaybackControl
 }
 
 // PlayPrev mirrors PlayNext for previous selection.
-func (o *Orchestrator) PlayPrev(ctx context.Context, pc *service.PlaybackController, queue []app.Track, queueIndex int, tracks []app.Track, selected int) error {
+func (o *Orchestrator) PlayPrev(
+	ctx context.Context,
+	pc *service.PlaybackController,
+	queue []app.Track,
+	queueIndex int,
+	tracks []app.Track,
+	selected int,
+) error {
 	dq := make([]domain.Track, len(queue))
 	for i, t := range queue {
 		if dt := util.AppTrackToDomain(&t); dt != nil {
@@ -319,10 +372,21 @@ func (o *Orchestrator) PlayPrev(ctx context.Context, pc *service.PlaybackControl
 			dtracks[i] = *dt
 		}
 	}
-	isQueue, newQueueIdx, newSelected, prev, err := pc.PlayPrev(ctx, dq, queueIndex, dtracks, selected, o.libSvc)
+	isQueue, newQueueIdx, newSelected, prev, err := pc.PlayPrev(
+		ctx,
+		dq,
+		queueIndex,
+		dtracks,
+		selected,
+		o.libSvc,
+	)
 	if err != nil {
 		if o.coordinator != nil {
-			o.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+			o.coordinator.SetNotification(
+				fmt.Sprintf("Play failed: %v", err),
+				"error",
+				10*time.Second,
+			)
 		}
 		return err
 	}
@@ -341,7 +405,11 @@ func (o *Orchestrator) PlayPrev(ctx context.Context, pc *service.PlaybackControl
 			if o.libSvc != nil {
 				if err := o.pbSvc.PlayDomainTrack(ctx, o.libSvc, prev); err != nil {
 					if o.coordinator != nil {
-						o.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+						o.coordinator.SetNotification(
+							fmt.Sprintf("Play failed: %v", err),
+							"error",
+							10*time.Second,
+						)
 					}
 					return err
 				}

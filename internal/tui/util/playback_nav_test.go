@@ -23,7 +23,11 @@ func TestNextIndices_QueueEnds(t *testing.T) {
 	tracks := []app.Track{{Title: "1"}}
 	isQueue, newQ, _ := NextIndices(q, 1, tracks, 0)
 	if !isQueue || newQ != -1 {
-		t.Fatalf("expected queue completion (newQueueIndex = -1), got isQueue=%v newQ=%d", isQueue, newQ)
+		t.Fatalf(
+			"expected queue completion (newQueueIndex = -1), got isQueue=%v newQ=%d",
+			isQueue,
+			newQ,
+		)
 	}
 }
 

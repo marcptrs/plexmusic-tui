@@ -317,7 +317,13 @@ func (c *Coordinator) Albums() []Album {
 func (c *Coordinator) SetAlbums(albums []Album) {
 	out := make([]domain.Album, len(albums))
 	for i, a := range albums {
-		out[i] = domain.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
+		out[i] = domain.Album{
+			Title:  a.Title,
+			Artist: a.Artist,
+			Year:   a.Year,
+			Key:    a.Key,
+			Thumb:  a.Thumb,
+		}
 	}
 	c.albums = out
 }
@@ -335,7 +341,13 @@ func (c *Coordinator) SetSelectedAlbum(idx int) { c.selectedAlbum = idx }
 func (c *Coordinator) Playlists() []Playlist {
 	out := make([]Playlist, len(c.playlists))
 	for i, p := range c.playlists {
-		out[i] = Playlist{Title: p.Title, Key: p.Key, LeafCount: p.LeafCount, Duration: p.Duration, PlaylistType: p.PlaylistType}
+		out[i] = Playlist{
+			Title:        p.Title,
+			Key:          p.Key,
+			LeafCount:    p.LeafCount,
+			Duration:     p.Duration,
+			PlaylistType: p.PlaylistType,
+		}
 	}
 	return out
 }
@@ -343,7 +355,13 @@ func (c *Coordinator) Playlists() []Playlist {
 func (c *Coordinator) SetPlaylists(playlists []Playlist) {
 	out := make([]domain.Playlist, len(playlists))
 	for i, p := range playlists {
-		out[i] = domain.Playlist{Title: p.Title, Key: p.Key, LeafCount: p.LeafCount, Duration: p.Duration, PlaylistType: p.PlaylistType}
+		out[i] = domain.Playlist{
+			Title:        p.Title,
+			Key:          p.Key,
+			LeafCount:    p.LeafCount,
+			Duration:     p.Duration,
+			PlaylistType: p.PlaylistType,
+		}
 	}
 	c.playlists = out
 }
@@ -358,7 +376,17 @@ func (c *Coordinator) SetSelectedPlaylist(idx int) { c.selectedPlaylist = idx }
 func (c *Coordinator) Tracks() []Track {
 	out := make([]Track, len(c.tracks))
 	for i, t := range c.tracks {
-		out[i] = Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration, TrackNumber: t.TrackNumber, PlaylistItemID: t.PlaylistItemID, Key: t.Key, RatingKey: t.RatingKey, Thumb: t.Thumb}
+		out[i] = Track{
+			Title:          t.Title,
+			Artist:         t.Artist,
+			Album:          t.Album,
+			Duration:       t.Duration,
+			TrackNumber:    t.TrackNumber,
+			PlaylistItemID: t.PlaylistItemID,
+			Key:            t.Key,
+			RatingKey:      t.RatingKey,
+			Thumb:          t.Thumb,
+		}
 		if len(t.Media) > 0 {
 			out[i].Media = make([]struct {
 				Part []struct {
@@ -383,7 +411,17 @@ func (c *Coordinator) Tracks() []Track {
 func (c *Coordinator) SetTracks(tracks []Track) {
 	out := make([]domain.Track, len(tracks))
 	for i, t := range tracks {
-		out[i] = domain.Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration, TrackNumber: t.TrackNumber, PlaylistItemID: t.PlaylistItemID, Key: t.Key, RatingKey: t.RatingKey, Thumb: t.Thumb}
+		out[i] = domain.Track{
+			Title:          t.Title,
+			Artist:         t.Artist,
+			Album:          t.Album,
+			Duration:       t.Duration,
+			TrackNumber:    t.TrackNumber,
+			PlaylistItemID: t.PlaylistItemID,
+			Key:            t.Key,
+			RatingKey:      t.RatingKey,
+			Thumb:          t.Thumb,
+		}
 		if len(t.Media) > 0 {
 			out[i].Media = make([]struct {
 				Part []struct {
@@ -414,7 +452,17 @@ func (c *Coordinator) SetSelectedTrack(idx int) { c.selectedTrack = idx }
 func (c *Coordinator) Queue() []Track {
 	out := make([]Track, len(c.queue))
 	for i, t := range c.queue {
-		out[i] = Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration, TrackNumber: t.TrackNumber, PlaylistItemID: t.PlaylistItemID, Key: t.Key, RatingKey: t.RatingKey, Thumb: t.Thumb}
+		out[i] = Track{
+			Title:          t.Title,
+			Artist:         t.Artist,
+			Album:          t.Album,
+			Duration:       t.Duration,
+			TrackNumber:    t.TrackNumber,
+			PlaylistItemID: t.PlaylistItemID,
+			Key:            t.Key,
+			RatingKey:      t.RatingKey,
+			Thumb:          t.Thumb,
+		}
 		if len(t.Media) > 0 {
 			out[i].Media = make([]struct {
 				Part []struct {
@@ -439,7 +487,17 @@ func (c *Coordinator) Queue() []Track {
 func (c *Coordinator) SetQueue(queue []Track) {
 	out := make([]domain.Track, len(queue))
 	for i, t := range queue {
-		out[i] = domain.Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration, TrackNumber: t.TrackNumber, PlaylistItemID: t.PlaylistItemID, Key: t.Key, RatingKey: t.RatingKey, Thumb: t.Thumb}
+		out[i] = domain.Track{
+			Title:          t.Title,
+			Artist:         t.Artist,
+			Album:          t.Album,
+			Duration:       t.Duration,
+			TrackNumber:    t.TrackNumber,
+			PlaylistItemID: t.PlaylistItemID,
+			Key:            t.Key,
+			RatingKey:      t.RatingKey,
+			Thumb:          t.Thumb,
+		}
 		if len(t.Media) > 0 {
 			out[i].Media = make([]struct {
 				Part []struct {
@@ -543,9 +601,11 @@ func (c *Coordinator) SetPlaybackState(s PlaybackState) { c.playbackState = s }
 func (c *Coordinator) CurrentTrack() *Track             { return c.currentTrack }
 func (c *Coordinator) SetCurrentTrack(t *Track)         { c.currentTrack = t }
 func (c *Coordinator) HasCurrentTrack() bool            { return c.currentTrack != nil }
-func (c *Coordinator) IsPlaying() bool                  { return c.playbackState == PlaybackPlaying }
-func (c *Coordinator) IsPaused() bool                   { return c.playbackState == PlaybackPaused }
-func (c *Coordinator) IsStopped() bool                  { return c.playbackState == PlaybackStopped }
+
+func (c *Coordinator) IsPlaying() bool { return c.playbackState == PlaybackPlaying }
+func (c *Coordinator) IsPaused() bool  { return c.playbackState == PlaybackPaused }
+
+func (c *Coordinator) IsStopped() bool { return c.playbackState == PlaybackStopped }
 
 // Stream/position info
 func (c *Coordinator) StreamPosition() int                 { return c.streamPosition }
