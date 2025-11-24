@@ -62,15 +62,31 @@ const (
 	PlaybackMsgPrevious
 )
 
-// ImageProtocol represents the supported terminal image protocols
-type ImageProtocol int
+// Protocol represents the supported terminal image protocols
+type Protocol int
 
 const (
-	ProtocolUnicodeBlocks ImageProtocol = iota // Fallback using Unicode half-blocks
-	ProtocolKitty                              // Kitty graphics protocol
-	ProtocolITerm2                             // iTerm2 inline images
-	ProtocolSixel                              // Sixel graphics
+	ProtocolUnicodeBlocks Protocol = iota // Fallback using Unicode half-blocks
+	ProtocolKitty                         // Kitty graphics protocol
+	ProtocolITerm2                        // iTerm2 inline images
+	ProtocolSixel                         // Sixel graphics
 )
+
+// String returns the string representation of the protocol
+func (p Protocol) String() string {
+	switch p {
+	case ProtocolUnicodeBlocks:
+		return "UnicodeBlocks"
+	case ProtocolKitty:
+		return "Kitty"
+	case ProtocolITerm2:
+		return "iTerm2"
+	case ProtocolSixel:
+		return "Sixel"
+	default:
+		return "Unknown"
+	}
+}
 
 // PlexAuthResponse is the response from Plex authentication
 type PlexAuthResponse struct {

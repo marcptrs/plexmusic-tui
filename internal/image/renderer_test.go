@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"plexmusic-tui/internal/domain"
 )
 
 func coloredImg(w, h int, c color.Color) image.Image {
@@ -21,7 +23,7 @@ func coloredImg(w, h int, c color.Color) image.Image {
 }
 
 func TestRenderCacheKeyIncludesContentHash(t *testing.T) {
-	r := NewRendererWithProtocol(ProtocolUnicodeBlocks)
+	r := NewRendererWithProtocol(domain.ProtocolUnicodeBlocks)
 	img1 := coloredImg(32, 16, color.RGBA{255, 0, 0, 255})
 	img2 := coloredImg(32, 16, color.RGBA{0, 255, 0, 255})
 
@@ -85,7 +87,7 @@ func TestRenderCacheKeyIncludesContentHash(t *testing.T) {
 func TestRenderITerm2UsesCanvasPixelSize(t *testing.T) {
 	// Force iTerm2 renderer via explicit protocol
 
-	r := NewRendererWithProtocol(ProtocolITerm2)
+	r := NewRendererWithProtocol(domain.ProtocolITerm2)
 	img := coloredImg(32, 32, color.RGBA{255, 0, 0, 255})
 
 	widthChar := 10
@@ -104,7 +106,7 @@ func TestRenderITerm2UsesCanvasPixelSize(t *testing.T) {
 func TestRenderKittyCanvasHasExpectedPNGSize(t *testing.T) {
 	// Force kitty renderer via explicit protocol
 
-	r := NewRendererWithProtocol(ProtocolKitty)
+	r := NewRendererWithProtocol(domain.ProtocolKitty)
 	img := coloredImg(64, 64, color.RGBA{0, 255, 0, 255})
 
 	widthChar := 9

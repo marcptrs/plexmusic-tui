@@ -9,7 +9,7 @@ import (
 	"github.com/faiface/beep/effects"
 
 	"plexmusic-tui/internal/config"
-	termimg "plexmusic-tui/internal/image"
+	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/service"
 )
 
@@ -87,8 +87,8 @@ type Coordinatorer interface {
 	SetFocusIndex(idx int)
 
 	// Image renderers
-	ImgRenderer() *termimg.Renderer
-	PlaybackImgRenderer() *termimg.Renderer
+	ImgRenderer() domain.ImageRenderer
+	PlaybackImgRenderer() domain.ImageRenderer
 
 	// Notifications
 	SetNotification(msg, severity string, duration time.Duration)
@@ -97,8 +97,8 @@ type Coordinatorer interface {
 	NotificationActive() bool
 
 	// Playback service (singleton wiring)
-	PlaybackService() *service.PlaybackService
-	SetPlaybackService(*service.PlaybackService)
+	PlaybackService() service.PlaybackServicer
+	SetPlaybackService(service.PlaybackServicer)
 
 	// Playback/stream state (mapped from old coordinator)
 	PlaybackState() PlaybackState

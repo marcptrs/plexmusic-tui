@@ -12,34 +12,22 @@ import (
 	log "github.com/charmbracelet/log/v2"
 )
 
-// PlaybackEvent represents playback-related events
-type PlaybackEvent struct {
-	Type       string
-	Track      *domain.Track
-	State      domain.PlaybackState
-	Position   int
-	Length     int
-	SampleRate int
-	Volume     float64
-	Error      error
-}
-
-// PlaybackService provides playback operations with event publishing
+// PlaybackService manages audio playback and publishes events
 type PlaybackService struct {
 	player *playback.Player
-	broker *pubsub.Broker[PlaybackEvent]
+	broker *pubsub.Broker[domain.PlaybackEvent]
 }
 
 // NewPlaybackService creates a new playback service
 func NewPlaybackService() *PlaybackService {
 	return &PlaybackService{
 		player: playback.NewPlayer(),
-		broker: pubsub.NewBroker[PlaybackEvent](),
+		broker: pubsub.NewBroker[domain.PlaybackEvent](),
 	}
 }
 
 // Subscribe returns a channel for receiving playback events
-func (s *PlaybackService) Subscribe(ctx context.Context) <-chan pubsub.Event[PlaybackEvent] {
+func (s *PlaybackService) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.PlaybackEvent] {
 	return s.broker.Subscribe(ctx)
 }
 
@@ -47,9 +35,9 @@ func (s *PlaybackService) Subscribe(ctx context.Context) <-chan pubsub.Event[Pla
 func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string) error {
 	err := s.player.LoadStream(body, contentType)
 	if err != nil {
-		s.broker.Publish(pubsub.Event[PlaybackEvent]{
+		s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 			Type: "playback.load_failed",
-			Payload: PlaybackEvent{
+			Payload: domain.PlaybackEvent{
 				Type:  "playback.load_failed",
 				Error: err,
 			},
@@ -59,9 +47,9 @@ func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string) err
 		return err
 	}
 
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.loaded",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type: "playback.loaded",
 		},
 	})
@@ -74,9 +62,9 @@ func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string) err
 func (s *PlaybackService) Initialize() error {
 	err := s.player.Initialize()
 	if err != nil {
-		s.broker.Publish(pubsub.Event[PlaybackEvent]{
+		s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 			Type: "playback.init_failed",
-			Payload: PlaybackEvent{
+			Payload: domain.PlaybackEvent{
 				Type:  "playback.init_failed",
 				Error: err,
 			},
@@ -85,9 +73,9 @@ func (s *PlaybackService) Initialize() error {
 		return err
 	}
 
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.initialized",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type: "playback.initialized",
 		},
 	})
@@ -100,9 +88,9 @@ func (s *PlaybackService) Initialize() error {
 func (s *PlaybackService) Play(track *domain.Track) error {
 	err := s.player.Play(track)
 	if err != nil {
-		s.broker.Publish(pubsub.Event[PlaybackEvent]{
+		s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 			Type: "playback.play_failed",
-			Payload: PlaybackEvent{
+			Payload: domain.PlaybackEvent{
 				Type:  "playback.play_failed",
 				Track: track,
 				Error: err,
@@ -113,9 +101,9 @@ func (s *PlaybackService) Play(track *domain.Track) error {
 		return err
 	}
 
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.started",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type:  "playback.started",
 			Track: track,
 			State: domain.PlaybackPlaying,
@@ -133,9 +121,9 @@ func (s *PlaybackService) Pause() error {
 		return err
 	}
 
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.paused",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type:  "playback.paused",
 			State: domain.PlaybackPaused,
 		},
@@ -151,9 +139,9 @@ func (s *PlaybackService) Resume() error {
 		return err
 	}
 
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.resumed",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type:  "playback.resumed",
 			State: domain.PlaybackPlaying,
 		},
@@ -169,9 +157,9 @@ func (s *PlaybackService) Stop() error {
 		return err
 	}
 
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.stopped",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type:  "playback.stopped",
 			State: domain.PlaybackStopped,
 		},
@@ -187,9 +175,9 @@ func (s *PlaybackService) Seek(pos int) error {
 		return err
 	}
 
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.seeked",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type:     "playback.seeked",
 			Position: pos,
 		},
@@ -202,9 +190,9 @@ func (s *PlaybackService) Seek(pos int) error {
 func (s *PlaybackService) SetVolume(volume float64) {
 	s.player.SetVolume(volume)
 
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.volume_changed",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type:   "playback.volume_changed",
 			Volume: volume,
 		},
@@ -253,12 +241,12 @@ func (s *PlaybackService) SampleRate() int {
 // UpdatePosition updates the current position (should be called periodically)
 func (s *PlaybackService) UpdatePosition() {
 	s.player.UpdatePosition()
-	s.broker.Publish(pubsub.Event[PlaybackEvent]{
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.position",
-		Payload: PlaybackEvent{
+		Payload: domain.PlaybackEvent{
 			Type:       "playback.position",
 			Position:   s.player.Position(),
-			Length:     s.player.Length(),
+			Duration:   s.player.Length(),
 			SampleRate: s.player.SampleRate(),
 		},
 	})
@@ -298,9 +286,9 @@ func (s *PlaybackService) PlayDomainTrack(ctx context.Context, lib interface {
 
 	stream, contentType, err := lib.FetchStream(ctx, track)
 	if err != nil {
-		s.broker.Publish(pubsub.Event[PlaybackEvent]{
+		s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 			Type: "playback.load_failed",
-			Payload: PlaybackEvent{
+			Payload: domain.PlaybackEvent{
 				Type:  "playback.load_failed",
 				Track: track,
 				Error: err,

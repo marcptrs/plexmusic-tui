@@ -163,6 +163,15 @@ func (o *Orchestrator) SetVolume(v float64) {
 	}
 }
 
+// AdjustVolume adjusts the volume by a percentage delta using the PlaybackController logic.
+func (o *Orchestrator) AdjustVolume(percentDelta float64) {
+	if o.pbSvc == nil {
+		return
+	}
+	pc := service.NewPlaybackController(o.pbSvc)
+	pc.AdjustVolume(percentDelta)
+}
+
 func (o *Orchestrator) GetPosition() int {
 	if o.pbSvc == nil {
 		return 0
@@ -185,9 +194,9 @@ func (o *Orchestrator) GetState() domain.PlaybackState {
 }
 
 // Subscribe proxies event subscriptions to the underlying playback service broker
-func (o *Orchestrator) Subscribe(ctx context.Context) <-chan pubsub.Event[service.PlaybackEvent] {
+func (o *Orchestrator) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.PlaybackEvent] {
 	if o.pbSvc == nil {
-		ch := make(chan pubsub.Event[service.PlaybackEvent], 1)
+		ch := make(chan pubsub.Event[domain.PlaybackEvent], 1)
 		close(ch)
 		return ch
 	}

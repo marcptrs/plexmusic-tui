@@ -17,37 +17,13 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/disintegration/imaging"
+
+	"plexmusic-tui/internal/domain"
 )
-
-// Protocol represents the supported terminal image protocols
-type Protocol int
-
-const (
-	ProtocolUnicodeBlocks Protocol = iota // Fallback using Unicode half-blocks
-	ProtocolKitty                         // Kitty graphics protocol
-	ProtocolITerm2                        // iTerm2 inline images
-	ProtocolSixel                         // Sixel graphics
-)
-
-// String returns the string representation of the protocol
-func (p Protocol) String() string {
-	switch p {
-	case ProtocolUnicodeBlocks:
-		return "UnicodeBlocks"
-	case ProtocolKitty:
-		return "Kitty"
-	case ProtocolITerm2:
-		return "iTerm2"
-	case ProtocolSixel:
-		return "Sixel"
-	default:
-		return "Unknown"
-	}
-}
 
 // Renderer handles image rendering to terminal with various protocols
 type Renderer struct {
-	protocol Protocol
+	protocol domain.Protocol
 	cache    map[string]string // Cache rendered output by key
 	// Cache derived from image content
 	pngCache  map[uintptr][]byte
@@ -68,7 +44,7 @@ func NewRenderer() *Renderer {
 }
 
 // NewRendererWithProtocol creates a new image renderer with a specific protocol
-func NewRendererWithProtocol(p Protocol) *Renderer {
+func NewRendererWithProtocol(p domain.Protocol) *Renderer {
 	return &Renderer{
 		protocol:  p,
 		cache:     make(map[string]string),
@@ -84,38 +60,38 @@ func (r *Renderer) SetDebug(enabled bool) {
 }
 
 // SetProtocol changes the protocol used by this renderer for runtime toggles
-func (r *Renderer) SetProtocol(p Protocol) {
+func (r *Renderer) SetProtocol(p domain.Protocol) {
 	r.protocol = p
 }
 
 // DetectImageProtocol detects the best image protocol supported by the terminal
-func DetectImageProtocol() Protocol {
+func DetectImageProtocol() domain.Protocol {
 	// Detect the protocol by reading terminal environment variables.
 	// Check for Kitty terminal
 	if os.Getenv("TERM") == "xterm-kitty" || os.Getenv("KITTY_WINDOW_ID") != "" {
-		return ProtocolKitty
+		return domain.ProtocolKitty
 	}
 
 	// Check for iTerm2
 	if strings.Contains(os.Getenv("TERM_PROGRAM"), "iTerm") {
-		return ProtocolITerm2
+		return domain.ProtocolITerm2
 	}
 
 	// Check for Sixel support via TERM environment variable
 	term := os.Getenv("TERM")
 	if strings.Contains(term, "sixel") || term == "mlterm" || term == "yaft-256color" {
-		return ProtocolSixel
+		return domain.ProtocolSixel
 	}
 
 	// Check for xterm with sixel support (some modern xterms)
 	if strings.Contains(term, "xterm") {
 		// Could query terminal capabilities here, but for simplicity
 		// we'll default to Unicode blocks for xterm
-		return ProtocolUnicodeBlocks
+		return domain.ProtocolUnicodeBlocks
 	}
 
 	// Default to Unicode blocks for maximum compatibility
-	return ProtocolUnicodeBlocks
+	return domain.ProtocolUnicodeBlocks
 }
 
 // Pixel per-cell constants for Kitty and iTerm2 renderers.
@@ -187,11 +163,11 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 
 	var result string
 	switch r.protocol {
-	case ProtocolKitty:
+	case domain.ProtocolKitty:
 		result = r.renderImageKitty(img, width, height)
-	case ProtocolITerm2:
+	case domain.ProtocolITerm2:
 		result = r.renderImageITerm2(img, width, height)
-	case ProtocolSixel:
+	case domain.ProtocolSixel:
 		result = r.renderImageSixel(img, width, height)
 	default:
 		result = r.renderImageUnicodeBlocks(img, width, height)

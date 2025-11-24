@@ -23,13 +23,13 @@ const (
 
 // Authenticator handles Plex authentication
 type Authenticator struct {
-	httpClient *http.Client
+	httpClient domain.HTTPClient
 }
 
 // NewAuthenticator creates a new Authenticator instance
-func NewAuthenticator() *Authenticator {
+func NewAuthenticator(client domain.HTTPClient) *Authenticator {
 	return &Authenticator{
-		httpClient: &http.Client{},
+		httpClient: client,
 	}
 }
 

@@ -40,8 +40,8 @@ func (m *mockPbSvcErr) GetPosition() int               { return 0 }
 func (m *mockPbSvcErr) GetDuration() int               { return 0 }
 func (m *mockPbSvcErr) GetState() domain.PlaybackState { return domain.PlaybackStopped }
 func (m *mockPbSvcErr) GetVolume() float64             { return 0 }
-func (m *mockPbSvcErr) Subscribe(ctx context.Context) <-chan pubsub.Event[service.PlaybackEvent] {
-	ch := make(chan pubsub.Event[service.PlaybackEvent], 1)
+func (m *mockPbSvcErr) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.PlaybackEvent] {
+	ch := make(chan pubsub.Event[domain.PlaybackEvent], 1)
 	close(ch)
 	return ch
 }

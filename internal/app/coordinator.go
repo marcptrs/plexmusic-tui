@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"net/http"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/effects"
 
+	"plexmusic-tui/internal/auth"
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
 	termimg "plexmusic-tui/internal/image"
@@ -21,7 +23,7 @@ type Coordinator struct {
 	// Services (interfaces for testability)
 	authService     service.AuthServicer
 	libraryService  service.LibraryServicer
-	playbackService *service.PlaybackService
+	playbackService service.PlaybackServicer
 
 	// Event context for pub/sub subscriptions
 	ctx    context.Context
@@ -72,8 +74,8 @@ type Coordinator struct {
 	playbackAlbumArtThumb string
 
 	// Image renderers
-	imgRenderer         *termimg.Renderer
-	playbackImgRenderer *termimg.Renderer
+	imgRenderer         domain.ImageRenderer
+	playbackImgRenderer domain.ImageRenderer
 
 	// Text inputs for login
 	usernameInput textinput.Model
@@ -106,8 +108,8 @@ type Coordinator struct {
 func NewCoordinatorWithServices(
 	authSvc service.AuthServicer,
 	librarySvc service.LibraryServicer,
-	playbackSvc *service.PlaybackService,
-	forceProtocol *termimg.Protocol,
+	playbackSvc service.PlaybackServicer,
+	forceProtocol *domain.Protocol,
 	renderDebug bool,
 	dumpView bool,
 ) *Coordinator {
@@ -136,7 +138,7 @@ func NewCoordinatorWithServices(
 		usernameInput:       usernameInput,
 		passwordInput:       passwordInput,
 		imgRenderer:         termimg.NewRenderer(),
-		playbackImgRenderer: termimg.NewRendererWithProtocol(termimg.ProtocolUnicodeBlocks),
+		playbackImgRenderer: termimg.NewRendererWithProtocol(domain.ProtocolUnicodeBlocks),
 		dumpView:            dumpView,
 	}
 	// If forcing a protocol, create a renderer with that protocol instead
@@ -154,7 +156,8 @@ func NewCoordinatorWithServices(
 // suitable for app runtime. Tests can still call NewCoordinatorWithServices
 // to inject test doubles.
 func NewCoordinator() *Coordinator {
-	authSvc := service.NewAuthService()
+	authGateway := auth.NewAuthenticator(&http.Client{})
+	authSvc := service.NewAuthService(authGateway)
 	var libSvc service.LibraryServicer = nil
 	// Playback service should be instantiated as a pointer-backed service
 	// so we can satisfy callers expecting a concrete pointer.
@@ -183,7 +186,7 @@ func (c *Coordinator) LibraryService() service.LibraryServicer {
 	return c.libraryService
 }
 
-func (c *Coordinator) PlaybackService() *service.PlaybackService {
+func (c *Coordinator) PlaybackService() service.PlaybackServicer {
 	return c.playbackService
 }
 
@@ -210,11 +213,11 @@ func (c *Coordinator) ConfigManager() *config.Manager {
 }
 
 // Playback service concrete wiring
-func (c *Coordinator) SetPlaybackService(s *service.PlaybackService) {
+func (c *Coordinator) SetPlaybackService(s service.PlaybackServicer) {
 	c.playbackService = s
 }
 
-func (c *Coordinator) PlaybackServicePtr() *service.PlaybackService {
+func (c *Coordinator) PlaybackServicePtr() service.PlaybackServicer {
 	return c.playbackService
 }
 
@@ -561,8 +564,8 @@ func (c *Coordinator) FocusIndex() int       { return c.focusIndex }
 func (c *Coordinator) SetFocusIndex(idx int) { c.focusIndex = idx }
 
 // Image renderers
-func (c *Coordinator) ImgRenderer() *termimg.Renderer         { return c.imgRenderer }
-func (c *Coordinator) PlaybackImgRenderer() *termimg.Renderer { return c.playbackImgRenderer }
+func (c *Coordinator) ImgRenderer() domain.ImageRenderer         { return c.imgRenderer }
+func (c *Coordinator) PlaybackImgRenderer() domain.ImageRenderer { return c.playbackImgRenderer }
 
 // Notifications
 func (c *Coordinator) SetNotification(msg, severity string, duration time.Duration) {

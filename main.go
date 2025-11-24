@@ -4,11 +4,10 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	termimg "plexmusic-tui/internal/image"
 
 	"plexmusic-tui/internal/logging"
 
@@ -17,7 +16,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"plexmusic-tui/internal/app"
+	"plexmusic-tui/internal/auth"
 	"plexmusic-tui/internal/config"
+	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	"plexmusic-tui/internal/tui/pages"
@@ -29,12 +30,13 @@ func buildAppModel() *tui.AppModel {
 }
 
 func buildAppModelWithOptions(
-	forceRenderer *termimg.Protocol,
+	forceRenderer *domain.Protocol,
 	renderDebug bool,
 	dumpView bool,
 ) *tui.AppModel {
 	// Create service instances first then pass to coordinator so pages can use them
-	authSvc := service.NewAuthService()
+	authGateway := auth.NewAuthenticator(&http.Client{})
+	authSvc := service.NewAuthService(authGateway)
 	var libSvc service.LibraryServicer = nil
 	// Create a singleton playback service now and pass to coordinator
 	pbSvc := service.NewPlaybackService()
@@ -156,20 +158,20 @@ func main() {
 	log.Info("main() started")
 
 	// Map forceRenderer string to a protocol constant (if provided)
-	var forcedProtocol *termimg.Protocol
+	var forcedProtocol *domain.Protocol
 	if *forceRenderer != "" {
 		switch strings.ToLower(*forceRenderer) {
 		case "kitty":
-			p := termimg.ProtocolKitty
+			p := domain.ProtocolKitty
 			forcedProtocol = &p
 		case "iterm2", "iterm":
-			p := termimg.ProtocolITerm2
+			p := domain.ProtocolITerm2
 			forcedProtocol = &p
 		case "sixel":
-			p := termimg.ProtocolSixel
+			p := domain.ProtocolSixel
 			forcedProtocol = &p
 		case "unicode", "blocks":
-			p := termimg.ProtocolUnicodeBlocks
+			p := domain.ProtocolUnicodeBlocks
 			forcedProtocol = &p
 		}
 	}

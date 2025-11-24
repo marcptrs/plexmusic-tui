@@ -16,7 +16,6 @@ import (
 	log "github.com/charmbracelet/log/v2"
 
 	"plexmusic-tui/internal/domain"
-	httpclient "plexmusic-tui/internal/http"
 )
 
 // decodePlexMediaContainer attempts to decode a body into the canonical
@@ -140,30 +139,31 @@ func decodePlexTrackContainer(body []byte, out *domain.PlexTrackContainer) error
 
 // LibraryService provides methods to fetch library data from Plex servers.
 type LibraryService struct {
-	baseURL    string // e.g., "https://192.168.1.100:32400"
-	token      string
-	httpClient *httpclient.Client
+	baseURL       string // e.g., "https://192.168.1.100:32400"
+	token         string
+	httpClient    domain.HTTPClient
+	clientFactory domain.HTTPClientFactory
 }
 
 // NewLibraryService creates a new library service for a Plex server.
 // baseURL should be the full URL to the Plex server (scheme + host + port)
 // e.g., "https://192.168.1.100:32400" or "http://localhost:32400"
-func NewLibraryService(baseURL, token string) *LibraryService {
+func NewLibraryService(baseURL, token string, factory domain.HTTPClientFactory) *LibraryService {
 	// Extract host from baseURL for intelligent TLS handling
 	u, err := url.Parse(baseURL)
+	var client domain.HTTPClient
 	if err != nil {
-		// Fallback to standard client if URL parsing fails
-		return &LibraryService{
-			baseURL:    baseURL,
-			token:      token,
-			httpClient: httpclient.New(),
-		}
+		// Fallback if URL parsing fails, though factory might need a host
+		client = factory.GetClient("")
+	} else {
+		client = factory.GetClient(u.Host)
 	}
 
 	return &LibraryService{
-		baseURL:    baseURL,
-		token:      token,
-		httpClient: httpclient.GetForHost(u.Host),
+		baseURL:       baseURL,
+		token:         token,
+		httpClient:    client,
+		clientFactory: factory,
 	}
 }
 
@@ -567,8 +567,8 @@ func (s *LibraryService) SetBaseURL(baseURL string) {
 	s.baseURL = baseURL
 	// Update HTTP client for new host
 	u, err := url.Parse(baseURL)
-	if err == nil {
-		s.httpClient = httpclient.GetForHost(u.Host)
+	if err == nil && s.clientFactory != nil {
+		s.httpClient = s.clientFactory.GetClient(u.Host)
 	}
 }
 

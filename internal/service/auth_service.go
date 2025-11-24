@@ -6,35 +6,26 @@ import (
 
 	log "github.com/charmbracelet/log/v2"
 
-	"plexmusic-tui/internal/auth"
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
 )
 
-// AuthEvent represents authentication-related events
-type AuthEvent struct {
-	Type    string
-	Token   string
-	Servers []domain.PlexServer
-	Error   error
-}
-
 // AuthService provides authentication operations with event publishing
 type AuthService struct {
-	auth   *auth.Authenticator
-	broker *pubsub.Broker[AuthEvent]
+	auth   domain.AuthGateway
+	broker *pubsub.Broker[domain.AuthEvent]
 }
 
 // NewAuthService creates a new authentication service
-func NewAuthService() *AuthService {
+func NewAuthService(authGateway domain.AuthGateway) *AuthService {
 	return &AuthService{
-		auth:   auth.NewAuthenticator(),
-		broker: pubsub.NewBroker[AuthEvent](),
+		auth:   authGateway,
+		broker: pubsub.NewBroker[domain.AuthEvent](),
 	}
 }
 
 // Subscribe returns a channel for receiving authentication events
-func (s *AuthService) Subscribe(ctx context.Context) <-chan pubsub.Event[AuthEvent] {
+func (s *AuthService) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.AuthEvent] {
 	return s.broker.Subscribe(ctx)
 }
 
@@ -51,9 +42,9 @@ func (s *AuthService) AuthenticateUser(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return "", err
 		}
-		s.broker.Publish(pubsub.Event[AuthEvent]{
+		s.broker.Publish(pubsub.Event[domain.AuthEvent]{
 			Type: "auth.failed",
-			Payload: AuthEvent{
+			Payload: domain.AuthEvent{
 				Type:  "auth.failed",
 				Error: err,
 			},
@@ -61,9 +52,9 @@ func (s *AuthService) AuthenticateUser(
 		return "", err
 	}
 
-	s.broker.Publish(pubsub.Event[AuthEvent]{
+	s.broker.Publish(pubsub.Event[domain.AuthEvent]{
 		Type: "auth.success",
-		Payload: AuthEvent{
+		Payload: domain.AuthEvent{
 			Type:  "auth.success",
 			Token: token,
 		},
@@ -90,9 +81,9 @@ func (s *AuthService) FetchServers(ctx context.Context, token string) ([]domain.
 			// Deadline exceeded is worth recording as a warning so we can
 			// distinguish timeouts vs. other failures during diagnostics.
 			log.Warn("AuthService.FetchServers: deadline exceeded", "error", err)
-			s.broker.Publish(pubsub.Event[AuthEvent]{
+			s.broker.Publish(pubsub.Event[domain.AuthEvent]{
 				Type: "servers.fetch_failed",
-				Payload: AuthEvent{
+				Payload: domain.AuthEvent{
 					Type:  "servers.fetch_failed",
 					Error: err,
 				},
@@ -102,9 +93,9 @@ func (s *AuthService) FetchServers(ctx context.Context, token string) ([]domain.
 
 		// All other errors are actionable; log and publish as a failed fetch.
 		log.Error("AuthService.FetchServers: error", "error", err)
-		s.broker.Publish(pubsub.Event[AuthEvent]{
+		s.broker.Publish(pubsub.Event[domain.AuthEvent]{
 			Type: "servers.fetch_failed",
-			Payload: AuthEvent{
+			Payload: domain.AuthEvent{
 				Type:  "servers.fetch_failed",
 				Error: err,
 			},
@@ -112,9 +103,9 @@ func (s *AuthService) FetchServers(ctx context.Context, token string) ([]domain.
 		return nil, err
 	}
 
-	s.broker.Publish(pubsub.Event[AuthEvent]{
+	s.broker.Publish(pubsub.Event[domain.AuthEvent]{
 		Type: "servers.loaded",
-		Payload: AuthEvent{
+		Payload: domain.AuthEvent{
 			Type:    "servers.loaded",
 			Servers: servers,
 		},

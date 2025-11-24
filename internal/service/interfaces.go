@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"image"
 	"io"
 
 	"plexmusic-tui/internal/domain"
@@ -10,22 +11,25 @@ import (
 
 // LibraryServicer provides methods to interact with Plex library data.
 type LibraryServicer interface {
-	pubsub.Subscriber[domain.Album]
+	pubsub.Subscriber[domain.LibraryEvent]
 
-	FetchLibraries(ctx context.Context) ([]domain.MusicLibrary, error)
-	FetchAlbums(ctx context.Context, libraryKey string) ([]domain.Album, error)
-	FetchRecentlyAdded(ctx context.Context) ([]domain.Album, error)
-	FetchPlaylists(ctx context.Context) ([]domain.Playlist, error)
-	FetchTracks(ctx context.Context, key string) ([]domain.Track, error)
+	FetchLibraries(ctx context.Context) ([]domain.MusicLibrary, int, error)
+	FetchAlbums(ctx context.Context, libraryKey string) ([]domain.Album, int, error)
+	FetchRecentlyAdded(ctx context.Context) ([]domain.Album, int, error)
+	FetchPlaylists(ctx context.Context) ([]domain.Playlist, int, error)
+	FetchTracks(ctx context.Context, key string) ([]domain.Track, int, error)
 	FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
 	BuildStreamURL(track *domain.Track) (string, error)
 	SetBaseURL(baseURL string)
 	SetToken(token string)
+	FetchSectionCounts(ctx context.Context, sectionKey string) (int, int, int, error)
+	FetchImage(ctx context.Context, path string) (image.Image, error)
+	Close() error
 }
 
 // AuthServicer provides authentication methods.
 type AuthServicer interface {
-	pubsub.Subscriber[AuthEvent]
+	pubsub.Subscriber[domain.AuthEvent]
 
 	AuthenticateUser(ctx context.Context, username, password string) (string, error)
 	FetchServers(ctx context.Context, token string) ([]domain.PlexServer, error)
@@ -33,7 +37,7 @@ type AuthServicer interface {
 
 // PlaybackServicer manages audio playback.
 type PlaybackServicer interface {
-	pubsub.Subscriber[PlaybackEvent]
+	pubsub.Subscriber[domain.PlaybackEvent]
 
 	Play(track *domain.Track) error
 	Pause() error

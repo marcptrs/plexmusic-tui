@@ -41,6 +41,8 @@ internal/
   service/        AuthService, LibraryService + service interfaces
   tui/            TUI infrastructure (pages, router, page types)
     pages/        Individual page components (login, server_selection, library_page)
+                  Note: library_page is split into library_page.go (model), library_page_view.go (view),
+                  library_page_events.go (update/events), and library_page_keys.go (input).
     components/   Reusable UI components (NowPlayingComponent, etc.)
     styles/       Canonical TUI styles package (replaces deprecated internal/ui)
     util/         TUI utilities (Model/Sizeable/Focusable, FormatTrackDuration, GetContentPaneWidth, etc.)

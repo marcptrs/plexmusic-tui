@@ -59,16 +59,13 @@ func startListener(t *testing.T) (net.Listener, int) {
 }
 
 func newTestAuthenticatorWithJSON(t *testing.T, body []byte) *Authenticator {
-	a := NewAuthenticator()
-	// Replace the default http client with our fake transport so that no
-	// real network call to plex.tv is made and we control the servers response.
-	a.httpClient = &http.Client{
+	client := &http.Client{
 		Transport: &fakeRoundTripper{
 			status: http.StatusOK,
 			body:   body,
 		},
 	}
-	return a
+	return NewAuthenticator(client)
 }
 
 // buildResourcesJSON is a helper to build JSON payload returned by Plex /api/v2/resources

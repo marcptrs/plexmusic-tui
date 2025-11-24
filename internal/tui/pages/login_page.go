@@ -14,6 +14,7 @@ import (
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/config"
+	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	styles "plexmusic-tui/internal/tui/styles"
@@ -182,7 +183,7 @@ func (p *LoginPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case service.AuthEvent:
+	case domain.AuthEvent:
 		return p.handleAuthEvent(msg)
 	}
 
@@ -274,7 +275,7 @@ func (p *LoginPage) authenticate() tea.Cmd {
 
 	if username == "" || password == "" {
 		return func() tea.Msg {
-			return service.AuthEvent{
+			return domain.AuthEvent{
 				Type:  "auth.failed",
 				Error: fmt.Errorf("username and password are required"),
 			}
@@ -291,12 +292,12 @@ func (p *LoginPage) authenticate() tea.Cmd {
 			if p.ctx.Err() != nil {
 				return nil
 			}
-			return service.AuthEvent{
+			return domain.AuthEvent{
 				Type:  "auth.failed",
 				Error: err,
 			}
 		}
-		return service.AuthEvent{
+		return domain.AuthEvent{
 			Type:  "auth.success",
 			Token: token,
 		}
@@ -341,7 +342,7 @@ func (p *LoginPage) fetchServers() tea.Cmd {
 }
 
 // handleAuthEvent processes authentication events
-func (p *LoginPage) handleAuthEvent(event service.AuthEvent) (tea.Model, tea.Cmd) {
+func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd) {
 	switch event.Type {
 	case "auth.success":
 		p.authenticating = false

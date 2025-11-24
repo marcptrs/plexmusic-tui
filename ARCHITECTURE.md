@@ -1,10 +1,10 @@
-# Architecture Refactoring Plan
+# Architecture
 
-Following patterns from `tmp/crush/`, this refactoring improves separation of concerns, adds event-driven architecture, and creates proper layering.
+This document describes the architecture of the application, which follows patterns for separation of concerns, event-driven architecture, and proper layering.
 
-## Key Changes
+## Core Components
 
-### 1. Directory Structure (COMPLETED)
+### 1. Directory Structure
 
 ```
 internal/
@@ -32,7 +32,7 @@ internal/
 └── playback/         # Audio playback (existing)
 ```
 
-### 2. Pub/Sub Event System (COMPLETED)
+### 2. Pub/Sub Event System
 
 **Pattern**: Type-safe generic event broker for decoupled communication.
 
@@ -54,7 +54,7 @@ type LibraryServicer interface {
 }
 ```
 
-### 3. Service Interfaces (COMPLETED)
+### 3. Service Interfaces
 
 **Pattern**: Define contracts for services, enable testability and composition.
 
@@ -75,7 +75,7 @@ type LibraryServicer interface {
 - Clear contracts
 - Embeds `pubsub.Subscriber` for event support
 
-### 4. TUI Layer (COMPLETED - Base Components)
+### 4. TUI Layer
 
 **Pattern**: Separate UI logic into reusable components with standard interfaces.
 
@@ -96,7 +96,7 @@ type LibraryServicer interface {
   - Common style definitions (titles, borders, tabs, buttons)
   - Helper functions for applying dimensions
 
-### 5. Message-Based Communication (ENHANCED)
+### 5. Message-Based Communication
 
 **Pattern**: Custom message types for decoupled component communication.
 
@@ -110,6 +110,21 @@ type LibraryServicer interface {
 3. Add message routing in App layer
 
 ---
+
+### 6. Split Page Architecture
+
+**Pattern**: Split large Bubble Tea models into separate files for Model, View, Update/Events, and Keys/Input.
+
+**Applied to**: `internal/tui/pages/library_page.go`
+- `library_page.go`: Struct definition, `Init`, `Close`, `NewLibraryPage`.
+- `library_page_view.go`: `View()` method.
+- `library_page_events.go`: `Update()` method and event handlers.
+- `library_page_keys.go`: Key handling logic.
+
+**Benefits**:
+- Improved maintainability by separating concerns.
+- Easier navigation of large components.
+- Clearer boundaries between UI rendering, state management, and input handling.
 
 ## AppModel / pageFactory (Crush pattern) — New documentation
 
@@ -200,7 +215,7 @@ This resolves subtle input-handling issues by ensuring a single source of truth 
 
 ---
 
-## 6. Remaining Work (TODO)
+## 7. Future Work
 
 #### A. Convert Coordinator to Service-Based
 
@@ -293,13 +308,13 @@ Example:
 
 ## Migration Strategy
 
-**Phase 1: Foundation (DONE)**
-- ✅ Create directory structure
-- ✅ Add pubsub broker
-- ✅ Define service interfaces
-- ✅ Create base TUI components and styles
+**Phase 1: Foundation**
+- Create directory structure
+- Add pubsub broker
+- Define service interfaces
+- Create base TUI components and styles
 
-**Phase 2: Service Wiring (NEXT)**
+**Phase 2: Service Wiring**
 - Refactor Coordinator to use service interfaces
 - Move direct Plex client calls to services
 - Add event publishing to services
@@ -344,8 +359,8 @@ Example:
 - `internal/tui/util/util.go` - TUI utilities and interfaces
 - `internal/tui/components/statusbar.go` - Status bar component
 - `internal/tui/styles/styles.go` - Centralized styles
-- `internal/tui/app_model.go` - AppModel and pageFactory wiring (NEW)
-- `internal/tui/pages/list_items.go` - List item adapters for bubbles/list (NEW)
+- `internal/tui/app_model.go` - AppModel and pageFactory wiring
+- `internal/tui/pages/list_items.go` - List item adapters for bubbles/list
 
 ## Next Steps
 
@@ -360,4 +375,3 @@ Example:
 ---
 
 Generated: 2025-11-15
-Status: Phase 1 Complete, Phase 2 Ready

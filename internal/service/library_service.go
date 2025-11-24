@@ -7,35 +7,24 @@ import (
 	"plexmusic-tui/internal/pubsub"
 )
 
-// LibraryEvent represents library-related events
-type LibraryEvent struct {
-	Type      string
-	Libraries []domain.MusicLibrary
-	Albums    []domain.Album
-	Playlists []domain.Playlist
-	Tracks    []domain.Track
-	TotalSize int
-	Error     error
-}
-
 // LibraryServiceWithEvents wraps LibraryService with event publishing
 type LibraryServiceWithEvents struct {
 	*LibraryService
-	broker *pubsub.Broker[LibraryEvent]
+	broker *pubsub.Broker[domain.LibraryEvent]
 }
 
 // NewLibraryServiceWithEvents creates a library service with event support
-func NewLibraryServiceWithEvents(baseURL, token string) *LibraryServiceWithEvents {
+func NewLibraryServiceWithEvents(baseURL, token string, factory domain.HTTPClientFactory) *LibraryServiceWithEvents {
 	return &LibraryServiceWithEvents{
-		LibraryService: NewLibraryService(baseURL, token),
-		broker:         pubsub.NewBroker[LibraryEvent](),
+		LibraryService: NewLibraryService(baseURL, token, factory),
+		broker:         pubsub.NewBroker[domain.LibraryEvent](),
 	}
 }
 
 // Subscribe returns a channel for receiving library events
 func (s *LibraryServiceWithEvents) Subscribe(
 	ctx context.Context,
-) <-chan pubsub.Event[LibraryEvent] {
+) <-chan pubsub.Event[domain.LibraryEvent] {
 	return s.broker.Subscribe(ctx)
 }
 
@@ -45,9 +34,9 @@ func (s *LibraryServiceWithEvents) FetchLibraries(
 ) ([]domain.MusicLibrary, int, error) {
 	libraries, total, err := s.LibraryService.FetchLibraries(ctx)
 	if err != nil {
-		s.broker.Publish(pubsub.Event[LibraryEvent]{
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 			Type: "libraries.fetch_failed",
-			Payload: LibraryEvent{
+			Payload: domain.LibraryEvent{
 				Type:  "libraries.fetch_failed",
 				Error: err,
 			},
@@ -55,9 +44,9 @@ func (s *LibraryServiceWithEvents) FetchLibraries(
 		return nil, 0, err
 	}
 
-	s.broker.Publish(pubsub.Event[LibraryEvent]{
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 		Type: "libraries.loaded",
-		Payload: LibraryEvent{
+		Payload: domain.LibraryEvent{
 			Type:      "libraries.loaded",
 			Libraries: libraries,
 			TotalSize: total,
@@ -74,9 +63,9 @@ func (s *LibraryServiceWithEvents) FetchAlbums(
 ) ([]domain.Album, int, error) {
 	albums, total, err := s.LibraryService.FetchAlbums(ctx, libraryKey)
 	if err != nil {
-		s.broker.Publish(pubsub.Event[LibraryEvent]{
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 			Type: "albums.fetch_failed",
-			Payload: LibraryEvent{
+			Payload: domain.LibraryEvent{
 				Type:  "albums.fetch_failed",
 				Error: err,
 			},
@@ -84,9 +73,9 @@ func (s *LibraryServiceWithEvents) FetchAlbums(
 		return nil, 0, err
 	}
 
-	s.broker.Publish(pubsub.Event[LibraryEvent]{
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 		Type: "albums.loaded",
-		Payload: LibraryEvent{
+		Payload: domain.LibraryEvent{
 			Type:      "albums.loaded",
 			Albums:    albums,
 			TotalSize: total,
@@ -102,9 +91,9 @@ func (s *LibraryServiceWithEvents) FetchRecentlyAdded(
 ) ([]domain.Album, int, error) {
 	albums, total, err := s.LibraryService.FetchRecentlyAdded(ctx)
 	if err != nil {
-		s.broker.Publish(pubsub.Event[LibraryEvent]{
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 			Type: "recently_added.fetch_failed",
-			Payload: LibraryEvent{
+			Payload: domain.LibraryEvent{
 				Type:  "recently_added.fetch_failed",
 				Error: err,
 			},
@@ -112,9 +101,9 @@ func (s *LibraryServiceWithEvents) FetchRecentlyAdded(
 		return nil, 0, err
 	}
 
-	s.broker.Publish(pubsub.Event[LibraryEvent]{
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 		Type: "recently_added.loaded",
-		Payload: LibraryEvent{
+		Payload: domain.LibraryEvent{
 			Type:      "recently_added.loaded",
 			Albums:    albums,
 			TotalSize: total,
@@ -130,9 +119,9 @@ func (s *LibraryServiceWithEvents) FetchPlaylists(
 ) ([]domain.Playlist, int, error) {
 	playlists, total, err := s.LibraryService.FetchPlaylists(ctx)
 	if err != nil {
-		s.broker.Publish(pubsub.Event[LibraryEvent]{
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 			Type: "playlists.fetch_failed",
-			Payload: LibraryEvent{
+			Payload: domain.LibraryEvent{
 				Type:  "playlists.fetch_failed",
 				Error: err,
 			},
@@ -140,9 +129,9 @@ func (s *LibraryServiceWithEvents) FetchPlaylists(
 		return nil, 0, err
 	}
 
-	s.broker.Publish(pubsub.Event[LibraryEvent]{
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 		Type: "playlists.loaded",
-		Payload: LibraryEvent{
+		Payload: domain.LibraryEvent{
 			Type:      "playlists.loaded",
 			Playlists: playlists,
 			TotalSize: total,
@@ -159,9 +148,9 @@ func (s *LibraryServiceWithEvents) FetchTracks(
 ) ([]domain.Track, int, error) {
 	tracks, total, err := s.LibraryService.FetchTracks(ctx, key)
 	if err != nil {
-		s.broker.Publish(pubsub.Event[LibraryEvent]{
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 			Type: "tracks.fetch_failed",
-			Payload: LibraryEvent{
+			Payload: domain.LibraryEvent{
 				Type:  "tracks.fetch_failed",
 				Error: err,
 			},
@@ -169,9 +158,9 @@ func (s *LibraryServiceWithEvents) FetchTracks(
 		return nil, 0, err
 	}
 
-	s.broker.Publish(pubsub.Event[LibraryEvent]{
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 		Type: "tracks.loaded",
-		Payload: LibraryEvent{
+		Payload: domain.LibraryEvent{
 			Type:      "tracks.loaded",
 			Tracks:    tracks,
 			TotalSize: total,

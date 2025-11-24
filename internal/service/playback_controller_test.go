@@ -98,8 +98,8 @@ func (m *mockPbSvcPlayErr) PlayDomainTrack(ctx context.Context, lib interface {
 	return m.err
 }
 
-func (m *mockPbSvcPlayErr) Subscribe(ctx context.Context) <-chan pubsub.Event[PlaybackEvent] {
-	ch := make(chan pubsub.Event[PlaybackEvent], 1)
+func (m *mockPbSvcPlayErr) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.PlaybackEvent] {
+	ch := make(chan pubsub.Event[domain.PlaybackEvent], 1)
 	close(ch)
 	return ch
 }
@@ -178,8 +178,8 @@ func (m *mockPbSvcVolume) PlayDomainTrack(ctx context.Context, lib interface {
 	return nil
 }
 
-func (m *mockPbSvcVolume) Subscribe(ctx context.Context) <-chan pubsub.Event[PlaybackEvent] {
-	ch := make(chan pubsub.Event[PlaybackEvent], 1)
+func (m *mockPbSvcVolume) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.PlaybackEvent] {
+	ch := make(chan pubsub.Event[domain.PlaybackEvent], 1)
 	close(ch)
 	return ch
 }

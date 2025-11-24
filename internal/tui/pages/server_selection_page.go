@@ -46,7 +46,7 @@ type ServerSelectionPage struct {
 	// Event subscription
 	ctx     context.Context
 	cancel  context.CancelFunc
-	eventCh <-chan pubsub.Event[service.AuthEvent]
+	eventCh <-chan pubsub.Event[domain.AuthEvent]
 
 	keys tui.ServerSelectionKeyMap
 }
@@ -127,7 +127,7 @@ func (p *ServerSelectionPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-	case service.AuthEvent:
+	case domain.AuthEvent:
 		return p, p.handleAuthEvent(msg)
 	}
 
@@ -177,7 +177,7 @@ func (p *ServerSelectionPage) fetchServers() tea.Cmd {
 	return func() tea.Msg {
 		token := p.coordinator.GetToken()
 		if token == "" {
-			return service.AuthEvent{
+			return domain.AuthEvent{
 				Type:  "servers.fetch_failed",
 				Error: fmt.Errorf("no authentication token"),
 			}
@@ -223,7 +223,7 @@ func (p *ServerSelectionPage) subscribeToAuthEvents() tea.Cmd {
 }
 
 // handleAuthEvent processes authentication events
-func (p *ServerSelectionPage) handleAuthEvent(event service.AuthEvent) tea.Cmd {
+func (p *ServerSelectionPage) handleAuthEvent(event domain.AuthEvent) tea.Cmd {
 	switch event.Type {
 	case "servers.loaded":
 		p.loadingServers = false

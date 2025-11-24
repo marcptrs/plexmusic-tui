@@ -7,7 +7,6 @@ import (
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
-	"plexmusic-tui/internal/service"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -15,8 +14,8 @@ import (
 // MockAuthService for testing
 type MockAuthService struct{}
 
-func (m *MockAuthService) Subscribe(ctx context.Context) <-chan pubsub.Event[service.AuthEvent] {
-	return make(chan pubsub.Event[service.AuthEvent])
+func (m *MockAuthService) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.AuthEvent] {
+	return make(chan pubsub.Event[domain.AuthEvent])
 }
 
 func (m *MockAuthService) AuthenticateUser(

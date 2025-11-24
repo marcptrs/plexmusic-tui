@@ -21,7 +21,6 @@ import (
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
-	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	components "plexmusic-tui/internal/tui/components"
 	util "plexmusic-tui/internal/tui/util"
@@ -63,7 +62,7 @@ func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 	page.height = 40
 
 	// Send event to populate list
-	evt := service.LibraryEvent{
+	evt := domain.LibraryEvent{
 		Type: "recently_added.loaded",
 		Albums: []domain.Album{
 			{Title: "Test Album", Artist: "Test Artist", Year: 2023},
@@ -123,7 +122,7 @@ func TestLibraryPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 	page.height = 40
 
 	// Send event to populate list
-	evt := service.LibraryEvent{
+	evt := domain.LibraryEvent{
 		Type: "playlists.loaded",
 		Playlists: []domain.Playlist{
 			{Title: "Test Playlist", Key: "/playlists/1", LeafCount: 3, Duration: 120000},
@@ -196,7 +195,7 @@ func TestLibraryPage_DrawerOnRight_KeepsNowPlayingVisible(t *testing.T) {
 	// that Now Playing (left) remains visible. Populate the left list so the
 	// drawer has content to render on the right.
 	// Send a library event simulating the server returned recently added albums
-	evt := service.LibraryEvent{
+	evt := domain.LibraryEvent{
 		Type: "recently_added.loaded",
 		Albums: []domain.Album{
 			{Title: "Test Album", Artist: "X", Year: 2020, Key: "/library/metadata/1"},
@@ -1384,7 +1383,7 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 // need to exercise orchestrator playback orchestration without actually
 // initializing audio. It satisfies service.PlaybackServicer.
 type mockPbSvcOK struct {
-	ch chan pubsub.Event[service.PlaybackEvent]
+	ch chan pubsub.Event[domain.PlaybackEvent]
 }
 
 func (m *mockPbSvcOK) Play(track *domain.Track) error { return nil }
@@ -1404,9 +1403,9 @@ func (m *mockPbSvcOK) PlayDomainTrack(ctx context.Context, lib interface {
 	return nil
 }
 
-func (m *mockPbSvcOK) Subscribe(ctx context.Context) <-chan pubsub.Event[service.PlaybackEvent] {
+func (m *mockPbSvcOK) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.PlaybackEvent] {
 	if m.ch == nil {
-		ch := make(chan pubsub.Event[service.PlaybackEvent], 4)
+		ch := make(chan pubsub.Event[domain.PlaybackEvent], 4)
 		close(ch)
 		return ch
 	}
@@ -1454,7 +1453,7 @@ func TestLibraryPage_PlaySelected_QueuesTracksFromSelection(t *testing.T) {
 	page.showingTracks = true
 
 	// Use a minimal mock playback service so we don't initialize audio.
-	pb := &mockPbSvcOK{ch: make(chan pubsub.Event[service.PlaybackEvent], 4)}
+	pb := &mockPbSvcOK{ch: make(chan pubsub.Event[domain.PlaybackEvent], 4)}
 	page.orchestrator = tui.NewOrchestrator(coord, nil, pb)
 	page.pbEvtCh = page.orchestrator.Subscribe(page.ctx)
 	page.nowPlaying = components.NewNowPlayingComponent(coord, page.orchestrator)
@@ -1512,16 +1511,16 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 	coord.SetPlaybackState(app.PlaybackPlaying)
 
 	// Use a minimal mock playback service and orchestrator.
-	pb := &mockPbSvcOK{ch: make(chan pubsub.Event[service.PlaybackEvent], 4)}
+	pb := &mockPbSvcOK{ch: make(chan pubsub.Event[domain.PlaybackEvent], 4)}
 	page.orchestrator = tui.NewOrchestrator(coord, nil, pb)
 	page.pbEvtCh = page.orchestrator.Subscribe(page.ctx)
 	page.nowPlaying = components.NewNowPlayingComponent(coord, page.orchestrator)
 
 	// Simulate end-of-track via a playback.position event; position >= length triggers auto-advance
-	ev := service.PlaybackEvent{
+	ev := domain.PlaybackEvent{
 		Type:     "playback.position",
 		Position: 100,
-		Length:   100,
+		Duration: 100,
 	}
 	_, cmd := page.Update(ev)
 	if cmd != nil {
