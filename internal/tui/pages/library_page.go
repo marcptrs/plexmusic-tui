@@ -16,6 +16,7 @@ import (
 	"plexmusic-tui/internal/app"
 	domain "plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/http"
+	"plexmusic-tui/internal/logging"
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
@@ -304,14 +305,14 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return p, nil
 }
 
-// dumpPageView writes the raw Page.View to /tmp/plexmusic_view_debug.txt when
+// dumpPageView writes the raw Page.View to the debug dump file when
 // coordinator.DumpView() is enabled; useful for reproducing terminal render quirks.
 func (p *LibraryPage) dumpPageView(label string) {
 	if !p.coordinator.DumpView() {
 		return
 	}
 	f, err := os.OpenFile(
-		"/tmp/plexmusic_view_debug.txt",
+		logging.GetDebugDumpFilePath(),
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
 		0o600,
 	)

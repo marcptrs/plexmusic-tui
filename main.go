@@ -133,7 +133,7 @@ func main() {
 	}
 
 	if *showLogs {
-		displayLogs("/tmp/plexmusic-startup.log", *tailLines)
+		displayLogs(logging.GetLogFilePath(), *tailLines)
 		os.Exit(0)
 	}
 
@@ -143,12 +143,13 @@ func main() {
 	}
 
 	// Initialize file-backed logger for startup diagnostics
-	logger, err := logging.InitFileLogger("/tmp/plexmusic-startup.log", logLevel)
+	logPath := logging.GetLogFilePath()
+	logger, err := logging.InitFileLogger(logPath, logLevel)
 	if err != nil {
 		log.Error(
 			"Failed to initialize startup logger",
 			"path",
-			"/tmp/plexmusic-startup.log",
+			logPath,
 			"err",
 			err,
 		)
@@ -246,7 +247,7 @@ OPTIONS:
 	-debug              Enable debug logging
 	-force-renderer STR Force image renderer: kitty | iterm2 | sixel | unicode
 	-render-debug       Enable detailed image renderer debug logs
-	-dump-view          Enable raw View() dumps for debugging (writes /tmp/plexmusic_view_debug.txt)
+	-dump-view          Enable raw View() dumps for debugging (writes %s)
 
 EXAMPLES:
   # Run the interactive TUI
@@ -262,9 +263,9 @@ EXAMPLES:
   plexmusic-tui -help
 
 LOGS:
-  Application logs are stored at: /tmp/plexmusic-startup.log
+  Application logs are stored at: %s
 
   Use -logs to view recent entries when debugging connection issues.
 
-`)
+`, logging.GetDebugDumpFilePath(), logging.GetLogFilePath())
 }

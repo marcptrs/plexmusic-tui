@@ -7,6 +7,7 @@ import (
 	stdlog "log"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	clog "github.com/charmbracelet/log/v2"
@@ -184,4 +185,28 @@ func setSlogHandler(h slog.Handler) error {
 	lg := slog.New(h)
 	slog.SetDefault(lg)
 	return nil
+}
+
+// GetLogFilePath returns the path to the log file, creating the directory if needed.
+// It prefers the user's cache directory (e.g., ~/.cache/plexmusic-tui/plexmusic.log or
+// %LocalAppData%\plexmusic-tui\plexmusic.log). Falls back to temp dir on error.
+func GetLogFilePath() string {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "plexmusic.log")
+	}
+
+	logDir := filepath.Join(cacheDir, "plexmusic-tui")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return filepath.Join(os.TempDir(), "plexmusic.log")
+	}
+
+	return filepath.Join(logDir, "plexmusic.log")
+}
+
+// GetDebugDumpFilePath returns the path to the debug view dump file.
+func GetDebugDumpFilePath() string {
+	// Use the same directory as logs
+	logPath := GetLogFilePath()
+	return filepath.Join(filepath.Dir(logPath), "view_debug.txt")
 }

@@ -198,7 +198,7 @@ func (c *Coordinator) SetConfigManager(cfg *config.Manager) {
 	c.configMgr = cfg
 }
 
-// SetDumpView toggles writing raw Page views to /tmp/plexmusic_view_debug.txt
+// SetDumpView toggles writing raw Page views to the debug dump file
 // for debugging. This can be toggled at app start via CLI flag or by the UI.
 func (c *Coordinator) SetDumpView(v bool) {
 	c.dumpView = v
