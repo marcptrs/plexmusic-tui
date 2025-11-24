@@ -172,6 +172,37 @@ Configuration is stored in `~/.config/plexmusic-tui/config.json`:
 
 The application automatically saves your authentication token and remembers your last selected server using a canonical host/name key (e.g., hostname/server-name).
 
+## Troubleshooting & Logging
+
+### Logs
+
+Application logs are stored in your system's user cache directory:
+- **Linux**: `~/.cache/plexmusic-tui/plexmusic.log`
+- **macOS**: `~/Library/Caches/plexmusic-tui/plexmusic.log`
+- **Windows**: `%LocalAppData%\plexmusic-tui\plexmusic.log`
+
+You can quickly view recent log entries directly in the terminal:
+
+```bash
+# Show the last 50 log lines
+./plexmusic-tui -logs
+
+# Show the last 100 log lines
+./plexmusic-tui -logs -tail 100
+```
+
+### Debugging
+
+If you encounter issues, you can enable debug logging or dump the raw UI view for inspection:
+
+```bash
+# Enable debug logging
+./plexmusic-tui -debug
+
+# Dump raw view output to view_debug.txt (in the same folder as logs)
+./plexmusic-tui -dump-view
+```
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
