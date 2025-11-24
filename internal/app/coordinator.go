@@ -346,6 +346,23 @@ func (c *Coordinator) Tracks() []Track {
 	out := make([]Track, len(c.tracks))
 	for i, t := range c.tracks {
 		out[i] = Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration, TrackNumber: t.TrackNumber, PlaylistItemID: t.PlaylistItemID, Key: t.Key, RatingKey: t.RatingKey, Thumb: t.Thumb}
+		if len(t.Media) > 0 {
+			out[i].Media = make([]struct {
+				Part []struct {
+					Key string
+				}
+			}, len(t.Media))
+			for j, m := range t.Media {
+				if len(m.Part) > 0 {
+					out[i].Media[j].Part = make([]struct {
+						Key string
+					}, len(m.Part))
+					for k, p := range m.Part {
+						out[i].Media[j].Part[k].Key = p.Key
+					}
+				}
+			}
+		}
 	}
 	return out
 }
@@ -354,6 +371,23 @@ func (c *Coordinator) SetTracks(tracks []Track) {
 	out := make([]domain.Track, len(tracks))
 	for i, t := range tracks {
 		out[i] = domain.Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration, TrackNumber: t.TrackNumber, PlaylistItemID: t.PlaylistItemID, Key: t.Key, RatingKey: t.RatingKey, Thumb: t.Thumb}
+		if len(t.Media) > 0 {
+			out[i].Media = make([]struct {
+				Part []struct {
+					Key string `json:"key"`
+				} `json:"Part"`
+			}, len(t.Media))
+			for j, m := range t.Media {
+				if len(m.Part) > 0 {
+					out[i].Media[j].Part = make([]struct {
+						Key string `json:"key"`
+					}, len(m.Part))
+					for k, p := range m.Part {
+						out[i].Media[j].Part[k].Key = p.Key
+					}
+				}
+			}
+		}
 	}
 	c.tracks = out
 }
@@ -366,6 +400,23 @@ func (c *Coordinator) Queue() []Track {
 	out := make([]Track, len(c.queue))
 	for i, t := range c.queue {
 		out[i] = Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration, TrackNumber: t.TrackNumber, PlaylistItemID: t.PlaylistItemID, Key: t.Key, RatingKey: t.RatingKey, Thumb: t.Thumb}
+		if len(t.Media) > 0 {
+			out[i].Media = make([]struct {
+				Part []struct {
+					Key string
+				}
+			}, len(t.Media))
+			for j, m := range t.Media {
+				if len(m.Part) > 0 {
+					out[i].Media[j].Part = make([]struct {
+						Key string
+					}, len(m.Part))
+					for k, p := range m.Part {
+						out[i].Media[j].Part[k].Key = p.Key
+					}
+				}
+			}
+		}
 	}
 	return out
 }
@@ -374,6 +425,23 @@ func (c *Coordinator) SetQueue(queue []Track) {
 	out := make([]domain.Track, len(queue))
 	for i, t := range queue {
 		out[i] = domain.Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration, TrackNumber: t.TrackNumber, PlaylistItemID: t.PlaylistItemID, Key: t.Key, RatingKey: t.RatingKey, Thumb: t.Thumb}
+		if len(t.Media) > 0 {
+			out[i].Media = make([]struct {
+				Part []struct {
+					Key string `json:"key"`
+				} `json:"Part"`
+			}, len(t.Media))
+			for j, m := range t.Media {
+				if len(m.Part) > 0 {
+					out[i].Media[j].Part = make([]struct {
+						Key string `json:"key"`
+					}, len(m.Part))
+					for k, p := range m.Part {
+						out[i].Media[j].Part[k].Key = p.Key
+					}
+				}
+			}
+		}
 	}
 	c.queue = out
 }

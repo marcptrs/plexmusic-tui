@@ -100,26 +100,22 @@ func main() {
 	showLogs := flag.Bool("logs", false, "Show recent log entries and exit")
 	tailLines := flag.Int("tail", 50, "Number of log lines to show (default: 50)")
 	showHelp := flag.Bool("help", false, "Show help message")
-	// Add debugging CLI flags
 	debugFlag := flag.Bool("debug", false, "Enable debug logging (overrides default info level)")
 	forceRenderer := flag.String("force-renderer", "", "Force the image renderer: kitty|iterm2|sixel|unicode")
 	renderDebug := flag.Bool("render-debug", false, "Enable detailed image renderer debug logs")
 	dumpViewFlag := flag.Bool("dump-view", false, "Write raw page view to /tmp/plexmusic_view_debug.txt for debugging")
 	flag.Parse()
 
-	// Handle help flag
 	if *showHelp {
 		showUsage()
 		os.Exit(0)
 	}
 
-	// Handle logs command
 	if *showLogs {
 		displayLogs("/tmp/plexmusic-startup.log", *tailLines)
 		os.Exit(0)
 	}
 
-	// Determine log level from CLI flag or default to Info
 	logLevel := log.InfoLevel
 	if *debugFlag {
 		logLevel = log.DebugLevel

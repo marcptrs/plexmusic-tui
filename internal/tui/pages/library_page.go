@@ -28,6 +28,17 @@ import (
 	"plexmusic-tui/internal/tui/util"
 )
 
+// Helper to detect rune keypresses in a KeyMsg when the bubbles/list key mapping
+// doesn't directly express a specific rune. Useful for supporting both "k"/"j"
+// navigation as rune fallbacks where clients send runes instead of key events.
+func isRuneKey(msg tea.KeyMsg, r rune) bool {
+	if len(msg.Runes) == 0 {
+		return false
+	}
+	// Only accept a single rune to prevent conflicts with multi-rune sequences
+	return len(msg.Runes) == 1 && msg.Runes[0] == r
+}
+
 // LibraryPage handles the library browsing UI with tab navigation,
 // list rendering (Recently Added, Playlists), modal dialogs, and the
 // "Now Playing" panel (cover art + controls).
@@ -64,6 +75,8 @@ type LibraryPage struct {
 	drawerOpen bool
 
 	focusedNowPlaying bool
+	finishedTriggered bool
+	focusedQueue      bool
 	// Track last selected indices to detect selection changes and fetch tracks lazily
 	lastSelectedAlbumIndex    int
 	lastSelectedPlaylistIndex int
@@ -431,6 +444,9 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "playback.started":
 			p.coordinator.SetPlaybackState(app.PlaybackPlaying)
+			// Reset our finished-triggered debounce to allow auto-advance for the next
+			// track when it completes.
+			p.finishedTriggered = false
 			if msg.Track != nil {
 				track := util.DomainTrackToApp(msg.Track)
 				p.coordinator.SetCurrentTrack(track)
@@ -454,6 +470,21 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if msg.SampleRate > 0 {
 				p.coordinator.SetSampleRate(beep.SampleRate(msg.SampleRate))
 			}
+
+			// Detect end-of-track and auto-advance to the next queued track if applicable.
+			// We debounce using `finishedTriggered` to avoid issuing multiple commands for
+			// the same track-end event as position updates can be frequent.
+			if msg.Length > 0 && msg.Position >= msg.Length {
+				if p.coordinator.IsPlaying() && !p.finishedTriggered {
+					p.finishedTriggered = true
+					// Trigger next; playNext handles the queue logic and will stop playback
+					// when the queue is complete.
+					return p, p.playNext()
+				}
+			} else {
+				// Reset the debounce when position is before the end (new track started, resumed, or seeked).
+				p.finishedTriggered = false
+			}
 		}
 		// Re-subscribe to continue receiving playback/library events
 		return p, tea.Batch(p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
@@ -467,6 +498,20 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, nil
 
 	case tea.KeyMsg:
+		// Early interception: route Up/Down (including k/j) to the queue handler if
+		// the queue is explicitly in scope (modal visible OR explicit queue focus OR visible in layout).
+		// This takes precedence over other list handlers so Up/Down will scroll the queue.
+		if (key.Matches(msg, p.keys.Up) || key.Matches(msg, p.keys.Down) || isRuneKey(msg, 'k') || isRuneKey(msg, 'j')) && p.coordinator != nil {
+			if p.coordinator.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible() {
+				if len(p.coordinator.Queue()) > 0 {
+					// If we are now routing Up/Down to the queue, prefer to mark the queue
+					// as focused so subsequent logic skips updating the left-side lists.
+					p.SetFocusedQueue(true)
+					return p, p.handleQueueKeyMsg(msg)
+				}
+			}
+		}
+
 		// Let the search input handle keys while on Search tab.
 		if p.coordinator.ActiveTab() == app.SearchTab {
 			switch msg.String() {
@@ -497,6 +542,16 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Check global keys first
 		switch {
+		case p.coordinator != nil && (p.coordinator.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible()) && len(p.coordinator.Queue()) > 0 && (key.Matches(msg, p.keys.Up) || key.Matches(msg, p.keys.Down) || key.Matches(msg, p.keys.PlaySelected) || key.Matches(msg, p.keys.QueueMoveUp) || key.Matches(msg, p.keys.QueueMoveDown) || key.Matches(msg, p.keys.QueueRemove) || key.Matches(msg, p.keys.Enter)):
+			// When the queue modal is visible, or when the queue has explicit keyboard focus,
+			// or when the queue is visible as a pane, route queue-specific keys to the unified handler.
+			// This overrides other lists when the queue has explicit focus or is visible to the user.
+			return p, p.handleQueueKeyMsg(msg)
+		case p.coordinator != nil && p.coordinator.ShowQueueModal() && key.Matches(msg, p.keys.Back):
+			// Close queue modal on 'Back' key when visible
+			p.coordinator.SetShowQueueModal(false)
+			p.SetFocusedQueue(false)
+			return p, nil
 		case key.Matches(msg, p.keys.Back):
 			// If the queue modal is open, close it first; otherwise go back to server selection.
 			if p.coordinator.ShowQueueModal() {
@@ -554,19 +609,78 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, p.keys.PlaySelected):
 			log.Debug("PlaySelected key matched", "msg", msg)
 
+			// If the Queue tab is active and the user presses space, treat it as
+			// a "play selected" from the queue: remove previous entries up to the
+			// selected item and begin playing that track.
+			active := p.coordinator.ActiveTab()
+			if active == app.QueueTab {
+				sel := p.queueList.Index()
+				q := p.coordinator.Queue()
+				if len(q) == 0 || sel < 0 || sel >= len(q) {
+					return p, nil
+				}
+				// If selected is not the first item, trim the queue to the selected item and onward
+				if sel > 0 {
+					newQueue := make([]app.Track, len(q)-sel)
+					copy(newQueue, q[sel:])
+					p.coordinator.SetQueue(newQueue)
+					p.coordinator.SetQueueIndex(0)
+					p.updateQueueListFromCoordinator()
+					p.queueList.Select(0)
+					return p, p.playAppTrack(&newQueue[0])
+				}
+				// Selected is the first item — just play it
+				if item, ok := p.queueList.SelectedItem().(util.QueueItem); ok {
+					at := util.DomainTrackToApp(&item.Track)
+					return p, p.playAppTrack(at)
+				}
+				return p, nil
+			}
+
 			// Try to play the selected/first track from album, playlist or queue.
 			if p.showingTracks {
-				if p.libSvc != nil {
-					if item, ok := p.trackList.SelectedItem().(util.TrackItem); ok {
-						// Convert domain.Track -> app.Track
-						at := util.DomainTrackToApp(&item.Track)
-						return p, p.playAppTrack(at)
+				if item, ok := p.trackList.SelectedItem().(util.TrackItem); ok {
+					// Convert domain.Track -> app.Track defensively using the selected item
+					at := util.DomainTrackToApp(&item.Track)
+
+					// If the user chooses to play a track while viewing an album/playlist,
+					// build a queue from the selected track to the end of the list so the
+					// subsequent tracks will be played automatically.
+					tracks := p.coordinator.Tracks()
+					selIdx := p.trackList.Index()
+					if len(tracks) == 0 {
+						return p, nil
+					}
+					if selIdx < 0 || selIdx >= len(tracks) {
+						selIdx = 0
+					}
+					newQueue := make([]app.Track, len(tracks)-selIdx)
+					copy(newQueue, tracks[selIdx:])
+
+					// Ensure the first queued track matches the selected item (if convert succeeded)
+					if at != nil && len(newQueue) > 0 {
+						newQueue[0] = *at
+					}
+
+					// Persist queue & selection to coordinator
+					p.coordinator.SetQueue(newQueue)
+					p.coordinator.SetQueueIndex(0)
+					p.updateQueueListFromCoordinator()
+
+					// Make sure the underlying tracklist selection is reflected in coordinator
+					p.coordinator.SetSelectedTrack(selIdx)
+					p.showingTracks = false
+					p.coordinator.SetActiveTab(app.QueueTab)
+
+					// Play the first track in the newly created queue (the selected track)
+					if len(newQueue) > 0 {
+						return p, p.playAppTrack(&newQueue[0])
 					}
 				}
 				return p, nil
 			}
 
-			active := p.coordinator.ActiveTab()
+			active = p.coordinator.ActiveTab()
 			if p.libSvc != nil && (active == app.PlaylistsTab || active == app.HomeTab || active == app.LibraryTab) {
 				if active == app.PlaylistsTab {
 					if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
@@ -587,12 +701,13 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							// Update coordinator & list state
 							p.coordinator.SetQueue(appTracks)
 							p.coordinator.SetQueueIndex(0)
+							p.updateQueueListFromCoordinator()
 							p.coordinator.SetTracks(appTracks)
 							p.trackList.SetItems(items)
 							p.trackList.Select(0)
 							p.coordinator.SetSelectedTrack(0)
-							p.showingTracks = true
-							// Play the first track of the queue
+							p.showingTracks = false
+							p.coordinator.SetActiveTab(app.QueueTab)
 							return p, p.playAppTrack(&appTracks[0])
 						}
 					}
@@ -614,11 +729,13 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							p.coordinator.SetQueue(appTracks)
 							p.coordinator.SetQueueIndex(0)
+							p.updateQueueListFromCoordinator()
 							p.coordinator.SetTracks(appTracks)
 							p.trackList.SetItems(items)
 							p.trackList.Select(0)
 							p.coordinator.SetSelectedTrack(0)
-							p.showingTracks = true
+							p.showingTracks = false
+							p.coordinator.SetActiveTab(app.QueueTab)
 							return p, p.playAppTrack(&appTracks[0])
 						}
 					}
@@ -648,9 +765,26 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, p.keys.VolumeDown):
 			p.adjustVolumeByPercent(-5)
 			return p, nil
-		case key.Matches(msg, p.keys.Queue):
-			// Toggle queue modal
-			p.coordinator.SetShowQueueModal(!p.coordinator.ShowQueueModal())
+		case key.Matches(msg, p.keys.Queue) || isRuneKey(msg, 'o') || isRuneKey(msg, 'O'):
+			// If the modal is visible, close it and clear focus
+			if p.coordinator.ShowQueueModal() {
+				p.coordinator.SetShowQueueModal(false)
+				p.SetFocusedQueue(false)
+				return p, nil
+			}
+			// If the active tab is the Queue tab, toggle queue focus instead of opening modal.
+			// This allows Up/Down to be routed to the queue lists when focused.
+			if p.coordinator.ActiveTab() == app.QueueTab {
+				p.SetFocusedQueue(!p.IsFocusedQueue())
+				if p.IsFocusedQueue() {
+					p.focusedNowPlaying = false // don't keep both focused states set
+				}
+				return p, nil
+			}
+			// Otherwise, open/close the queue modal and set focus in a consistent manner.
+			showing := !p.coordinator.ShowQueueModal()
+			p.coordinator.SetShowQueueModal(showing)
+			p.SetFocusedQueue(showing)
 			return p, nil
 		case key.Matches(msg, p.keys.Refresh):
 			// Refresh library lists (recently added + playlists)
@@ -673,7 +807,8 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.focusedNowPlaying = !p.focusedNowPlaying
 			return p, nil
 		case key.Matches(msg, p.keys.SwitchView):
-			switch msg.String() {
+			sw := msg.String()
+			switch sw {
 			case "1":
 				p.coordinator.SetActiveTab(app.HomeTab)
 			case "2":
@@ -688,12 +823,14 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				p.coordinator.SetActiveTab(app.SettingsTab)
 			}
 			// For browsing-focused tabs, open the drawer; queue tab should keep drawer closed
-			switch msg.String() {
+			switch sw {
 			case "1", "2", "3", "4", "6":
 				p.drawerOpen = true
 			case "5":
 				p.drawerOpen = false
 			}
+			// Do not automatically change keyboard focus when switching tabs.
+			// Explicit 'o' keypress or the queue modal should be used to toggle focus.
 			if p.showingTracks {
 				p.showingTracks = false
 			}
@@ -724,25 +861,31 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if p.showingTracks {
-			p.trackList, cmd = p.trackList.Update(msg)
-			p.coordinator.SetSelectedTrack(p.trackList.Index())
+			if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
+				p.trackList, cmd = p.trackList.Update(msg)
+				p.coordinator.SetSelectedTrack(p.trackList.Index())
 
-			// Enter on track list does nothing (dedicated to menu operation elsewhere).
-			// Playback is triggered via Space/P.
-			return p, cmd
+				// Enter on track list does nothing (dedicated to menu operation elsewhere).
+				// Playback is triggered via Space/P.
+				return p, cmd
+			}
+			// Queue is focused, ignore tracklist nav keys
+			return p, nil
 		}
 
 		switch active {
 		case app.HomeTab, app.LibraryTab:
-			p.recentlyAddedList, cmd = p.recentlyAddedList.Update(msg)
-			p.coordinator.SetSelectedAlbum(p.recentlyAddedList.Index())
+			if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
+				p.recentlyAddedList, cmd = p.recentlyAddedList.Update(msg)
+				p.coordinator.SetSelectedAlbum(p.recentlyAddedList.Index())
 
-			// If selection changed, fetch tracks for the selected album in the background
-			if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
-				newIdx := p.recentlyAddedList.Index()
-				if newIdx != p.lastSelectedAlbumIndex && p.libSvc != nil {
-					p.lastSelectedAlbumIndex = newIdx
-					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Album.Key))
+				// If selection changed, fetch tracks for the selected album in the background
+				if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
+					newIdx := p.recentlyAddedList.Index()
+					if newIdx != p.lastSelectedAlbumIndex && p.libSvc != nil {
+						p.lastSelectedAlbumIndex = newIdx
+						cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Album.Key))
+					}
 				}
 			}
 
@@ -758,14 +901,16 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case app.PlaylistsTab:
-			p.playlistList, cmd = p.playlistList.Update(msg)
-			p.coordinator.SetSelectedPlaylist(p.playlistList.Index())
+			if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
+				p.playlistList, cmd = p.playlistList.Update(msg)
+				p.coordinator.SetSelectedPlaylist(p.playlistList.Index())
 
-			if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
-				newIdx := p.playlistList.Index()
-				if newIdx != p.lastSelectedPlaylistIndex && p.libSvc != nil {
-					p.lastSelectedPlaylistIndex = newIdx
-					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Playlist.Key))
+				if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
+					newIdx := p.playlistList.Index()
+					if newIdx != p.lastSelectedPlaylistIndex && p.libSvc != nil {
+						p.lastSelectedPlaylistIndex = newIdx
+						cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Playlist.Key))
+					}
 				}
 			}
 
@@ -784,8 +929,115 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.queueList, cmd = p.queueList.Update(msg)
 			p.coordinator.SetQueueIndex(p.queueList.Index())
 
+			// Move selected queue item up (swap it with previous item)
+			if key.Matches(msg, p.keys.QueueMoveUp) {
+				sel := p.queueList.Index()
+				q := p.coordinator.Queue()
+				if sel > 0 && sel < len(q) {
+					playIdx := p.coordinator.QueueIndex()
+					// Swap the queue elements
+					q[sel-1], q[sel] = q[sel], q[sel-1]
+					// Update playing index mapping if necessary
+					switch playIdx {
+					case sel:
+						playIdx = sel - 1
+					case sel - 1:
+						playIdx = sel
+					}
+					p.coordinator.SetQueue(q)
+					p.coordinator.SetQueueIndex(playIdx)
+					p.updateQueueListFromCoordinator()
+					if playIdx >= 0 && playIdx < len(q) {
+						p.queueList.Select(playIdx)
+					} else {
+						p.queueList.Select(sel - 1)
+					}
+				}
+				return p, nil
+			}
+
+			// Move selected queue item down (swap it with next item)
+			if key.Matches(msg, p.keys.QueueMoveDown) {
+				sel := p.queueList.Index()
+				q := p.coordinator.Queue()
+				if sel >= 0 && sel < len(q)-1 {
+					playIdx := p.coordinator.QueueIndex()
+					// Swap the queue elements
+					q[sel], q[sel+1] = q[sel+1], q[sel]
+					// Update playing index mapping if necessary
+					switch playIdx {
+					case sel:
+						playIdx = sel + 1
+					case sel + 1:
+						playIdx = sel
+					}
+					p.coordinator.SetQueue(q)
+					p.coordinator.SetQueueIndex(playIdx)
+					p.updateQueueListFromCoordinator()
+					if playIdx >= 0 && playIdx < len(q) {
+						p.queueList.Select(playIdx)
+					} else {
+						p.queueList.Select(sel + 1)
+					}
+				}
+				return p, nil
+			}
+
+			// Remove selected queue item
+			if key.Matches(msg, p.keys.QueueRemove) {
+				sel := p.queueList.Index()
+				q := p.coordinator.Queue()
+				if sel >= 0 && sel < len(q) {
+					playIdx := p.coordinator.QueueIndex()
+					newQ := make([]app.Track, 0, len(q)-1)
+					newQ = append(newQ, q[:sel]...)
+					newQ = append(newQ, q[sel+1:]...)
+					// Adjust playing index mapping
+					if playIdx == sel {
+						// We removed the currently playing queued element; stop playback and clear current track/index
+						if p.orchestrator != nil {
+							_ = p.orchestrator.Stop()
+						} else {
+							p.coordinator.SetPlaybackState(app.PlaybackStopped)
+						}
+						p.coordinator.SetCurrentTrack(nil)
+						playIdx = -1
+					} else if playIdx > sel {
+						playIdx = playIdx - 1
+					}
+					p.coordinator.SetQueue(newQ)
+					p.coordinator.SetQueueIndex(playIdx)
+					p.updateQueueListFromCoordinator()
+					// Adjust list selection to a valid index
+					if playIdx >= 0 && playIdx < len(newQ) {
+						p.queueList.Select(playIdx)
+					} else if sel < len(newQ) {
+						p.queueList.Select(sel)
+					} else if len(newQ) > 0 {
+						p.queueList.Select(len(newQ) - 1)
+					}
+				}
+				return p, nil
+			}
+
+			// Play selected queue item — when playing a selected track within the queue,
+			// remove all previous tracks so the new selected track becomes the first queued item.
 			if key.Matches(msg, p.keys.Enter) {
 				if item, ok := p.queueList.SelectedItem().(util.QueueItem); ok {
+					sel := p.queueList.Index()
+					q := p.coordinator.Queue()
+					if len(q) == 0 || sel < 0 || sel >= len(q) {
+						return p, nil
+					}
+					if sel > 0 {
+						newQ := make([]app.Track, len(q)-sel)
+						copy(newQ, q[sel:])
+						p.coordinator.SetQueue(newQ)
+						p.coordinator.SetQueueIndex(0)
+						p.updateQueueListFromCoordinator()
+						p.queueList.Select(0)
+						return p, p.playAppTrack(&newQ[0])
+					}
 					at := util.DomainTrackToApp(&item.Track)
 					return p, p.playAppTrack(at)
 				}
@@ -986,14 +1238,24 @@ func (p *LibraryPage) View() string {
 	// Calculate the art size and info view so they can be used regardless of
 	// drawer state (we render art and info separately when the drawer is on
 	// the right side or when art is configured on the right).
+	// The pane has a border (2 lines), so available height is contentHeight - 2.
+	availableHeight := contentHeight - 2
+	if availableHeight < 12 {
+		// Ensure enough space for minimum art (6) and info (6) if possible,
+		// otherwise we'll just overflow slightly which is better than crashing.
+		availableHeight = 12
+	}
+
 	artHeight := leftWidth
-	if artHeight > contentHeight-4 {
-		artHeight = contentHeight - 4
+	// Reserve space for info (min 6)
+	if artHeight > availableHeight-6 {
+		artHeight = availableHeight - 6
 	}
 	if artHeight < 6 {
 		artHeight = 6
 	}
-	infoHeight := contentHeight - artHeight
+	infoHeight := availableHeight - artHeight
+	// Ensure min infoHeight
 	if infoHeight < 6 {
 		infoHeight = 6
 	}
@@ -1034,15 +1296,21 @@ func (p *LibraryPage) View() string {
 	} else {
 		// Stacked artwork + info
 		// Choose an art height that is roughly square but doesn't consume all
-		// the available vertical space; reserve at least 4 lines for the info.
+		// the available vertical space; reserve at least 6 lines for the info.
+		// The pane has a border (2 lines), so available height is contentHeight - 2.
+		availableHeight := contentHeight - 2
+		if availableHeight < 12 {
+			availableHeight = 12
+		}
+
 		artHeight := leftWidth
-		if artHeight > contentHeight-4 {
-			artHeight = contentHeight - 4
+		if artHeight > availableHeight-6 {
+			artHeight = availableHeight - 6
 		}
 		if artHeight < 6 {
 			artHeight = 6
 		}
-		infoHeight := contentHeight - artHeight
+		infoHeight := availableHeight - artHeight
 		if infoHeight < 6 {
 			infoHeight = 6
 		}
@@ -1541,9 +1809,241 @@ func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
 }
 
 // Helper: play next track (queue preferred, otherwise tracklist)
+func (p *LibraryPage) updateQueueListFromCoordinator() {
+	q := p.coordinator.Queue()
+	qItems := make([]list.Item, len(q))
+	for i, t := range q {
+		if dt := util.AppTrackToDomain(&t); dt != nil {
+			qi := util.QueueItem{Track: *dt, Index: i}
+			if p.coordinator.QueueIndex() == i {
+				qi.Playing = true
+			}
+			qItems[i] = qi
+		} else {
+			qi := util.QueueItem{Track: domain.Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration}, Index: i}
+			if p.coordinator.QueueIndex() == i {
+				qi.Playing = true
+			}
+			qItems[i] = qi
+		}
+	}
+	p.queueList.SetItems(qItems)
+	sel := p.coordinator.QueueIndex()
+	if len(q) == 0 {
+		// No queue: clear selection
+		p.queueList.Select(0)
+		return
+	}
+	if sel < 0 {
+		sel = 0
+	}
+	if sel >= len(q) {
+		sel = len(q) - 1
+	}
+	p.queueList.Select(sel)
+}
+
+// IsFocusedQueue returns true if the queue has keyboard focus.
+func (p *LibraryPage) IsFocusedQueue() bool {
+	return p.focusedQueue
+}
+
+// SetFocusedQueue sets whether the queue has keyboard focus.
+func (p *LibraryPage) SetFocusedQueue(v bool) {
+	p.focusedQueue = v
+}
+
+// isQueueVisible returns true if the queue pane or modal is visible to the user.
+// It accounts for the modal state, the active Queue tab, and whether the UI
+// is showing a queue pane (i.e., no left-pane tracklist or drawer).
+func (p *LibraryPage) isQueueVisible() bool {
+	if p.coordinator == nil {
+		return false
+	}
+	// Queue modal takes precedence
+	if p.coordinator.ShowQueueModal() {
+		return true
+	}
+	// Queue tab active is treated as visible
+	if p.coordinator.ActiveTab() == app.QueueTab {
+		return true
+	}
+	// Compute cover art position from config manager and determine whether the
+	// queue content is shown as a secondary pane (right or left) depending on the
+	// configured layout and whether drawers/tracklist are displayed.
+	pos := "left"
+	if p.coordinator.ConfigManager() != nil {
+		pos = p.coordinator.ConfigManager().GetCoverArtPosition()
+	}
+	// When there is no drawer open and no album/playlist tracklist showing,
+	// the queue is shown in the opposite column from the cover art (so it is visible).
+	if (pos == "left" || pos == "right") && !p.drawerOpen && !p.showingTracks {
+		return true
+	}
+	return false
+}
+
+func (p *LibraryPage) handleQueueKeyMsg(msg tea.KeyMsg) tea.Cmd {
+	// Ensure the queue becomes focused when we start handling queue keys so
+	// other lists do not steal the input.
+	p.SetFocusedQueue(true)
+
+	// Navigation keys (up/down/k/j or rune fallback) are handled by the list component.
+	if key.Matches(msg, p.keys.Up) || key.Matches(msg, p.keys.Down) || isRuneKey(msg, 'k') || isRuneKey(msg, 'j') {
+		var cmd tea.Cmd
+		p.queueList, cmd = p.queueList.Update(msg)
+		p.coordinator.SetQueueIndex(p.queueList.Index())
+		return cmd
+	}
+
+	// Move the selected queue item up
+	if key.Matches(msg, p.keys.QueueMoveUp) {
+		sel := p.queueList.Index()
+		q := p.coordinator.Queue()
+		if sel > 0 && sel < len(q) {
+			playIdx := p.coordinator.QueueIndex()
+			q[sel-1], q[sel] = q[sel], q[sel-1]
+			// Remap playing index if needed
+			switch playIdx {
+			case sel:
+				playIdx = sel - 1
+			case sel - 1:
+				playIdx = sel
+			}
+			p.coordinator.SetQueue(q)
+			p.coordinator.SetQueueIndex(playIdx)
+			p.updateQueueListFromCoordinator()
+			if playIdx >= 0 && playIdx < len(q) {
+				p.queueList.Select(playIdx)
+			} else {
+				p.queueList.Select(sel - 1)
+			}
+		}
+		return nil
+	}
+
+	// Move the selected queue item down
+	if key.Matches(msg, p.keys.QueueMoveDown) {
+		sel := p.queueList.Index()
+		q := p.coordinator.Queue()
+		if sel >= 0 && sel < len(q)-1 {
+			playIdx := p.coordinator.QueueIndex()
+			q[sel], q[sel+1] = q[sel+1], q[sel]
+			// Remap playing index if needed
+			switch playIdx {
+			case sel:
+				playIdx = sel + 1
+			case sel + 1:
+				playIdx = sel
+			}
+			p.coordinator.SetQueue(q)
+			p.coordinator.SetQueueIndex(playIdx)
+			p.updateQueueListFromCoordinator()
+			if playIdx >= 0 && playIdx < len(q) {
+				p.queueList.Select(playIdx)
+			} else {
+				p.queueList.Select(sel + 1)
+			}
+		}
+		return nil
+	}
+
+	// Remove the selected queue item
+	if key.Matches(msg, p.keys.QueueRemove) {
+		sel := p.queueList.Index()
+		q := p.coordinator.Queue()
+		if sel >= 0 && sel < len(q) {
+			playIdx := p.coordinator.QueueIndex()
+			newQ := make([]app.Track, 0, len(q)-1)
+			newQ = append(newQ, q[:sel]...)
+			newQ = append(newQ, q[sel+1:]...)
+			// If we're removing the currently playing queued element, stop and clear it.
+			if playIdx == sel {
+				if p.orchestrator != nil {
+					_ = p.orchestrator.Stop()
+				} else {
+					p.coordinator.SetPlaybackState(app.PlaybackStopped)
+				}
+				p.coordinator.SetCurrentTrack(nil)
+				playIdx = -1
+			} else if playIdx > sel {
+				playIdx = playIdx - 1
+			}
+			p.coordinator.SetQueue(newQ)
+			p.coordinator.SetQueueIndex(playIdx)
+			p.updateQueueListFromCoordinator()
+			// Adjust selection to a valid index
+			if playIdx >= 0 && playIdx < len(newQ) {
+				p.queueList.Select(playIdx)
+			} else if sel < len(newQ) {
+				p.queueList.Select(sel)
+			} else if len(newQ) > 0 {
+				p.queueList.Select(len(newQ) - 1)
+			}
+		}
+		return nil
+	}
+
+	// Play selected queue item:
+	// Enter or Space in modal should trim the queue before the selected index and
+	// start playback at the now-first queued element.
+	if key.Matches(msg, p.keys.PlaySelected) || key.Matches(msg, p.keys.Enter) {
+		sel := p.queueList.Index()
+		q := p.coordinator.Queue()
+		if len(q) == 0 || sel < 0 || sel >= len(q) {
+			return nil
+		}
+		// Trim previous tracks when selecting an item inside the queue. After trimming,
+		// the selected item becomes the first queued track.
+		if sel > 0 {
+			newQ := make([]app.Track, len(q)-sel)
+			copy(newQ, q[sel:])
+			p.coordinator.SetQueue(newQ)
+			p.coordinator.SetQueueIndex(0)
+			p.updateQueueListFromCoordinator()
+			p.queueList.Select(0)
+			// Close the modal and play the selected-first track.
+			p.coordinator.SetShowQueueModal(false)
+			return p.playAppTrack(&newQ[0])
+		}
+		// Selected item is already first — close modal and play it.
+		at := &q[sel]
+		p.coordinator.SetShowQueueModal(false)
+		return p.playAppTrack(at)
+	}
+
+	// No special key matched, forward navigation to the queue list component.
+	var cmd tea.Cmd
+	p.queueList, cmd = p.queueList.Update(msg)
+	p.coordinator.SetQueueIndex(p.queueList.Index())
+	return cmd
+}
+
 func (p *LibraryPage) playNext() tea.Cmd {
 	q := p.coordinator.Queue()
 	tracks := p.coordinator.Tracks()
+
+	// If there is an active queue and we're at the last queued item, stop playback
+	// instead of wrapping. The queue semantics: play all remaining items and stop.
+	if len(q) > 0 {
+		idx := p.coordinator.QueueIndex()
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(q)-1 {
+			// Queue is complete; stop playback and clear selection.
+			if p.orchestrator != nil {
+				_ = p.orchestrator.Stop()
+			} else {
+				p.coordinator.SetPlaybackState(app.PlaybackStopped)
+			}
+			p.coordinator.SetQueueIndex(-1)
+			// Clear current track for UI clarity; playback finished
+			p.coordinator.SetCurrentTrack(nil)
+			return nil
+		}
+	}
+
 	// Convert app.Track slices into domain.Track slices for the playback controller
 	dq := make([]domain.Track, len(q))
 	for i, t := range q {

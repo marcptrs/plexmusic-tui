@@ -110,7 +110,9 @@ func TestPlaybackController_PlayNext_WithPbSvcError(t *testing.T) {
 	pc := NewPlaybackController(mockPB)
 	q := []domain.Track{{Title: "A"}}
 	tracks := []domain.Track{{Title: "1"}}
-	isQ, newQ, _, played, err := pc.PlayNext(context.Background(), q, 0, tracks, 0, nil)
+	// With the updated non-wrapping queue semantics, pass -1 to indicate we
+	// want the controller to use the first queued item (index 0) as the next.
+	isQ, newQ, _, played, err := pc.PlayNext(context.Background(), q, -1, tracks, 0, nil)
 	if err != nil {
 		t.Fatalf("did not expect error from PlayNext since controller no longer calls pbSvc: %v", err)
 	}
@@ -131,7 +133,9 @@ func TestPlaybackController_PlayPrev_WithPbSvcError(t *testing.T) {
 	pc := NewPlaybackController(mockPB)
 	q := []domain.Track{{Title: "A"}}
 	tracks := []domain.Track{{Title: "1"}}
-	isQ, newQ, _, played, err := pc.PlayPrev(context.Background(), q, 0, tracks, 0, nil)
+	// With the updated non-wrapping queue semantics, pass -1 to indicate we
+	// want the controller to use the queue's last item as the prev selection.
+	isQ, newQ, _, played, err := pc.PlayPrev(context.Background(), q, -1, tracks, 0, nil)
 	if err != nil {
 		t.Fatalf("did not expect error from PlayPrev since controller no longer calls pbSvc: %v", err)
 	}

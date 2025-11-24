@@ -125,7 +125,8 @@ func (o *Orchestrator) Play(t *domain.Track) error {
 
 func (o *Orchestrator) PlayDomainTrack(ctx context.Context, lib interface {
 	FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
-}, track *domain.Track) error {
+}, track *domain.Track,
+) error {
 	if o.pbSvc == nil {
 		return fmt.Errorf("playback service unavailable")
 	}
@@ -242,12 +243,36 @@ func (o *Orchestrator) PlayNext(ctx context.Context, pc *service.PlaybackControl
 		}
 		return err
 	}
+
+	// If a queue is in use and the controller signalled completion (newQueueIdx == -1),
+	// stop playback and clear the queue selection instead of wrapping. This avoids
+	// infinite looping of queued tracks — when the queue completes, stop and clear
+	// the queue selection/state.
+	if isQueue && len(dq) > 0 && newQueueIdx == -1 {
+		if o.pbSvc != nil {
+			if err := o.pbSvc.Stop(); err != nil {
+				if o.coordinator != nil {
+					o.coordinator.SetNotification(fmt.Sprintf("Stop failed: %v", err), "error", 10*time.Second)
+				}
+				return err
+			}
+		} else {
+			if o.coordinator != nil {
+				o.coordinator.SetPlaybackState(app.PlaybackStopped)
+			}
+		}
+		if o.coordinator != nil {
+			o.coordinator.SetQueueIndex(-1)
+			o.coordinator.SetCurrentTrack(nil)
+		}
+		return nil
+	}
+
 	if isQueue {
 		o.coordinator.SetQueueIndex(newQueueIdx)
 	} else {
 		o.coordinator.SetSelectedTrack(newSelected)
 	}
-	// Set coordinator current track and attempt to play using pbSvc
 	if next != nil {
 		if at := util.DomainTrackToApp(next); at != nil {
 			o.coordinator.SetCurrentTrack(at)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -20,7 +21,10 @@ import (
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
+	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
+	"plexmusic-tui/internal/tui"
+	components "plexmusic-tui/internal/tui/components"
 	util "plexmusic-tui/internal/tui/util"
 )
 
@@ -1260,6 +1264,332 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	view := page.View()
 	if !strings.Contains(view, "T1") {
 		t.Fatalf("expected view to contain currently playing track T1, got: %s", view)
+	}
+}
+
+// mockPbSvcOK is a minimal playback service used for UI tests that
+// need to exercise orchestrator playback orchestration without actually
+// initializing audio. It satisfies service.PlaybackServicer.
+type mockPbSvcOK struct {
+	ch chan pubsub.Event[service.PlaybackEvent]
+}
+
+func (m *mockPbSvcOK) Play(track *domain.Track) error { return nil }
+func (m *mockPbSvcOK) Pause() error                   { return nil }
+func (m *mockPbSvcOK) Resume() error                  { return nil }
+func (m *mockPbSvcOK) Stop() error                    { return nil }
+func (m *mockPbSvcOK) Seek(position int) error        { return nil }
+func (m *mockPbSvcOK) SetVolume(v float64)            {}
+func (m *mockPbSvcOK) GetVolume() float64             { return 0 }
+func (m *mockPbSvcOK) GetPosition() int               { return 0 }
+func (m *mockPbSvcOK) GetDuration() int               { return 0 }
+func (m *mockPbSvcOK) GetState() domain.PlaybackState { return domain.PlaybackPlaying }
+func (m *mockPbSvcOK) PlayDomainTrack(ctx context.Context, lib interface {
+	FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
+}, track *domain.Track,
+) error {
+	return nil
+}
+
+func (m *mockPbSvcOK) Subscribe(ctx context.Context) <-chan pubsub.Event[service.PlaybackEvent] {
+	if m.ch == nil {
+		ch := make(chan pubsub.Event[service.PlaybackEvent], 4)
+		close(ch)
+		return ch
+	}
+	return m.ch
+}
+
+func TestLibraryPage_PlaySelected_QueuesTracksFromSelection(t *testing.T) {
+	coord := app.NewCoordinator()
+	// Simulate authenticated server so page can build layout; orchestrator will be swapped with a mock below.
+	coord.SetToken("test-token")
+	coord.SetServers([]app.PlexServer{{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}})
+	coord.SetSelectedServer(0)
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// Build a simple in-memory tracklist on the page and select the second track.
+	appTracks := []app.Track{
+		{Title: "T1", Artist: "Artist", Album: "Album", Key: "/t1"},
+		{Title: "T2", Artist: "Artist", Album: "Album", Key: "/t2"},
+		{Title: "T3", Artist: "Artist", Album: "Album", Key: "/t3"},
+	}
+	coord.SetTracks(appTracks)
+
+	items := make([]list.Item, len(appTracks))
+	for i, t := range appTracks {
+		if dt := util.AppTrackToDomain(&t); dt != nil {
+			items[i] = util.TrackItem{Track: *dt}
+		}
+	}
+	page.trackList.SetItems(items)
+	page.trackList.Select(1)
+	coord.SetSelectedTrack(1)
+	page.showingTracks = true
+
+	// Use a minimal mock playback service so we don't initialize audio.
+	pb := &mockPbSvcOK{ch: make(chan pubsub.Event[service.PlaybackEvent], 4)}
+	page.orchestrator = tui.NewOrchestrator(coord, nil, pb)
+	page.pbEvtCh = page.orchestrator.Subscribe(page.ctx)
+	page.nowPlaying = components.NewNowPlayingComponent(coord, page.orchestrator)
+
+	// Press space (PlaySelected) to queue from selected track and start playback.
+	_, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	q := coord.Queue()
+	if len(q) != 2 {
+		t.Fatalf("expected queue to contain 2 items (selected + remaining), got %d", len(q))
+	}
+	if coord.QueueIndex() != 0 {
+		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
+	}
+	if !coord.HasCurrentTrack() {
+		t.Fatalf("expected coordinator to have a current track set")
+	}
+	if coord.CurrentTrack().Title != "T2" {
+		t.Fatalf("expected currently playing track to be T2, got %s", coord.CurrentTrack().Title)
+	}
+}
+
+func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
+	coord := app.NewCoordinator()
+
+	coord.SetToken("test-token")
+	coord.SetServers([]app.PlexServer{{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}})
+	coord.SetSelectedServer(0)
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// Prepare queue with two tracks and mark playing on the first.
+	qTracks := []app.Track{
+		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1"},
+		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2"},
+	}
+	coord.SetQueue(qTracks)
+	coord.SetQueueIndex(0)
+	coord.SetCurrentTrack(&qTracks[0])
+	coord.SetPlaybackState(app.PlaybackPlaying)
+
+	// Use a minimal mock playback service and orchestrator.
+	pb := &mockPbSvcOK{ch: make(chan pubsub.Event[service.PlaybackEvent], 4)}
+	page.orchestrator = tui.NewOrchestrator(coord, nil, pb)
+	page.pbEvtCh = page.orchestrator.Subscribe(page.ctx)
+	page.nowPlaying = components.NewNowPlayingComponent(coord, page.orchestrator)
+
+	// Simulate end-of-track via a playback.position event; position >= length triggers auto-advance
+	ev := service.PlaybackEvent{
+		Type:     "playback.position",
+		Position: 100,
+		Length:   100,
+	}
+	_, cmd := page.Update(ev)
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	// Expect the queue to have advanced to the second track
+	if coord.QueueIndex() != 1 {
+		t.Fatalf("expected queue index 1 after auto-advance, got %d", coord.QueueIndex())
+	}
+	if !coord.HasCurrentTrack() {
+		t.Fatalf("expected coordinator to have a current track set after auto-advance")
+	}
+	if coord.CurrentTrack().Title != "Q2" {
+		t.Fatalf("expected current track to be Q2 after auto-advance, got %s", coord.CurrentTrack().Title)
+	}
+}
+
+// Test that when the Queue modal is open, Up/Down keys scroll the queue instead
+// of any other focused list (like Recently Added).
+func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
+	coord := app.NewCoordinator()
+
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	if page.Init() == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+
+	// Provide a recently-added album so a different list is visible
+	items := []list.Item{
+		util.AlbumItem{Album: domain.Album{Title: "Album A", Artist: "Artist", Year: 2020, Key: "/library/metadata/1"}},
+	}
+	page.recentlyAddedList.SetItems(items)
+	page.recentlyAddedList.Select(0)
+
+	// Populate queue with 3 items and verify queue list sync
+	qTracks := []app.Track{
+		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1"},
+		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2"},
+		{Title: "Q3", Artist: "Artist", Album: "Album", Key: "/q3"},
+	}
+	coord.SetQueue(qTracks)
+	coord.SetQueueIndex(0)
+	page.updateQueueListFromCoordinator()
+	page.queueList.Select(0)
+
+	// Open the queue modal
+	page.coordinator.SetShowQueueModal(true)
+
+	oldQIdx := page.queueList.Index()
+	oldRaIdx := page.recentlyAddedList.Index()
+
+	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
+	page = m.(*LibraryPage)
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	// Queue selection should change, recently added should remain unchanged
+	if page.queueList.Index() != oldQIdx+1 {
+		t.Fatalf("expected queue index to increment, got %d", page.queueList.Index())
+	}
+	if page.recentlyAddedList.Index() != oldRaIdx {
+		t.Fatalf("expected recently added unchanged, got %d", page.recentlyAddedList.Index())
+	}
+}
+
+// Test that toggling queue focus while on the Queue tab routes Up/Down to queue
+// (and that toggling off restores the previous routing).
+func TestLibraryPage_QueueFocusTogglesWithKeyOnQueueTab(t *testing.T) {
+	coord := app.NewCoordinator()
+
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	if page.Init() == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+
+	// Populate a queue with multiple tracks
+	qTracks := []app.Track{
+		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1"},
+		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2"},
+		{Title: "Q3", Artist: "Artist", Album: "Album", Key: "/q3"},
+	}
+	coord.SetQueue(qTracks)
+	coord.SetQueueIndex(0)
+	page.updateQueueListFromCoordinator()
+	page.queueList.Select(0)
+
+	// Put the page on the Queue tab (the tab is visible — focus should be off initially)
+	coord.SetActiveTab(app.QueueTab)
+	if page.IsFocusedQueue() {
+		t.Fatalf("expected queue not to have focus initially")
+	}
+
+	// Press 'o' to toggle queue focus
+	m, cmd := page.Update(tea.KeyMsg{Runes: []rune{'o'}})
+	page = m.(*LibraryPage)
+	if cmd != nil {
+		_ = cmd()
+	}
+	if !page.IsFocusedQueue() {
+		t.Fatalf("expected queue to be focused after toggling focus via Queue key")
+	}
+
+	oldIdx := page.queueList.Index()
+	// Press Down and expect queue index to advance
+	m2, cmd2 := page.Update(tea.KeyMsg{Type: tea.KeyDown})
+	page = m2.(*LibraryPage)
+	if cmd2 != nil {
+		_ = cmd2()
+	}
+	if page.queueList.Index() != oldIdx+1 {
+		t.Fatalf("expected queue index to advance when queue is focused, got %d", page.queueList.Index())
+	}
+
+	// Toggle focus off again
+	m3, cmd3 := page.Update(tea.KeyMsg{Runes: []rune{'o'}})
+	page = m3.(*LibraryPage)
+	if cmd3 != nil {
+		_ = cmd3()
+	}
+	if page.IsFocusedQueue() {
+		t.Fatalf("expected queue focus to be cleared after toggling again")
+	}
+}
+
+func TestLibraryPage_QueueVisibleInterceptsUpDown(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{Name: "Local Server", Host: "127.0.0.1", Port: "32400", AccessToken: "token", Scheme: "http"}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	if page.Init() == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+
+	// Wait until libSvc is initialized
+	start := time.Now()
+	for page.libSvc == nil {
+		if time.Since(start) > 2*time.Second {
+			t.Fatalf("libSvc not initialized in time")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Provide a recently-added album so a different list is visible
+	items := []list.Item{
+		util.AlbumItem{Album: domain.Album{Title: "Album A", Artist: "Artist", Year: 2020, Key: "/library/metadata/1"}},
+	}
+	page.recentlyAddedList.SetItems(items)
+	page.recentlyAddedList.Select(0)
+
+	// Populate queue with 3 items and verify queue list sync
+	qTracks := []app.Track{
+		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1"},
+		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2"},
+		{Title: "Q3", Artist: "Artist", Album: "Album", Key: "/q3"},
+	}
+	coord.SetQueue(qTracks)
+	coord.SetQueueIndex(0)
+	page.updateQueueListFromCoordinator()
+	page.queueList.Select(0)
+
+	// Ensure default Home tab and that queue is visible as the right pane (no drawer or tracklist)
+	coord.SetActiveTab(app.HomeTab)
+	page.drawerOpen = false
+	page.showingTracks = false
+
+	oldQIdx := page.queueList.Index()
+	oldRaIdx := page.recentlyAddedList.Index()
+
+	// Press Down; expect queue index to change, recently added remains unchanged
+	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
+	page = m.(*LibraryPage)
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	if page.queueList.Index() != oldQIdx+1 {
+		t.Fatalf("expected queue index to increment, got %d", page.queueList.Index())
+	}
+	if page.recentlyAddedList.Index() != oldRaIdx {
+		t.Fatalf("expected recently added unchanged, got %d", page.recentlyAddedList.Index())
 	}
 }
 

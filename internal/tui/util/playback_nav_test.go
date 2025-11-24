@@ -18,12 +18,12 @@ func TestNextIndices_QueuePreferred(t *testing.T) {
 	}
 }
 
-func TestNextIndices_QueueWrap(t *testing.T) {
+func TestNextIndices_QueueEnds(t *testing.T) {
 	q := []app.Track{{Title: "A"}, {Title: "B"}}
 	tracks := []app.Track{{Title: "1"}}
 	isQueue, newQ, _ := NextIndices(q, 1, tracks, 0)
-	if !isQueue || newQ != 0 {
-		t.Fatalf("expected wrap to 0, got isQueue=%v newQ=%d", isQueue, newQ)
+	if !isQueue || newQ != -1 {
+		t.Fatalf("expected queue completion (newQueueIndex = -1), got isQueue=%v newQ=%d", isQueue, newQ)
 	}
 }
 

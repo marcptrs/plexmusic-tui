@@ -59,19 +59,28 @@ func (pc *PlaybackController) AdjustVolume(percentDelta float64) {
 
 // Next computes the next track selection and optionally plays it via the pbSvc
 func (pc *PlaybackController) Next(queue []domain.Track, queueIndex int, tracks []domain.Track, selected int) (isQueue bool, newQueueIndex int, newSelected int, next *domain.Track) {
+	// Queue-first behavior. If queue is non-empty, advance to the next
+	// queued index if available. Do NOT wrap the queue. When the end
+	// of the queue is reached, return newQueueIndex == -1 and next == nil.
 	if len(queue) > 0 {
 		idx := queueIndex
+		// If there is no current queue index, start at 0
 		if idx < 0 {
 			idx = 0
-		} else {
-			idx++
-			if idx >= len(queue) {
-				idx = 0
-			}
+			// We have a valid next: queue[0]
+			return true, idx, selected, &queue[idx]
 		}
+		// Compute next index (advance by one)
+		idx++
+		// If we've reached the end of the queue, signal completion
+		if idx >= len(queue) {
+			return true, -1, selected, nil
+		}
+		// Normal next item in queue
 		return true, idx, selected, &queue[idx]
 	}
 
+	// When no queue, navigate tracks (wrap on tracks to keep old behavior).
 	if len(tracks) == 0 {
 		return false, queueIndex, selected, nil
 	}
@@ -117,6 +126,8 @@ func (pc *PlaybackController) PlayNext(ctx context.Context, queue []domain.Track
 },
 ) (isQueue bool, newQueueIndex int, newSelected int, played *domain.Track, err error) {
 	isQueue, newQueueIndex, newSelected, next := pc.Next(queue, queueIndex, tracks, selected)
+	// If the controller indicates the queue has completed (newQueueIndex == -1),
+	// there's nothing to play next.
 	if next == nil {
 		return isQueue, newQueueIndex, newSelected, nil, nil
 	}

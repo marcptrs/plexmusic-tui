@@ -83,7 +83,7 @@ func TestOrchestrator_PlayNext_PbErrorSetsNotification(t *testing.T) {
 	// PlayNext should call PlayDomainTrack which will use lib.FetchStream -> error
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := orchestrator.PlayNext(ctx, pc, q, 0, tracks, 0); err == nil {
+	if err := orchestrator.PlayNext(ctx, pc, q, -1, tracks, 0); err == nil {
 		t.Fatalf("expected error from PlayNext due to lib fetch error")
 	}
 	if !coord.NotificationActive() {
@@ -103,7 +103,7 @@ func TestOrchestrator_PlayNext_PbSvcErrorSetsNotification(t *testing.T) {
 	tracks := []app.Track{{Title: "T1"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := orchestrator.PlayNext(ctx, pc, q, 0, tracks, 0); err == nil {
+	if err := orchestrator.PlayNext(ctx, pc, q, -1, tracks, 0); err == nil {
 		t.Fatalf("expected orchestrator PlayNext error due to pbSvc PlayDomainTrack error")
 	}
 	if !coord.NotificationActive() {

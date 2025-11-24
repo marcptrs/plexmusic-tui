@@ -40,6 +40,9 @@ type LibraryKeyMap struct {
 	Settings        key.Binding
 	SwitchView      key.Binding
 	FocusNowPlaying key.Binding
+	QueueMoveUp     key.Binding
+	QueueMoveDown   key.Binding
+	QueueRemove     key.Binding
 	Back            key.Binding
 	Quit            key.Binding
 }
@@ -54,7 +57,7 @@ func (k LibraryKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter, k.PlaySelected, k.Back},
 		{k.Play, k.Next, k.Prev, k.VolumeUp, k.VolumeDown, k.FocusNowPlaying},
-		{k.Queue, k.Refresh, k.Search, k.Settings, k.SwitchView, k.Quit},
+		{k.Queue, k.Refresh, k.Search, k.Settings, k.SwitchView, k.Quit, k.QueueMoveUp, k.QueueMoveDown, k.QueueRemove},
 	}
 }
 
@@ -100,6 +103,18 @@ func DefaultLibraryKeyMap() LibraryKeyMap {
 		Queue: key.NewBinding(
 			key.WithKeys("o"),
 			key.WithHelp("o", "queue"),
+		),
+		QueueMoveUp: key.NewBinding(
+			key.WithKeys("U"),
+			key.WithHelp("U", "queue: move up"),
+		),
+		QueueMoveDown: key.NewBinding(
+			key.WithKeys("D"),
+			key.WithHelp("D", "queue: move down"),
+		),
+		QueueRemove: key.NewBinding(
+			key.WithKeys("x", "del", "backspace"),
+			key.WithHelp("x", "queue: remove selected"),
 		),
 		Refresh: key.NewBinding(
 			key.WithKeys("r"),
