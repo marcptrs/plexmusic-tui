@@ -137,4 +137,8 @@ type Coordinatorer interface {
 	// Debug/troubleshooting toggles
 	SetDumpView(bool)
 	DumpView() bool
+
+	// Queue manipulation
+	MoveQueueItem(from, to int)
+	RemoveQueueItem(index int)
 }

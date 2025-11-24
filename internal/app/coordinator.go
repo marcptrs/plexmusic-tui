@@ -628,6 +628,44 @@ func (c *Coordinator) SetSelectedServer(idx int) {
 	_ = c.configMgr.Save()
 }
 
+// MoveQueueItem swaps two items in the queue
+func (c *Coordinator) MoveQueueItem(from, to int) {
+	if from < 0 || from >= len(c.queue) || to < 0 || to >= len(c.queue) {
+		return
+	}
+
+	// Swap items
+	c.queue[from], c.queue[to] = c.queue[to], c.queue[from]
+
+	// Update queue index if necessary
+	switch c.queueIndex {
+	case from:
+		c.queueIndex = to
+	case to:
+		c.queueIndex = from
+	}
+}
+
+// RemoveQueueItem removes an item from the queue
+func (c *Coordinator) RemoveQueueItem(index int) {
+	if index < 0 || index >= len(c.queue) {
+		return
+	}
+
+	// Remove item
+	c.queue = append(c.queue[:index], c.queue[index+1:]...)
+
+	// Update queue index
+	if c.queueIndex == index {
+		// Removed currently playing item
+		c.queueIndex = -1
+		c.SetPlaybackState(PlaybackStopped)
+		c.SetCurrentTrack(nil)
+	} else if c.queueIndex > index {
+		c.queueIndex--
+	}
+}
+
 // Additional accessors follow same pattern as coordinator.go...
 // For brevity, showing representative examples. Full migration would
 // copy all accessor/mutator patterns.

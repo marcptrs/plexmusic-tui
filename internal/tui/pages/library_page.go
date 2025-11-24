@@ -13,7 +13,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	log "github.com/charmbracelet/log/v2"
@@ -84,16 +83,12 @@ type LibraryPage struct {
 	pbEvtCh <-chan pubsub.Event[service.PlaybackEvent]
 
 	// Lists
-	recentlyAddedList list.Model
-	playlistList      list.Model
-	trackList         list.Model
-	queueList         list.Model
-	settingsList      list.Model
-
-	// Search and inline content UI
-	searchInput  textinput.Model
-	searchActive bool
-	searchTerm   string
+	recentlyAddedComponent *components.RecentlyAddedComponent
+	playlistComponent      *components.PlaylistsComponent
+	trackComponent         *components.TracksComponent
+	queueComponent         *components.QueueComponent
+	searchComponent        *components.SearchComponent
+	settingsComponent      *components.SettingsComponent
 
 	// showingTracks indicates the left-pane is showing track list for a selected album/playlist.
 	showingTracks bool
@@ -133,40 +128,17 @@ func NewLibraryPage(coord app.Coordinatorer) *LibraryPage {
 func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthServicer) *LibraryPage {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Initialize lists
-	delegate := list.NewDefaultDelegate()
-
-	raList := list.New(nil, delegate, 0, 0)
-	raList.Title = "Recently Added"
-	raList.SetShowHelp(false)
-
-	plList := list.New(nil, delegate, 0, 0)
-	plList.Title = "Playlists"
-	plList.SetShowHelp(false)
-
-	trList := list.New(nil, delegate, 0, 0)
-	trList.Title = "Tracks"
-	trList.SetShowHelp(false)
-
-	qList := list.New(nil, delegate, 0, 0)
-	qList.Title = "Queue"
-	qList.SetShowHelp(false)
-
-	// Create a separate delegate for the settings list so we can style it.
-	settingsDelegate := list.NewDefaultDelegate()
-	settingsList := list.New(nil, settingsDelegate, 0, 0)
-
 	s := spinner.New()
 	s.Spinner = spinner.Dot
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
+	orch := tui.NewOrchestrator(coord, nil, nil)
 
 	p := &LibraryPage{
 		coordinator:   coord,
 		ctx:           ctx,
 		cancel:        cancel,
 		authSvc:       authSvc,
-		searchActive:  false,
-		searchTerm:    "",
 		showingTracks: false,
 		drawerOpen:    false,
 		loadingStats:  false,
@@ -177,33 +149,18 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		lastSelectedPlaylistIndex: -1,
 		help:                      help.New(),
 		keys:                      tui.DefaultLibraryKeyMap(),
-		recentlyAddedList:         raList,
-		playlistList:              plList,
-		trackList:                 trList,
-		queueList:                 qList,
-		settingsList:              settingsList,
+		recentlyAddedComponent:    components.NewRecentlyAddedComponent(coord),
+		playlistComponent:         components.NewPlaylistsComponent(coord),
+		trackComponent:            components.NewTracksComponent(coord),
+		queueComponent:            components.NewQueueComponent(coord, orch),
+		searchComponent:           components.NewSearchComponent(coord),
+		settingsComponent:         components.NewSettingsComponent(coord),
 		nowPlaying:                components.NewNowPlayingComponent(coord, nil),
-		orchestrator:              tui.NewOrchestrator(coord, nil, nil),
+		orchestrator:              orch,
 	}
-
-	// Initialize search input (unfocused by default)
-	ti := textinput.New()
-	ti.Placeholder = "Search albums, artists, playlists"
-	ti.CharLimit = 120
-	ti.Width = 48
-	ti.Blur()
-	p.searchInput = ti
 
 	if authSvc != nil {
 		p.authEvtCh = authSvc.Subscribe(p.ctx)
-	}
-	// Initialize settings list items from available config
-	if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
-		pos := p.coordinator.ConfigManager().GetCoverArtPosition()
-		// Build the settings list items (grouped)
-		items := []list.Item{}
-		items = append(items, util.SettingsItem{Group: "Layout", Name: "Cover art position", Key: "coverArtPos", Kind: "choice", Value: pos})
-		p.settingsList.SetItems(items)
 	}
 	return p
 }
@@ -272,13 +229,6 @@ func (p *LibraryPage) Init() tea.Cmd {
 	p.coordinator.SetSelectedTrack(0)
 
 	// Kick off fetching of libraries, recently added and playlists, and begin subscriptions.
-	// Initialize settings list items based on current config.
-	if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
-		pos := p.coordinator.ConfigManager().GetCoverArtPosition()
-		items := []list.Item{}
-		items = append(items, util.SettingsItem{Group: "Layout", Name: "Cover art position", Key: "coverArtPos", Kind: "choice", Value: pos, DescriptionText: "Position of cover art within the layout: left or right"})
-		p.settingsList.SetItems(items)
-	}
 	return tea.Batch(
 		p.subscribeToLibraryEvents(),
 		p.subscribeToPlaybackEvents(),
@@ -316,10 +266,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			listHeight = 0
 		}
 
-		p.recentlyAddedList.SetSize(leftWidth, listHeight)
-		p.playlistList.SetSize(leftWidth, listHeight)
-		p.trackList.SetSize(leftWidth, listHeight)
-		p.queueList.SetSize(leftWidth, listHeight)
+		p.recentlyAddedComponent.SetSize(leftWidth, listHeight)
+		p.playlistComponent.SetSize(leftWidth, listHeight)
+		p.trackComponent.SetSize(leftWidth, listHeight)
+		p.queueComponent.SetSize(leftWidth, listHeight)
 
 		return p, nil
 
@@ -358,11 +308,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.coordinator.SetAlbums(appAlbums)
 			// Note: msg.TotalSize here is the count of recently added items (e.g. 50),
 			// not the total albums in the library. We should not overwrite the library stats.
-			p.recentlyAddedList.SetItems(items)
+			p.recentlyAddedComponent.SetItems(items)
 			// Keep UI selection sane
 			if len(appAlbums) > 0 {
 				p.coordinator.SetSelectedAlbum(0)
-				p.recentlyAddedList.Select(0)
+				p.recentlyAddedComponent.Select(0)
 				// Reset last selected album index so first selection triggers a fetch
 				p.lastSelectedAlbumIndex = -1
 			}
@@ -386,10 +336,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				p.coordinator.SetPlaylistsTotal(len(appPlaylists))
 			}
-			p.playlistList.SetItems(items)
+			p.playlistComponent.SetItems(items)
 			if len(appPlaylists) > 0 {
 				p.coordinator.SetSelectedPlaylist(0)
-				p.playlistList.Select(0)
+				p.playlistComponent.Select(0)
 				// Reset last selected playlist index so first selection triggers a fetch
 				p.lastSelectedPlaylistIndex = -1
 			}
@@ -409,10 +359,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				p.coordinator.SetTracksTotal(len(appTracks))
 			}
-			p.trackList.SetItems(items)
+			p.trackComponent.SetItems(items)
 			if len(appTracks) > 0 {
 				p.coordinator.SetSelectedTrack(0)
-				p.trackList.Select(0)
+				p.trackComponent.Select(0)
 			}
 
 		// Error cases: log and display notification
@@ -588,28 +538,21 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Let the search input handle keys while on Search tab.
+		// Let the search component handle keys while on Search tab.
 		if p.coordinator.ActiveTab() == app.SearchTab {
 			switch msg.String() {
 			case "1", "2", "3", "4", "5", "6":
 				// Allow these to fall through into the main key handling below
 			default:
 				var cmd tea.Cmd
-				p.searchInput, cmd = p.searchInput.Update(msg)
-				// If user hits Enter or Esc, apply/abort and return
-				switch msg.String() {
-				case "enter":
-					p.searchTerm = p.searchInput.Value()
-					// TODO: apply search across collections (albums/playlists/tracks)
-					p.searchInput.Blur()
-					return p, cmd
-				case "esc":
-					p.searchInput.Blur()
+				_, cmd = p.searchComponent.Update(msg)
+
+				// If user hits Esc, abort and return to Home
+				if msg.String() == "esc" {
+					p.searchComponent.Blur()
 					p.coordinator.SetActiveTab(app.HomeTab)
-					return p, cmd
-				default:
-					return p, cmd
 				}
+				return p, cmd
 			}
 		}
 
@@ -690,7 +633,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// selected item and begin playing that track.
 			active := p.coordinator.ActiveTab()
 			if active == app.QueueTab {
-				sel := p.queueList.Index()
+				sel := p.queueComponent.Index()
 				q := p.coordinator.Queue()
 				if len(q) == 0 || sel < 0 || sel >= len(q) {
 					return p, nil
@@ -701,12 +644,12 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					copy(newQueue, q[sel:])
 					p.coordinator.SetQueue(newQueue)
 					p.coordinator.SetQueueIndex(0)
-					p.updateQueueListFromCoordinator()
-					p.queueList.Select(0)
+					p.queueComponent.UpdateListFromCoordinator()
+					p.queueComponent.Select(0)
 					return p, p.playAppTrack(&newQueue[0])
 				}
 				// Selected is the first item — just play it
-				if item, ok := p.queueList.SelectedItem().(util.QueueItem); ok {
+				if item, ok := p.queueComponent.SelectedItem().(util.QueueItem); ok {
 					at := util.DomainTrackToApp(&item.Track)
 					return p, p.playAppTrack(at)
 				}
@@ -715,7 +658,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Try to play the selected/first track from album, playlist or queue.
 			if p.showingTracks {
-				if item, ok := p.trackList.SelectedItem().(util.TrackItem); ok {
+				if item, ok := p.trackComponent.SelectedItem().(util.TrackItem); ok {
 					// Convert domain.Track -> app.Track defensively using the selected item
 					at := util.DomainTrackToApp(&item.Track)
 
@@ -723,7 +666,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// build a queue from the selected track to the end of the list so the
 					// subsequent tracks will be played automatically.
 					tracks := p.coordinator.Tracks()
-					selIdx := p.trackList.Index()
+					selIdx := p.trackComponent.Index()
 					if len(tracks) == 0 {
 						return p, nil
 					}
@@ -741,7 +684,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Persist queue & selection to coordinator
 					p.coordinator.SetQueue(newQueue)
 					p.coordinator.SetQueueIndex(0)
-					p.updateQueueListFromCoordinator()
+					p.queueComponent.UpdateListFromCoordinator()
 
 					// Make sure the underlying tracklist selection is reflected in coordinator
 					p.coordinator.SetSelectedTrack(selIdx)
@@ -759,7 +702,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			active = p.coordinator.ActiveTab()
 			if p.libSvc != nil && (active == app.PlaylistsTab || active == app.HomeTab || active == app.LibraryTab) {
 				if active == app.PlaylistsTab {
-					if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
+					if item, ok := p.playlistComponent.SelectedItem().(util.PlaylistItem); ok {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
 						// Fetch tracks for the playlist and set them as the queue.
@@ -777,10 +720,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							// Update coordinator & list state
 							p.coordinator.SetQueue(appTracks)
 							p.coordinator.SetQueueIndex(0)
-							p.updateQueueListFromCoordinator()
+							p.queueComponent.UpdateListFromCoordinator()
 							p.coordinator.SetTracks(appTracks)
-							p.trackList.SetItems(items)
-							p.trackList.Select(0)
+							p.trackComponent.SetItems(items)
+							p.trackComponent.Select(0)
 							p.coordinator.SetSelectedTrack(0)
 							p.showingTracks = false
 							p.coordinator.SetActiveTab(app.QueueTab)
@@ -789,7 +732,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				} else {
 					// Home or Library tab: use selected album
-					if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
+					if item, ok := p.recentlyAddedComponent.SelectedItem().(util.AlbumItem); ok {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
 						tracks, _, _ := p.libSvc.FetchTracks(reqCtx, item.Album.Key)
@@ -805,10 +748,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							}
 							p.coordinator.SetQueue(appTracks)
 							p.coordinator.SetQueueIndex(0)
-							p.updateQueueListFromCoordinator()
+							p.queueComponent.UpdateListFromCoordinator()
 							p.coordinator.SetTracks(appTracks)
-							p.trackList.SetItems(items)
-							p.trackList.Select(0)
+							p.trackComponent.SetItems(items)
+							p.trackComponent.Select(0)
 							p.coordinator.SetSelectedTrack(0)
 							p.showingTracks = false
 							p.coordinator.SetActiveTab(app.QueueTab)
@@ -871,11 +814,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, p.keys.Search):
 			// Toggle Search tab and focus/blur the search input accordingly
 			if p.coordinator.ActiveTab() == app.SearchTab {
-				p.searchInput.Blur()
+				p.searchComponent.Blur()
 				p.coordinator.SetActiveTab(app.HomeTab)
 			} else {
 				p.coordinator.SetActiveTab(app.SearchTab)
-				p.searchInput.Focus()
+				p.searchComponent.Focus()
 			}
 			return p, nil
 		case key.Matches(msg, p.keys.FocusNowPlaying):
@@ -938,8 +881,8 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if p.showingTracks {
 			if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
-				p.trackList, cmd = p.trackList.Update(msg)
-				p.coordinator.SetSelectedTrack(p.trackList.Index())
+				_, cmd = p.trackComponent.Update(msg)
+				p.coordinator.SetSelectedTrack(p.trackComponent.Index())
 
 				// Enter on track list does nothing (dedicated to menu operation elsewhere).
 				// Playback is triggered via Space/P.
@@ -952,12 +895,12 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch active {
 		case app.HomeTab, app.LibraryTab:
 			if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
-				p.recentlyAddedList, cmd = p.recentlyAddedList.Update(msg)
-				p.coordinator.SetSelectedAlbum(p.recentlyAddedList.Index())
+				_, cmd = p.recentlyAddedComponent.Update(msg)
+				p.coordinator.SetSelectedAlbum(p.recentlyAddedComponent.Index())
 
 				// If selection changed, fetch tracks for the selected album in the background
-				if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
-					newIdx := p.recentlyAddedList.Index()
+				if item, ok := p.recentlyAddedComponent.SelectedItem().(util.AlbumItem); ok {
+					newIdx := p.recentlyAddedComponent.Index()
 					if newIdx != p.lastSelectedAlbumIndex && p.libSvc != nil {
 						p.lastSelectedAlbumIndex = newIdx
 						cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Album.Key))
@@ -966,7 +909,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if key.Matches(msg, p.keys.Enter) {
-				if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
+				if item, ok := p.recentlyAddedComponent.SelectedItem().(util.AlbumItem); ok {
 					if p.libSvc != nil {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
@@ -978,11 +921,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case app.PlaylistsTab:
 			if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
-				p.playlistList, cmd = p.playlistList.Update(msg)
-				p.coordinator.SetSelectedPlaylist(p.playlistList.Index())
+				_, cmd = p.playlistComponent.Update(msg)
+				p.coordinator.SetSelectedPlaylist(p.playlistComponent.Index())
 
-				if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
-					newIdx := p.playlistList.Index()
+				if item, ok := p.playlistComponent.SelectedItem().(util.PlaylistItem); ok {
+					newIdx := p.playlistComponent.Index()
 					if newIdx != p.lastSelectedPlaylistIndex && p.libSvc != nil {
 						p.lastSelectedPlaylistIndex = newIdx
 						cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Playlist.Key))
@@ -991,7 +934,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 			if key.Matches(msg, p.keys.Enter) {
-				if item, ok := p.playlistList.SelectedItem().(util.PlaylistItem); ok {
+				if item, ok := p.playlistComponent.SelectedItem().(util.PlaylistItem); ok {
 					if p.libSvc != nil {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
@@ -1002,160 +945,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case app.QueueTab:
-			p.queueList, cmd = p.queueList.Update(msg)
-			p.coordinator.SetQueueIndex(p.queueList.Index())
-
-			// Move selected queue item up (swap it with previous item)
-			if key.Matches(msg, p.keys.QueueMoveUp) {
-				sel := p.queueList.Index()
-				q := p.coordinator.Queue()
-				if sel > 0 && sel < len(q) {
-					playIdx := p.coordinator.QueueIndex()
-					// Swap the queue elements
-					q[sel-1], q[sel] = q[sel], q[sel-1]
-					// Update playing index mapping if necessary
-					switch playIdx {
-					case sel:
-						playIdx = sel - 1
-					case sel - 1:
-						playIdx = sel
-					}
-					p.coordinator.SetQueue(q)
-					p.coordinator.SetQueueIndex(playIdx)
-					p.updateQueueListFromCoordinator()
-					if playIdx >= 0 && playIdx < len(q) {
-						p.queueList.Select(playIdx)
-					} else {
-						p.queueList.Select(sel - 1)
-					}
-				}
-				return p, nil
-			}
-
-			// Move selected queue item down (swap it with next item)
-			if key.Matches(msg, p.keys.QueueMoveDown) {
-				sel := p.queueList.Index()
-				q := p.coordinator.Queue()
-				if sel >= 0 && sel < len(q)-1 {
-					playIdx := p.coordinator.QueueIndex()
-					// Swap the queue elements
-					q[sel], q[sel+1] = q[sel+1], q[sel]
-					// Update playing index mapping if necessary
-					switch playIdx {
-					case sel:
-						playIdx = sel + 1
-					case sel + 1:
-						playIdx = sel
-					}
-					p.coordinator.SetQueue(q)
-					p.coordinator.SetQueueIndex(playIdx)
-					p.updateQueueListFromCoordinator()
-					if playIdx >= 0 && playIdx < len(q) {
-						p.queueList.Select(playIdx)
-					} else {
-						p.queueList.Select(sel + 1)
-					}
-				}
-				return p, nil
-			}
-
-			// Remove selected queue item
-			if key.Matches(msg, p.keys.QueueRemove) {
-				sel := p.queueList.Index()
-				q := p.coordinator.Queue()
-				if sel >= 0 && sel < len(q) {
-					playIdx := p.coordinator.QueueIndex()
-					newQ := make([]app.Track, 0, len(q)-1)
-					newQ = append(newQ, q[:sel]...)
-					newQ = append(newQ, q[sel+1:]...)
-					// Adjust playing index mapping
-					if playIdx == sel {
-						// We removed the currently playing queued element; stop playback and clear current track/index
-						if p.orchestrator != nil {
-							_ = p.orchestrator.Stop()
-						} else {
-							p.coordinator.SetPlaybackState(app.PlaybackStopped)
-						}
-						p.coordinator.SetCurrentTrack(nil)
-						playIdx = -1
-					} else if playIdx > sel {
-						playIdx = playIdx - 1
-					}
-					p.coordinator.SetQueue(newQ)
-					p.coordinator.SetQueueIndex(playIdx)
-					p.updateQueueListFromCoordinator()
-					// Adjust list selection to a valid index
-					if playIdx >= 0 && playIdx < len(newQ) {
-						p.queueList.Select(playIdx)
-					} else if sel < len(newQ) {
-						p.queueList.Select(sel)
-					} else if len(newQ) > 0 {
-						p.queueList.Select(len(newQ) - 1)
-					}
-				}
-				return p, nil
-			}
-
-			// Play selected queue item — when playing a selected track within the queue,
-			// remove all previous tracks so the new selected track becomes the first queued item.
-			if key.Matches(msg, p.keys.Enter) {
-				if item, ok := p.queueList.SelectedItem().(util.QueueItem); ok {
-					sel := p.queueList.Index()
-					q := p.coordinator.Queue()
-					if len(q) == 0 || sel < 0 || sel >= len(q) {
-						return p, nil
-					}
-					if sel > 0 {
-						newQ := make([]app.Track, len(q)-sel)
-						copy(newQ, q[sel:])
-						p.coordinator.SetQueue(newQ)
-						p.coordinator.SetQueueIndex(0)
-						p.updateQueueListFromCoordinator()
-						p.queueList.Select(0)
-						return p, p.playAppTrack(&newQ[0])
-					}
-					at := util.DomainTrackToApp(&item.Track)
-					return p, p.playAppTrack(at)
-				}
-			}
+			p.queueComponent.SetFocused(true)
+			_, cmd = p.queueComponent.Update(msg)
+			return p, cmd
 		case app.SettingsTab:
-			p.settingsList, cmd = p.settingsList.Update(msg)
-			// Handle Enter to toggle boolean/choice settings
-			if key.Matches(msg, p.keys.Enter) {
-				if item, ok := p.settingsList.SelectedItem().(util.SettingsItem); ok {
-					switch item.Key {
-					case "coverArtPos":
-						// Toggle left/right choice
-						cur := "left"
-						if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
-							cur = p.coordinator.ConfigManager().GetCoverArtPosition()
-						}
-						newVal := "left"
-						if cur == "left" {
-							newVal = "right"
-						}
-						if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
-							p.coordinator.ConfigManager().SetCoverArtPosition(newVal)
-							// persist the change if possible
-							_ = p.coordinator.ConfigManager().Save()
-						}
-						// update the item in the settings list
-						items := make([]list.Item, len(p.settingsList.Items()))
-						for i, it := range p.settingsList.Items() {
-							if s, ok2 := it.(util.SettingsItem); ok2 {
-								if s.Key == "coverArtPos" {
-									s.Value = newVal
-								}
-								items[i] = s
-							} else {
-								items[i] = it
-							}
-						}
-						p.settingsList.SetItems(items)
-						p.coordinator.SetNotification("Cover art position updated", "success", 2*time.Second)
-					}
-				}
-			}
+			_, cmd = p.settingsComponent.Update(msg)
 		}
 
 		return p, cmd
@@ -1253,10 +1047,10 @@ func (p *LibraryPage) View() string {
 
 	// Update list sizes to ensure they match the view dimensions
 	// This is critical if the view dimensions were defaulted (e.g. if WindowSizeMsg was 0)
-	p.recentlyAddedList.SetSize(leftWidth, listHeight)
-	p.playlistList.SetSize(leftWidth, listHeight)
-	p.trackList.SetSize(leftWidth, listHeight)
-	p.queueList.SetSize(leftWidth, listHeight)
+	p.recentlyAddedComponent.SetSize(leftWidth, listHeight)
+	p.playlistComponent.SetSize(leftWidth, listHeight)
+	p.trackComponent.SetSize(leftWidth, listHeight)
+	p.queueComponent.SetSize(leftWidth, listHeight)
 
 	active := p.coordinator.ActiveTab()
 	// Ensure active tab is valid. If it's out of the expected range, set Home
@@ -1285,9 +1079,11 @@ func (p *LibraryPage) View() string {
 	case app.QueueTab:
 		leftContent = p.renderQueue(leftWidth)
 	case app.SearchTab:
-		leftContent = p.renderSearch(leftWidth)
+		p.searchComponent.SetSize(leftWidth, listHeight)
+		leftContent = p.searchComponent.View()
 	case app.SettingsTab:
-		leftContent = p.renderSettings(leftWidth)
+		p.settingsComponent.SetSize(leftWidth, listHeight)
+		leftContent = p.settingsComponent.View()
 	default:
 		leftContent = p.renderRecentlyAdded(leftWidth)
 	}
@@ -1308,7 +1104,7 @@ func (p *LibraryPage) View() string {
 	}
 
 	// Build right-side content - Queue by default, or drawer content when open.
-	p.queueList.SetSize(rightWidth, listHeight)
+	p.queueComponent.SetSize(rightWidth, listHeight)
 	var queueContent string
 	if len(p.coordinator.Queue()) == 0 {
 		// Show retro logo if queue is empty
@@ -1808,87 +1604,24 @@ func (p *LibraryPage) fetchCoverArtCmd(path string) tea.Cmd {
 
 // renderRecentlyAdded displays the current recently-added albums list.
 func (p *LibraryPage) renderRecentlyAdded(width int) string {
-	p.recentlyAddedList.SetWidth(width)
-	return p.recentlyAddedList.View()
+	return p.recentlyAddedComponent.View()
 }
 
 // renderPlaylists displays the playlists list.
 func (p *LibraryPage) renderPlaylists(width int) string {
-	p.playlistList.SetWidth(width)
-	return p.playlistList.View()
+	return p.playlistComponent.View()
 }
 
 // renderQueue displays the queued tracks list.
 func (p *LibraryPage) renderQueue(width int) string {
-	p.queueList.SetWidth(width)
-	return p.queueList.View()
-}
-
-// renderSearch displays the search input and inline results in the left pane.
-func (p *LibraryPage) renderSearch(width int) string {
-	title := styles.TitleStyle.Render("Search")
-	results := []string{}
-	term := strings.TrimSpace(p.searchInput.Value())
-	if term != "" {
-		q := strings.ToLower(term)
-		seen := make(map[string]bool)
-		// Search albums
-		for _, a := range p.coordinator.Albums() {
-			if strings.Contains(strings.ToLower(a.Title), q) || strings.Contains(strings.ToLower(a.Artist), q) {
-				s := fmt.Sprintf("%s — %s", a.Title, a.Artist)
-				if !seen[s] {
-					results = append(results, s)
-					seen[s] = true
-				}
-			}
-		}
-		// Search playlists
-		for _, pl := range p.coordinator.Playlists() {
-			if strings.Contains(strings.ToLower(pl.Title), q) {
-				s := fmt.Sprintf("%s (playlist)", pl.Title)
-				if !seen[s] {
-					results = append(results, s)
-					seen[s] = true
-				}
-			}
-		}
-		// Search tracks
-		for _, t := range p.coordinator.Tracks() {
-			if strings.Contains(strings.ToLower(t.Title), q) || strings.Contains(strings.ToLower(t.Artist), q) || strings.Contains(strings.ToLower(t.Album), q) {
-				s := fmt.Sprintf("%s — %s (track)", t.Title, t.Artist)
-				if !seen[s] {
-					results = append(results, s)
-					seen[s] = true
-				}
-			}
-		}
-	}
-	if len(results) == 0 {
-		results = append(results, styles.BlurredStyle.Render("No matches"))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", p.searchInput.View(), "", lipgloss.JoinVertical(lipgloss.Left, results...))
-}
-
-// renderSettings displays a simple settings placeholder in the left pane.
-func (p *LibraryPage) renderSettings(width int) string {
-	title := styles.TitleStyle.Render("Settings")
-	// Configure the settings list size based on current layout
-	contentHeight := p.height - 8
-	if contentHeight < 6 {
-		contentHeight = 6
-	}
-	listHeight := contentHeight - 2
-	if listHeight < 0 {
-		listHeight = 0
-	}
-	p.settingsList.SetSize(width, listHeight)
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", p.settingsList.View())
+	p.queueComponent.SetWidth(width)
+	return p.queueComponent.View()
 }
 
 // renderTracks displays the currently selected tracks in the left pane.
 func (p *LibraryPage) renderTracks(width int) string {
-	p.trackList.SetWidth(width)
-	return p.trackList.View()
+	p.trackComponent.SetWidth(width)
+	return p.trackComponent.View()
 }
 
 // renderNowPlaying shows the now playing details, a small cover-art placeholder,
@@ -1896,33 +1629,7 @@ func (p *LibraryPage) renderTracks(width int) string {
 
 // renderWithModal composes the base view layout with the queue modal overlay.
 func (p *LibraryPage) renderWithModal(base string) string {
-	queue := p.coordinator.Queue()
-	var lines []string
-	lines = append(lines, styles.TitleStyle.Render("Queue"))
-	lines = append(lines, "")
-	if len(queue) == 0 {
-		lines = append(lines, styles.BlurredStyle.Render("Queue is empty"))
-	} else {
-		for i, t := range queue {
-			prefix := "  "
-			if i == p.coordinator.QueueIndex() {
-				prefix = "> "
-			}
-			lines = append(lines, fmt.Sprintf("%s%s — %s", prefix, t.Title, t.Artist))
-		}
-	}
-
-	modal := lipgloss.JoinVertical(lipgloss.Left, lines...)
-	modalStyled := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(1, 2).Width(60).Render(modal)
-
-	// Center overlay without extra spacer line
-	return lipgloss.Place(
-		p.width,
-		p.height,
-		lipgloss.Center,
-		lipgloss.Center,
-		lipgloss.JoinVertical(lipgloss.Center, base, modalStyled),
-	)
+	return p.queueComponent.RenderWithModal(base, p.width, p.height)
 }
 
 // renderNowPlayingFull renders a full-screen focused Now Playing page.
@@ -1959,39 +1666,6 @@ func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
 }
 
 // Helper: play next track (queue preferred, otherwise tracklist)
-func (p *LibraryPage) updateQueueListFromCoordinator() {
-	q := p.coordinator.Queue()
-	qItems := make([]list.Item, len(q))
-	for i, t := range q {
-		if dt := util.AppTrackToDomain(&t); dt != nil {
-			qi := util.QueueItem{Track: *dt, Index: i}
-			if p.coordinator.QueueIndex() == i {
-				qi.Playing = true
-			}
-			qItems[i] = qi
-		} else {
-			qi := util.QueueItem{Track: domain.Track{Title: t.Title, Artist: t.Artist, Album: t.Album, Duration: t.Duration}, Index: i}
-			if p.coordinator.QueueIndex() == i {
-				qi.Playing = true
-			}
-			qItems[i] = qi
-		}
-	}
-	p.queueList.SetItems(qItems)
-	sel := p.coordinator.QueueIndex()
-	if len(q) == 0 {
-		// No queue: clear selection
-		p.queueList.Select(0)
-		return
-	}
-	if sel < 0 {
-		sel = 0
-	}
-	if sel >= len(q) {
-		sel = len(q) - 1
-	}
-	p.queueList.Select(sel)
-}
 
 // IsFocusedQueue returns true if the queue has keyboard focus.
 func (p *LibraryPage) IsFocusedQueue() bool {
@@ -2037,135 +1711,10 @@ func (p *LibraryPage) handleQueueKeyMsg(msg tea.KeyMsg) tea.Cmd {
 	// Ensure the queue becomes focused when we start handling queue keys so
 	// other lists do not steal the input.
 	p.SetFocusedQueue(true)
+	p.queueComponent.SetFocused(true)
 
-	// Navigation keys (up/down/k/j or rune fallback) are handled by the list component.
-	if key.Matches(msg, p.keys.Up) || key.Matches(msg, p.keys.Down) || isRuneKey(msg, 'k') || isRuneKey(msg, 'j') {
-		var cmd tea.Cmd
-		p.queueList, cmd = p.queueList.Update(msg)
-		p.coordinator.SetQueueIndex(p.queueList.Index())
-		return cmd
-	}
-
-	// Move the selected queue item up
-	if key.Matches(msg, p.keys.QueueMoveUp) {
-		sel := p.queueList.Index()
-		q := p.coordinator.Queue()
-		if sel > 0 && sel < len(q) {
-			playIdx := p.coordinator.QueueIndex()
-			q[sel-1], q[sel] = q[sel], q[sel-1]
-			// Remap playing index if needed
-			switch playIdx {
-			case sel:
-				playIdx = sel - 1
-			case sel - 1:
-				playIdx = sel
-			}
-			p.coordinator.SetQueue(q)
-			p.coordinator.SetQueueIndex(playIdx)
-			p.updateQueueListFromCoordinator()
-			if playIdx >= 0 && playIdx < len(q) {
-				p.queueList.Select(playIdx)
-			} else {
-				p.queueList.Select(sel - 1)
-			}
-		}
-		return nil
-	}
-
-	// Move the selected queue item down
-	if key.Matches(msg, p.keys.QueueMoveDown) {
-		sel := p.queueList.Index()
-		q := p.coordinator.Queue()
-		if sel >= 0 && sel < len(q)-1 {
-			playIdx := p.coordinator.QueueIndex()
-			q[sel], q[sel+1] = q[sel+1], q[sel]
-			// Remap playing index if needed
-			switch playIdx {
-			case sel:
-				playIdx = sel + 1
-			case sel + 1:
-				playIdx = sel
-			}
-			p.coordinator.SetQueue(q)
-			p.coordinator.SetQueueIndex(playIdx)
-			p.updateQueueListFromCoordinator()
-			if playIdx >= 0 && playIdx < len(q) {
-				p.queueList.Select(playIdx)
-			} else {
-				p.queueList.Select(sel + 1)
-			}
-		}
-		return nil
-	}
-
-	// Remove the selected queue item
-	if key.Matches(msg, p.keys.QueueRemove) {
-		sel := p.queueList.Index()
-		q := p.coordinator.Queue()
-		if sel >= 0 && sel < len(q) {
-			playIdx := p.coordinator.QueueIndex()
-			newQ := make([]app.Track, 0, len(q)-1)
-			newQ = append(newQ, q[:sel]...)
-			newQ = append(newQ, q[sel+1:]...)
-			// If we're removing the currently playing queued element, stop and clear it.
-			if playIdx == sel {
-				if p.orchestrator != nil {
-					_ = p.orchestrator.Stop()
-				} else {
-					p.coordinator.SetPlaybackState(app.PlaybackStopped)
-				}
-				p.coordinator.SetCurrentTrack(nil)
-				playIdx = -1
-			} else if playIdx > sel {
-				playIdx = playIdx - 1
-			}
-			p.coordinator.SetQueue(newQ)
-			p.coordinator.SetQueueIndex(playIdx)
-			p.updateQueueListFromCoordinator()
-			// Adjust selection to a valid index
-			if playIdx >= 0 && playIdx < len(newQ) {
-				p.queueList.Select(playIdx)
-			} else if sel < len(newQ) {
-				p.queueList.Select(sel)
-			} else if len(newQ) > 0 {
-				p.queueList.Select(len(newQ) - 1)
-			}
-		}
-		return nil
-	}
-
-	// Play selected queue item:
-	// Enter or Space in modal should trim the queue before the selected index and
-	// start playback at the now-first queued element.
-	if key.Matches(msg, p.keys.PlaySelected) || key.Matches(msg, p.keys.Enter) {
-		sel := p.queueList.Index()
-		q := p.coordinator.Queue()
-		if len(q) == 0 || sel < 0 || sel >= len(q) {
-			return nil
-		}
-		// Trim previous tracks when selecting an item inside the queue. After trimming,
-		// the selected item becomes the first queued track.
-		if sel > 0 {
-			newQ := make([]app.Track, len(q)-sel)
-			copy(newQ, q[sel:])
-			p.coordinator.SetQueue(newQ)
-			p.coordinator.SetQueueIndex(0)
-			p.updateQueueListFromCoordinator()
-			p.queueList.Select(0)
-			// Close the modal and play the selected-first track.
-			p.coordinator.SetShowQueueModal(false)
-			return p.playAppTrack(&newQ[0])
-		}
-		// Selected item is already first — close modal and play it.
-		at := &q[sel]
-		p.coordinator.SetShowQueueModal(false)
-		return p.playAppTrack(at)
-	}
-
-	// No special key matched, forward navigation to the queue list component.
-	var cmd tea.Cmd
-	p.queueList, cmd = p.queueList.Update(msg)
-	p.coordinator.SetQueueIndex(p.queueList.Index())
+	// Delegate to queue component
+	_, cmd := p.queueComponent.Update(msg)
 	return cmd
 }
 

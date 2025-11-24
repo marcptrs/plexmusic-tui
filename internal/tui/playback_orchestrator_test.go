@@ -1,4 +1,4 @@
-package tui
+package tui_test
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
+	"plexmusic-tui/internal/tui"
 	"plexmusic-tui/internal/tui/components"
 )
 
@@ -56,7 +57,7 @@ func TestOrchestrator_PlayAppTrack_PbErrorSetsNotification(t *testing.T) {
 	coord := app.NewCoordinator()
 	// Mock PlaybackService that returns an error
 	pb := &mockPbSvcErr{err: errors.New("play fail")}
-	orchestrator := NewOrchestrator(coord, nil, pb)
+	orchestrator := tui.NewOrchestrator(coord, nil, pb)
 	at := &app.Track{Title: "Track 1"}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -76,7 +77,7 @@ func TestOrchestrator_PlayNext_PbErrorSetsNotification(t *testing.T) {
 	pc := service.NewPlaybackController(pbSvc)
 	// Create orchestrator with libSvc that returns fetch error
 	lib := &mockLibFetchErr{}
-	orchestrator := NewOrchestrator(coord, lib, pbSvc)
+	orchestrator := tui.NewOrchestrator(coord, lib, pbSvc)
 	// Queue and tracks: single track in queue
 	q := []app.Track{{Title: "Q1"}}
 	tracks := []app.Track{{Title: "T1"}}
@@ -98,7 +99,7 @@ func TestOrchestrator_PlayNext_PbSvcErrorSetsNotification(t *testing.T) {
 	// Create a real controller using this mocked pb service
 	pc := service.NewPlaybackController(pb)
 	lib := &mockLibFetchErr{}
-	orchestrator := NewOrchestrator(coord, lib, pb)
+	orchestrator := tui.NewOrchestrator(coord, lib, pb)
 	q := []app.Track{{Title: "Q1"}}
 	tracks := []app.Track{{Title: "T1"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -116,7 +117,7 @@ func TestOrchestrator_PlayPrev_PbSvcErrorSetsNotification(t *testing.T) {
 	pb := &mockPbSvcErr{err: errors.New("playback fail")}
 	pc := service.NewPlaybackController(pb)
 	lib := &mockLibFetchErr{}
-	orchestrator := NewOrchestrator(coord, lib, pb)
+	orchestrator := tui.NewOrchestrator(coord, lib, pb)
 	q := []app.Track{{Title: "Q1"}}
 	tracks := []app.Track{{Title: "T1"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -133,7 +134,7 @@ func TestOrchestrator_PauseResume_SetsStateAndNotifications(t *testing.T) {
 	coord := app.NewCoordinator()
 	// Reuse existing mock that returns nil errors for operations when err == nil.
 	pb := &mockPbSvcErr{err: nil}
-	orchestrator := NewOrchestrator(coord, nil, pb)
+	orchestrator := tui.NewOrchestrator(coord, nil, pb)
 	// No context required for Pause/Resume tests
 	if err := orchestrator.Pause(); err != nil {
 		t.Fatalf("Pause returned unexpected error: %v", err)
@@ -152,7 +153,7 @@ func TestOrchestrator_PauseResume_SetsStateAndNotifications(t *testing.T) {
 func TestOrchestrator_PlayAppTrack_Success(t *testing.T) {
 	coord := app.NewCoordinator()
 	pb := &mockPbSvcErr{err: nil}
-	orchestrator := NewOrchestrator(coord, nil, pb)
+	orchestrator := tui.NewOrchestrator(coord, nil, pb)
 	at := &app.Track{Title: "Track OK", Artist: "Artist"}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -173,7 +174,7 @@ func TestOrchestrator_PlayAppTrack_Success(t *testing.T) {
 func TestOrchestrator_PlayAppTrack_UpdatesNowPlaying(t *testing.T) {
 	coord := app.NewCoordinator()
 	pb := &mockPbSvcErr{err: nil}
-	orch := NewOrchestrator(coord, nil, pb)
+	orch := tui.NewOrchestrator(coord, nil, pb)
 	at := &app.Track{Title: "Integration Track", Artist: "Integration Artist"}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
