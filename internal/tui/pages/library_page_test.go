@@ -1258,8 +1258,11 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	if coord.QueueIndex() != 0 {
 		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
 	}
-	if !page.showingTracks {
-		t.Fatalf("expected page.showingTracks after pressing p on album")
+	if page.showingTracks {
+		t.Fatalf("expected page.showingTracks to be false after pressing p on album (should switch to queue)")
+	}
+	if coord.ActiveTab() != app.QueueTab {
+		t.Fatalf("expected active tab to be QueueTab after pressing p on album, got %v", coord.ActiveTab())
 	}
 	view := page.View()
 	if !strings.Contains(view, "T1") {
@@ -1750,8 +1753,11 @@ func TestLibraryPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 	if coord.QueueIndex() != 0 {
 		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
 	}
-	if !page.showingTracks {
-		t.Fatalf("expected page.showingTracks after pressing p on playlist")
+	if page.showingTracks {
+		t.Fatalf("expected page.showingTracks to be false after pressing p on playlist (should switch to queue)")
+	}
+	if coord.ActiveTab() != app.QueueTab {
+		t.Fatalf("expected active tab to be QueueTab after pressing p on playlist, got %v", coord.ActiveTab())
 	}
 	view := page.View()
 	if !strings.Contains(view, "P1") {
