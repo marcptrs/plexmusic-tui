@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/list"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -27,6 +28,31 @@ import (
 	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
+
+const retroLogo = `
+██████╗ ██╗     ███████╗██╗  ██╗    ███╗   ███╗██╗   ██╗███████╗██╗ ██████╗ 
+██╔══██╗██║     ██╔════╝╚██╗██╔╝    ████╗ ████║██║   ██║██╔════╝██║██╔════╝ 
+██████╔╝██║     █████╗   ╚███╔╝     ██╔████╔██║██║   ██║███████╗██║██║      
+██╔═══╝ ██║     ██╔══╝   ██╔██╗     ██║╚██╔╝██║██║   ██║╚════██║██║██║      
+██║     ███████╗███████╗██╔╝ ██╗    ██║ ╚═╝ ██║╚██████╔╝███████║██║╚██████╗ 
+╚═╝     ╚══════╝╚══════╝╚═╝  ╚═╝    ╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝ ╚═════╝ 
+`
+
+const retroLogoVertical = `
+██████╗ ██╗     ███████╗██╗  ██╗
+██╔══██╗██║     ██╔════╝╚██╗██╔╝
+██████╔╝██║     █████╗   ╚███╔╝ 
+██╔═══╝ ██║     ██╔══╝   ██╔██╗ 
+██║     ███████╗███████╗██╔╝ ██╗
+╚═╝     ╚══════╝╚══════╝╚═╝  ╚═╝
+
+███╗   ███╗██╗   ██╗███████╗██╗ ██████╗ 
+████╗ ████║██║   ██║██╔════╝██║██╔════╝ 
+██╔████╔██║██║   ██║███████╗██║██║      
+██║╚██╔╝██║██║   ██║╚════██║██║██║      
+██║ ╚═╝ ██║╚██████╔╝███████║██║╚██████╗ 
+╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝ ╚═════╝ 
+`
 
 // Helper to detect rune keypresses in a KeyMsg when the bubbles/list key mapping
 // doesn't directly express a specific rune. Useful for supporting both "k"/"j"
@@ -74,17 +100,29 @@ type LibraryPage struct {
 	// drawerOpen indicates whether an overlay drawer (for library/search/settings) is open
 	drawerOpen bool
 
-	focusedNowPlaying bool
-	finishedTriggered bool
-	focusedQueue      bool
-	// Track last selected indices to detect selection changes and fetch tracks lazily
+	// Stats loading state
+	loadingStats bool
+	spinner      spinner.Model
+
+	// Now Playing component
+	nowPlaying   *components.NowPlayingComponent
+	orchestrator *tui.Orchestrator
+
+	// State tracking for selection changes
 	lastSelectedAlbumIndex    int
 	lastSelectedPlaylistIndex int
 
-	help         help.Model
-	keys         tui.LibraryKeyMap
-	nowPlaying   *components.NowPlayingComponent
-	orchestrator *tui.Orchestrator
+	// Help model
+	help help.Model
+
+	// Key bindings
+	keys tui.LibraryKeyMap
+
+	// Playback finished trigger
+	finishedTriggered bool
+
+	focusedNowPlaying bool
+	focusedQueue      bool
 }
 
 // NewLibraryPage creates a library page and its cancellable event context.
@@ -118,6 +156,10 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 	settingsDelegate := list.NewDefaultDelegate()
 	settingsList := list.New(nil, settingsDelegate, 0, 0)
 
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+
 	p := &LibraryPage{
 		coordinator:   coord,
 		ctx:           ctx,
@@ -127,6 +169,8 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		searchTerm:    "",
 		showingTracks: false,
 		drawerOpen:    false,
+		loadingStats:  false,
+		spinner:       s,
 		// Track last selected indices so we can fetch tracks lazily when selection changes
 		// without issuing repeated fetches.
 		lastSelectedAlbumIndex:    -1,
@@ -283,6 +327,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update coordinator based on library events
 		switch msg.Type {
 		case "libraries.loaded":
+			log.Debug("LibraryPage: libraries.loaded", "count", len(msg.Libraries))
 			appLibs := make([]app.MusicLibrary, len(msg.Libraries))
 			for i, l := range msg.Libraries {
 				appLibs[i] = app.MusicLibrary{Key: l.Key, Title: l.Title, Type: l.Type}
@@ -290,6 +335,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.coordinator.SetLibraries(appLibs)
 			if len(appLibs) > 0 {
 				p.coordinator.SetSelectedLibrary(0)
+				// Trigger stats fetch now that we have libraries
+				p.loadingStats = true
+				return p, tea.Batch(p.subscribeToLibraryEvents(), p.subscribeToPlaybackEvents(), p.fetchLibraryStats(), p.spinner.Tick)
+			} else {
+				log.Warn("LibraryPage: No libraries found, stats fetch skipped")
 			}
 		case "recently_added.loaded":
 			// Convert domain.Album to app.Album and update the coordinator
@@ -306,6 +356,8 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				items[i] = util.AlbumItem{Album: a}
 			}
 			p.coordinator.SetAlbums(appAlbums)
+			// Note: msg.TotalSize here is the count of recently added items (e.g. 50),
+			// not the total albums in the library. We should not overwrite the library stats.
 			p.recentlyAddedList.SetItems(items)
 			// Keep UI selection sane
 			if len(appAlbums) > 0 {
@@ -329,6 +381,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				items[i] = util.PlaylistItem{Playlist: pl}
 			}
 			p.coordinator.SetPlaylists(appPlaylists)
+			if msg.TotalSize > 0 {
+				p.coordinator.SetPlaylistsTotal(msg.TotalSize)
+			} else {
+				p.coordinator.SetPlaylistsTotal(len(appPlaylists))
+			}
 			p.playlistList.SetItems(items)
 			if len(appPlaylists) > 0 {
 				p.coordinator.SetSelectedPlaylist(0)
@@ -347,6 +404,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				items[i] = util.TrackItem{Track: t}
 			}
 			p.coordinator.SetTracks(appTracks)
+			if msg.TotalSize > 0 {
+				p.coordinator.SetTracksTotal(msg.TotalSize)
+			} else {
+				p.coordinator.SetTracksTotal(len(appTracks))
+			}
 			p.trackList.SetItems(items)
 			if len(appTracks) > 0 {
 				p.coordinator.SetSelectedTrack(0)
@@ -434,7 +496,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				log.Debug("LibraryPage: set load_failed notification", "err", msg.Error)
 			} else {
 				p.coordinator.SetNotification("Load failed", "error", 10*time.Second)
-				log.Debug("LibraryPage: set load_failed notification (no err)")
+				log.Debug("LibraryPage: set load_failed notification", "no err")
 			}
 		case "playback.play_failed":
 			if msg.Error != nil {
@@ -489,6 +551,20 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Re-subscribe to continue receiving playback/library events
 		return p, tea.Batch(p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	// animation messages removed - no-op
+
+	case spinner.TickMsg:
+		if p.loadingStats {
+			var cmd tea.Cmd
+			p.spinner, cmd = p.spinner.Update(msg)
+			return p, cmd
+		}
+
+	case LibraryStatsMsg:
+		p.loadingStats = false
+		p.coordinator.SetArtistsTotal(msg.Artists)
+		p.coordinator.SetAlbumsTotal(msg.Albums)
+		p.coordinator.SetTracksTotal(msg.Tracks)
+		return p, nil
 
 	case CoverArtLoadedMsg:
 		// Dump before/after views to assist in debugging VSCode terminal rendering
@@ -687,7 +763,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
 						// Fetch tracks for the playlist and set them as the queue.
-						tracks, _ := p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
+						tracks, _, _ := p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
 						if len(tracks) > 0 {
 							// Build app.Track list and list items
 							appTracks := make([]app.Track, len(tracks))
@@ -716,7 +792,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if item, ok := p.recentlyAddedList.SelectedItem().(util.AlbumItem); ok {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
-						tracks, _ := p.libSvc.FetchTracks(reqCtx, item.Album.Key)
+						tracks, _, _ := p.libSvc.FetchTracks(reqCtx, item.Album.Key)
 						if len(tracks) > 0 {
 							// Build app.Track list and list items
 							appTracks := make([]app.Track, len(tracks))
@@ -894,7 +970,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if p.libSvc != nil {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
-						_, _ = p.libSvc.FetchTracks(reqCtx, item.Album.Key)
+						_, _, _ = p.libSvc.FetchTracks(reqCtx, item.Album.Key)
 						p.showingTracks = true
 					}
 				}
@@ -919,7 +995,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if p.libSvc != nil {
 						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 						defer cancel()
-						_, _ = p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
+						_, _, _ = p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
 						p.showingTracks = true
 					}
 				}
@@ -1233,7 +1309,19 @@ func (p *LibraryPage) View() string {
 
 	// Build right-side content - Queue by default, or drawer content when open.
 	p.queueList.SetSize(rightWidth, listHeight)
-	queueContent := p.renderQueue(rightWidth)
+	var queueContent string
+	if len(p.coordinator.Queue()) == 0 {
+		// Show retro logo if queue is empty
+		// Use vertical logo if space is tight (approx 80 chars needed for full logo)
+		logoStr := retroLogo
+		if rightWidth < 80 {
+			logoStr = retroLogoVertical
+		}
+		logo := styles.PrimaryTextStyle().Render(logoStr)
+		queueContent = lipgloss.Place(rightWidth, listHeight, lipgloss.Center, lipgloss.Center, logo)
+	} else {
+		queueContent = p.renderQueue(rightWidth)
+	}
 
 	// Calculate the art size and info view so they can be used regardless of
 	// drawer state (we render art and info separately when the drawer is on
@@ -1270,7 +1358,7 @@ func (p *LibraryPage) View() string {
 		if p.coordinator.PlaybackAlbumArtThumb() != "" {
 			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", p.coordinator.PlaybackAlbumArtThumb()))
 		} else {
-			artView = styles.BlurredStyle.Render("(Album art)")
+			artView = ""
 		}
 	}
 	// Normalize the artView to have exactly artHeight lines, then center it.
@@ -1324,9 +1412,14 @@ func (p *LibraryPage) View() string {
 			if p.coordinator.PlaybackAlbumArtThumb() != "" {
 				artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", p.coordinator.PlaybackAlbumArtThumb()))
 			} else {
-				artView = styles.BlurredStyle.Render("(Album art)")
+				artView = ""
 			}
 		}
+
+		// Normalize the artView to have exactly artHeight lines, then center it.
+		artView = padOrCropLines(artView, leftWidth, artHeight)
+		// Center the art view horizontally and keep it at the top of the art area
+		artView = lipgloss.Place(leftWidth, artHeight, lipgloss.Center, lipgloss.Top, artView)
 
 		// Render info via the component method
 		infoView := p.nowPlaying.RenderInfo(leftWidth, infoHeight)
@@ -1385,29 +1478,33 @@ func (p *LibraryPage) View() string {
 	// Drawers removed; no overlay logic.
 
 	server = p.coordinator.GetCurrentServer()
-	pageTitle := "Plex Music"
-	if server != nil && server.Name != "" {
-		pageTitle = fmt.Sprintf("Plex Music — %s", server.Name)
-	}
-	// Build status line with server/auth/content counts.
+	// Build status line with server/content counts.
 	serverName := "none"
 	if server != nil && server.Name != "" {
 		serverName = server.Name
 	}
-	authStatus := "Signed Out"
-	if p.coordinator != nil && p.coordinator.GetToken() != "" {
-		authStatus = "Signed In"
-	}
 	albumsCount := 0
+	artistsCount := 0
 	playlistsCount := 0
 	tracksCount := 0
 	if p.coordinator != nil {
-		albumsCount = len(p.coordinator.Albums())
-		playlistsCount = len(p.coordinator.Playlists())
-		tracksCount = len(p.coordinator.Tracks())
+		albumsCount = p.coordinator.AlbumsTotal()
+		artistsCount = p.coordinator.ArtistsTotal()
+		playlistsCount = p.coordinator.PlaylistsTotal()
+		tracksCount = p.coordinator.TracksTotal()
 	}
 
-	statusLine := styles.BlurredStyle.Render(fmt.Sprintf("Server: %s • %s • Albums: %d • Playlists: %d • Tracks: %d", serverName, authStatus, albumsCount, playlistsCount, tracksCount))
+	var statusLine string
+	if p.loadingStats {
+		statusLine = styles.BlurredStyle.Render(fmt.Sprintf("Server: %s • %s Loading stats...", serverName, p.spinner.View()))
+	} else {
+		statusLine = styles.BlurredStyle.Render(fmt.Sprintf("Server: %s • Artists: %s • Albums: %s • Playlists: %s • Tracks: %s",
+			serverName,
+			util.FormatNumber(artistsCount),
+			util.FormatNumber(albumsCount),
+			util.FormatNumber(playlistsCount),
+			util.FormatNumber(tracksCount)))
+	}
 
 	// Render a transient top notification line if set on the coordinator.
 	notifStr := ""
@@ -1442,14 +1539,12 @@ func (p *LibraryPage) View() string {
 	// But let's keep the structure similar.
 
 	mainLayout := lipgloss.JoinVertical(lipgloss.Left,
-		styles.TitleStyle.Render(pageTitle),
 		statusLine,
 		layout, // The panes
 	)
 
 	if notifStr != "" {
 		mainLayout = lipgloss.JoinVertical(lipgloss.Left,
-			styles.TitleStyle.Render(pageTitle),
 			notifStr,
 			statusLine,
 			layout,
@@ -1590,7 +1685,7 @@ func (p *LibraryPage) fetchLibraries() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
-		_, _ = p.libSvc.FetchLibraries(ctx)
+		_, _, _ = p.libSvc.FetchLibraries(ctx)
 		return nil
 	}
 }
@@ -1603,7 +1698,7 @@ func (p *LibraryPage) fetchRecentlyAdded() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
-		_, _ = p.libSvc.FetchRecentlyAdded(ctx)
+		_, _, _ = p.libSvc.FetchRecentlyAdded(ctx)
 		return nil
 	}
 }
@@ -1618,7 +1713,7 @@ func (p *LibraryPage) fetchPlaylists() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
-		_, _ = p.libSvc.FetchPlaylists(ctx)
+		_, _, _ = p.libSvc.FetchPlaylists(ctx)
 		return nil
 	}
 }
@@ -1632,9 +1727,64 @@ func (p *LibraryPage) fetchTracksCmd(key string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
-		_, _ = p.libSvc.FetchTracks(ctx, key)
+		_, _, _ = p.libSvc.FetchTracks(ctx, key)
 		return nil
 	}
+}
+
+// fetchLibraryStats triggers fetching statistics for the current library.
+func (p *LibraryPage) fetchLibraryStats() tea.Cmd {
+	if p.libSvc == nil {
+		return nil
+	}
+	// We need to know which library to query.
+	// If coordinator has libraries, use the selected one.
+	// If not, we might need to wait for libraries.loaded.
+	// For now, let's assume we query the first music library if available.
+
+	// Set loading state immediately so UI updates
+	p.loadingStats = true
+
+	return tea.Batch(
+		p.spinner.Tick,
+		func() tea.Msg {
+			// This is a bit tricky because we need the library key.
+			// We can access coordinator state here safely as it's read-only or thread-safe enough for this.
+			// But better to pass the key if we knew it.
+			// Let's try to get libraries from coordinator.
+			libs := p.coordinator.Libraries()
+			if len(libs) == 0 {
+				log.Warn("fetchLibraryStats: No libraries available in coordinator")
+				return nil
+			}
+			// Use the first library for now (or selected if we had that concept fully wired)
+			// The coordinator sets selectedLibrary to 0 by default.
+			idx := p.coordinator.SelectedLibrary()
+			if idx < 0 || idx >= len(libs) {
+				idx = 0
+			}
+			key := libs[idx].Key
+			log.Debug("fetchLibraryStats: starting", "libraryKey", key)
+
+			ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+			defer cancel()
+
+			artists, albums, tracks, err := p.libSvc.FetchSectionCounts(ctx, key)
+			if err != nil {
+				log.Error("Failed to fetch library stats", "err", err)
+				// Return zero stats to clear loading state
+				return LibraryStatsMsg{Artists: 0, Albums: 0, Tracks: 0}
+			}
+			log.Debug("fetchLibraryStats: success", "artists", artists, "albums", albums, "tracks", tracks)
+			return LibraryStatsMsg{Artists: artists, Albums: albums, Tracks: tracks}
+		},
+	)
+}
+
+type LibraryStatsMsg struct {
+	Artists int
+	Albums  int
+	Tracks  int
 }
 
 type CoverArtLoadedMsg struct {

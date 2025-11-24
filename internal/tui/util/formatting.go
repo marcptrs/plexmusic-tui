@@ -18,3 +18,19 @@ func FormatTimeDuration(d time.Duration) string {
 	seconds := int(d.Seconds()) % 60
 	return fmt.Sprintf("%d:%02d", minutes, seconds)
 }
+
+// FormatNumber formats an integer with comma separators (e.g. 1,234,567)
+func FormatNumber(n int) string {
+	s := fmt.Sprintf("%d", n)
+	if n < 1000 {
+		return s
+	}
+	var result []byte
+	for i, c := range s {
+		if i > 0 && (len(s)-i)%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, byte(c))
+	}
+	return string(result)
+}

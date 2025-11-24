@@ -43,7 +43,7 @@ func TestFetchRecentlyAddedReturnsAlbums(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	albums, err := s.FetchRecentlyAdded(ctx)
+	albums, _, err := s.FetchRecentlyAdded(ctx)
 	if err != nil {
 		t.Fatalf("FetchRecentlyAdded failed: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestAddPlexHeadersSetsHeaderAndQuery(t *testing.T) {
 	defer cancel()
 
 	// Fetch libraries - endpoint uses addPlexHeaders
-	_, err := s.FetchLibraries(ctx)
+	_, _, err := s.FetchLibraries(ctx)
 	if err != nil {
 		t.Fatalf("FetchLibraries failed: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestFetchPlaylistsReturnsPlaylists(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	playlists, err := s.FetchPlaylists(ctx)
+	playlists, _, err := s.FetchPlaylists(ctx)
 	if err != nil {
 		t.Fatalf("FetchPlaylists failed: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestFetchAlbumsReturnsAlbums(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	albums, err := s.FetchAlbums(ctx, "1")
+	albums, _, err := s.FetchAlbums(ctx, "1")
 	if err != nil {
 		t.Fatalf("FetchAlbums failed: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestFetchRecentlyAddedHandlesPlaylistFormat(t *testing.T) {
 	defer cancel()
 
 	// Call FetchPlaylists using the playlist-specific endpoint
-	playlists, err := s.FetchPlaylists(ctx)
+	playlists, _, err := s.FetchPlaylists(ctx)
 	if err != nil {
 		t.Fatalf("FetchPlaylists failed: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestFetchRecentlyAddedInLibraryReturnsAlbums(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	albums, err := s.FetchRecentlyAddedInLibrary(ctx, "1")
+	albums, _, err := s.FetchRecentlyAddedInLibrary(ctx, "1")
 	if err != nil {
 		t.Fatalf("FetchRecentlyAddedInLibrary failed: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestFetchTracksChildrenFallback(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	tracks, err := s.FetchTracks(ctx, "/library/metadata/1")
+	tracks, _, err := s.FetchTracks(ctx, "/library/metadata/1")
 	if err != nil {
 		t.Fatalf("FetchTracks returned error: %v", err)
 	}
@@ -260,7 +260,7 @@ func TestFetchTracksChildrenFallbackAbsoluteKey(t *testing.T) {
 
 	// Call FetchTracks with an absolute URL returned by some Plex servers
 	absKey := srv.URL + "/library/metadata/1"
-	tracks, err := s.FetchTracks(ctx, absKey)
+	tracks, _, err := s.FetchTracks(ctx, absKey)
 	if err != nil {
 		t.Fatalf("FetchTracks returned error for absolute key: %v", err)
 	}

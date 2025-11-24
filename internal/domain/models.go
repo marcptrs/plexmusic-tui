@@ -148,18 +148,24 @@ type Track struct {
 
 // PlexMediaContainer represents a media container response from Plex
 type PlexMediaContainer struct {
+	Size      int            `json:"size"`
+	TotalSize int            `json:"totalSize"`
 	Directory []MusicLibrary `json:"Directory" xml:"Directory"`
 	Metadata  []Album        `json:"Metadata" xml:"Metadata"`
 }
 
 // PlexPlaylistContainer represents a playlist container response
 type PlexPlaylistContainer struct {
-	Metadata []Playlist `json:"Metadata" xml:"Metadata"`
+	Size      int        `json:"size"`
+	TotalSize int        `json:"totalSize"`
+	Metadata  []Playlist `json:"Metadata" xml:"Metadata"`
 }
 
 // PlexTrackContainer represents a track container response
 type PlexTrackContainer struct {
-	Metadata []Track `json:"Metadata" xml:"Metadata"`
+	Size      int     `json:"size"`
+	TotalSize int     `json:"totalSize"`
+	Metadata  []Track `json:"Metadata" xml:"Metadata"`
 }
 
 // PlaybackInfo holds information about current playback state

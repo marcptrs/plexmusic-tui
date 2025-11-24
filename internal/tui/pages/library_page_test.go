@@ -513,11 +513,11 @@ func TestLibraryPage_FetchesLibraryDataFromServer(t *testing.T) {
 	evCh := page.libSvc.Subscribe(context.Background())
 
 	// Trigger fetches
-	_, err := page.libSvc.FetchRecentlyAdded(ctx)
+	_, _, err := page.libSvc.FetchRecentlyAdded(ctx)
 	if err != nil {
 		t.Fatalf("FetchRecentlyAdded error: %v", err)
 	}
-	_, err = page.libSvc.FetchPlaylists(ctx)
+	_, _, err = page.libSvc.FetchPlaylists(ctx)
 	if err != nil {
 		t.Fatalf("FetchPlaylists error: %v", err)
 	}
@@ -596,7 +596,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	// Trigger recently added fetch and apply events to the page
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := page.libSvc.FetchRecentlyAdded(ctx)
+	_, _, err := page.libSvc.FetchRecentlyAdded(ctx)
 	if err != nil {
 		t.Fatalf("FetchRecentlyAdded error: %v", err)
 	}
@@ -846,7 +846,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	// Trigger recently added fetch and apply events to the page
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := page.libSvc.FetchRecentlyAdded(ctx)
+	_, _, err := page.libSvc.FetchRecentlyAdded(ctx)
 	if err != nil {
 		t.Fatalf("FetchRecentlyAdded error: %v", err)
 	}
@@ -959,7 +959,7 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	// Trigger playlists fetch and apply events to the page
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := page.libSvc.FetchPlaylists(ctx)
+	_, _, err := page.libSvc.FetchPlaylists(ctx)
 	if err != nil {
 		t.Fatalf("FetchPlaylists error: %v", err)
 	}
@@ -995,9 +995,6 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 			}
 		default:
 			time.Sleep(10 * time.Millisecond)
-		}
-		if seenTrack {
-			break
 		}
 	}
 	if !seenTrack {
@@ -1066,7 +1063,7 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := page.libSvc.FetchRecentlyAdded(ctx)
+	_, _, err := page.libSvc.FetchRecentlyAdded(ctx)
 	if err != nil {
 		t.Fatalf("FetchRecentlyAdded error: %v", err)
 	}
@@ -1143,7 +1140,7 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := page.libSvc.FetchPlaylists(ctx)
+	_, _, err := page.libSvc.FetchPlaylists(ctx)
 	if err != nil {
 		t.Fatalf("FetchPlaylists error: %v", err)
 	}
@@ -1225,7 +1222,7 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := page.libSvc.FetchRecentlyAdded(ctx)
+	_, _, err := page.libSvc.FetchRecentlyAdded(ctx)
 	if err != nil {
 		t.Fatalf("FetchRecentlyAdded error: %v", err)
 	}
@@ -1721,7 +1718,7 @@ func TestLibraryPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := page.libSvc.FetchPlaylists(ctx)
+	_, _, err := page.libSvc.FetchPlaylists(ctx)
 	if err != nil {
 		t.Fatalf("FetchPlaylists error: %v", err)
 	}

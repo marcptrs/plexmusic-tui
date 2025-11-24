@@ -50,11 +50,15 @@ type Coordinator struct {
 	contentScroll    int
 
 	// Content collections
-	albums     []domain.Album
-	playlists  []domain.Playlist
-	tracks     []domain.Track
-	queue      []domain.Track
-	queueIndex int
+	albums         []domain.Album
+	albumsTotal    int
+	artistsTotal   int
+	playlists      []domain.Playlist
+	playlistsTotal int
+	tracks         []domain.Track
+	tracksTotal    int
+	queue          []domain.Track
+	queueIndex     int
 
 	// UI state
 	showQueueModal bool
@@ -318,6 +322,12 @@ func (c *Coordinator) SetAlbums(albums []Album) {
 	c.albums = out
 }
 
+func (c *Coordinator) AlbumsTotal() int         { return c.albumsTotal }
+func (c *Coordinator) SetAlbumsTotal(total int) { c.albumsTotal = total }
+
+func (c *Coordinator) ArtistsTotal() int         { return c.artistsTotal }
+func (c *Coordinator) SetArtistsTotal(total int) { c.artistsTotal = total }
+
 func (c *Coordinator) SelectedAlbum() int       { return c.selectedAlbum }
 func (c *Coordinator) SetSelectedAlbum(idx int) { c.selectedAlbum = idx }
 
@@ -337,6 +347,9 @@ func (c *Coordinator) SetPlaylists(playlists []Playlist) {
 	}
 	c.playlists = out
 }
+
+func (c *Coordinator) PlaylistsTotal() int         { return c.playlistsTotal }
+func (c *Coordinator) SetPlaylistsTotal(total int) { c.playlistsTotal = total }
 
 func (c *Coordinator) SelectedPlaylist() int       { return c.selectedPlaylist }
 func (c *Coordinator) SetSelectedPlaylist(idx int) { c.selectedPlaylist = idx }
@@ -392,10 +405,12 @@ func (c *Coordinator) SetTracks(tracks []Track) {
 	c.tracks = out
 }
 
+func (c *Coordinator) TracksTotal() int         { return c.tracksTotal }
+func (c *Coordinator) SetTracksTotal(total int) { c.tracksTotal = total }
+
 func (c *Coordinator) SelectedTrack() int       { return c.selectedTrack }
 func (c *Coordinator) SetSelectedTrack(idx int) { c.selectedTrack = idx }
 
-// Queue
 func (c *Coordinator) Queue() []Track {
 	out := make([]Track, len(c.queue))
 	for i, t := range c.queue {

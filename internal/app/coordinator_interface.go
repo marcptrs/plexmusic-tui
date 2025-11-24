@@ -37,14 +37,22 @@ type Coordinatorer interface {
 	// Content collections
 	Albums() []Album
 	SetAlbums([]Album)
+	AlbumsTotal() int
+	SetAlbumsTotal(int)
+	ArtistsTotal() int
+	SetArtistsTotal(int)
 	SelectedAlbum() int
 	SetSelectedAlbum(idx int)
 	Tracks() []Track
 	SetTracks([]Track)
+	TracksTotal() int
+	SetTracksTotal(int)
 	SelectedTrack() int
 	SetSelectedTrack(idx int)
 	Playlists() []Playlist
 	SetPlaylists([]Playlist)
+	PlaylistsTotal() int
+	SetPlaylistsTotal(int)
 	SelectedPlaylist() int
 	SetSelectedPlaylist(idx int)
 	Queue() []Track
