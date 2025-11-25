@@ -105,6 +105,15 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 	// Volume display
 	volume := np.buildVolumeDisplay()
 
+	// Next track info
+	var nextTrackView string
+	queue := np.coordinator.Queue()
+	idx := np.coordinator.QueueIndex()
+	if idx+1 < len(queue) {
+		next := queue[idx+1]
+		nextTrackView = styles.MutedStyle.Render(fmt.Sprintf("Next: %s • %s", next.Title, next.Artist))
+	}
+
 	rightColumn := lipgloss.JoinVertical(lipgloss.Left,
 		trackTitle,
 		artist,
@@ -112,6 +121,8 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 		"",
 		styles.BlurredStyle.Render(progressBar),
 		styles.BlurredStyle.Render(volume),
+		"",
+		nextTrackView,
 	)
 
 	// If we have artView (likely multi-line), render art and info side-by-side.
@@ -142,6 +153,15 @@ func (np *NowPlayingComponent) RenderInfo(width, height int) string {
 	progressBar := np.buildProgressBar(width, 0, tr.Duration)
 	volume := np.buildVolumeDisplay()
 
+	// Next track info
+	var nextTrackView string
+	queue := np.coordinator.Queue()
+	idx := np.coordinator.QueueIndex()
+	if idx+1 < len(queue) {
+		next := queue[idx+1]
+		nextTrackView = styles.MutedStyle.Render(fmt.Sprintf("Next: %s • %s", next.Title, next.Artist))
+	}
+
 	// Stack text fields vertically with a small spacer and center them
 	info := lipgloss.JoinVertical(lipgloss.Center,
 		trackTitle,
@@ -150,9 +170,11 @@ func (np *NowPlayingComponent) RenderInfo(width, height int) string {
 		"",
 		styles.BlurredStyle.Render(progressBar),
 		styles.BlurredStyle.Render(volume),
+		"",
+		nextTrackView,
 	)
 	// Center the info block within the provided width/height
-	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, info)
+	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Top, info)
 }
 
 // renderNothingPlaying renders the placeholder when no track is playing.

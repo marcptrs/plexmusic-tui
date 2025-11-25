@@ -439,3 +439,11 @@ func (o *Orchestrator) PlayPrev(
 	}
 	return nil
 }
+
+// SampleRate returns the current sample rate
+func (o *Orchestrator) SampleRate() int {
+	if o.pbSvc == nil {
+		return 44100
+	}
+	return o.pbSvc.SampleRate()
+}

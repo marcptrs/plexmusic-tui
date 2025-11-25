@@ -189,7 +189,7 @@ func (p *LibraryPage) View() string {
 		availableHeight = 12
 	}
 
-	artHeight := leftWidth
+	artHeight := leftWidth / 2
 	// Reserve space for info (min 6)
 	if artHeight > availableHeight-6 {
 		artHeight = availableHeight - 6
@@ -249,7 +249,7 @@ func (p *LibraryPage) View() string {
 			availableHeight = 12
 		}
 
-		artHeight := leftWidth
+		artHeight := leftWidth / 2
 		if artHeight > availableHeight-6 {
 			artHeight = availableHeight - 6
 		}

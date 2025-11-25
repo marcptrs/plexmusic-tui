@@ -30,6 +30,7 @@ type Player struct {
 	sampleRate    beep.SampleRate
 	position      int // Current position in samples
 	length        int // Total length in samples
+	onCompletion  func()
 }
 
 // NewPlayer creates a new audio player
@@ -71,6 +72,7 @@ func (p *Player) LoadStream(body io.ReadCloser, contentType string) error {
 	// Close previous streamer if it exists to free resources
 	if p.streamer != nil {
 		p.streamer.Close()
+		p.streamer = nil
 	}
 
 	// Buffer the entire stream to allow multiple decode attempts and avoid
@@ -91,7 +93,9 @@ func (p *Player) LoadStream(body io.ReadCloser, contentType string) error {
 	// Helper to try a decoder on the buffer
 	try := func(decode func(io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error)) bool {
 		// Create a new reader for each attempt
-		r := io.NopCloser(bytes.NewReader(buf))
+		// Use nopCloserSeeker to ensure the decoder sees an io.Seeker, which is required
+		// for proper seeking support in some beep decoders (like mp3).
+		r := nopCloserSeeker{bytes.NewReader(buf)}
 		s, f, e := decode(r)
 		if e == nil {
 			streamer = s
@@ -160,8 +164,28 @@ func (p *Player) attachStreamer(streamer beep.StreamSeekCloser, format beep.Form
 	p.sampleRate = format.SampleRate
 	p.length = streamer.Len()
 
+	// Wrap the streamer to detect completion
+	// We use beep.Seq to append a callback that runs when the streamer is exhausted
+	wrappedStreamer := beep.Seq(streamer, beep.Callback(func() {
+		// Use a local copy of the callback to avoid race conditions if it's changed
+		cb := p.onCompletion
+		if cb != nil {
+			// Run in a separate goroutine to avoid blocking the speaker
+			go func() {
+				// Recover from panics in the callback to prevent crashing the audio thread
+				defer func() {
+					if r := recover(); r != nil {
+						// We can't easily log here without importing log package, but we prevent the crash
+						fmt.Printf("Panic in playback completion callback: %v\n", r)
+					}
+				}()
+				cb()
+			}()
+		}
+	}))
+
 	// Create the control node
-	p.ctrl = &beep.Ctrl{Streamer: streamer}
+	p.ctrl = &beep.Ctrl{Streamer: wrappedStreamer}
 
 	// Create the volume effect
 	p.volume = &effects.Volume{Streamer: p.ctrl, Base: 2}
@@ -258,11 +282,35 @@ func (p *Player) Seek(pos int) error {
 		return fmt.Errorf("no audio stream loaded")
 	}
 
-	speaker.Lock()
-	err := p.streamer.Seek(pos)
-	speaker.Unlock()
+	// Guard against negative position
+	if pos < 0 {
+		pos = 0
+	}
+	// Guard against seeking past end
+	if p.length > 0 && pos > p.length {
+		pos = p.length
+	}
 
+	speaker.Lock()
+	defer speaker.Unlock()
+
+	// Recover from potential panics in underlying library
+	defer func() {
+		if r := recover(); r != nil {
+			// Log or handle panic if possible, though we can't easily return error from defer
+			// But at least we unlock the speaker
+			// Intentionally ignored to prevent crash
+			_ = r
+		}
+	}()
+
+	err := p.streamer.Seek(pos)
 	if err != nil {
+		// If we hit EOF while seeking (e.g. to the very end), treat it as success
+		if err == io.EOF {
+			p.position = pos
+			return nil
+		}
 		return fmt.Errorf("seek failed: %w", err)
 	}
 
@@ -274,9 +322,11 @@ func (p *Player) Seek(pos int) error {
 func (p *Player) UpdatePosition() {
 	if p.state == domain.PlaybackPlaying && p.speakerInit {
 		speaker.Lock()
-		pos := p.streamer.Position()
-		speaker.Unlock()
-		p.position = pos
+		defer speaker.Unlock()
+
+		if p.streamer != nil {
+			p.position = p.streamer.Position()
+		}
 	}
 }
 
@@ -292,6 +342,7 @@ func (p *Player) Close() error {
 		if err := p.streamer.Close(); err != nil {
 			return err
 		}
+		p.streamer = nil
 	}
 
 	return nil
@@ -328,4 +379,19 @@ func (p *Player) SetVolume(v float64) {
 // SampleRate returns the sample rate of the current stream
 func (p *Player) SampleRate() int {
 	return int(p.sampleRate)
+}
+
+// SetCompletionCallback sets the callback to be executed when playback finishes
+func (p *Player) SetCompletionCallback(cb func()) {
+	p.onCompletion = cb
+}
+
+// nopCloserSeeker wraps an io.ReadSeeker to implement io.ReadCloser
+// while preserving the Seek method for the underlying reader.
+type nopCloserSeeker struct {
+	io.ReadSeeker
+}
+
+func (n nopCloserSeeker) Close() error {
+	return nil
 }

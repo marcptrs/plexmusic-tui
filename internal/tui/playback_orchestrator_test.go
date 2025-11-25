@@ -38,6 +38,7 @@ func (m *mockPbSvcErr) Seek(position int) error        { return nil }
 func (m *mockPbSvcErr) SetVolume(v float64)            {}
 func (m *mockPbSvcErr) GetPosition() int               { return 0 }
 func (m *mockPbSvcErr) GetDuration() int               { return 0 }
+func (m *mockPbSvcErr) SampleRate() int                { return 44100 }
 func (m *mockPbSvcErr) GetState() domain.PlaybackState { return domain.PlaybackStopped }
 func (m *mockPbSvcErr) GetVolume() float64             { return 0 }
 func (m *mockPbSvcErr) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.PlaybackEvent] {

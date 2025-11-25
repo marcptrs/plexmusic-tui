@@ -1,11 +1,6 @@
 package tui
 
 import (
-	"reflect"
-	"time"
-
-	log "github.com/charmbracelet/log/v2"
-
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -88,15 +83,6 @@ func (a *AppModel) CurrentPageID() PageID {
 // returned by the router may produce an immediate QuitRequestedMsg; that
 // result is inspected so that AppModel can perform coordinated shutdown.
 func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Lightweight timing instrumentation to detect slow Update() handlers.
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		if elapsed > 5*time.Millisecond {
-			log.Debug("AppModel.Update elapsed", "elapsed", elapsed, "msgType", reflect.TypeOf(msg))
-		}
-	}()
-
 	// Handle key messages at the app level first to guarantee global keys
 	// are honored regardless of page/input interception.
 	if km, ok := msg.(tea.KeyMsg); ok {
@@ -169,14 +155,6 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View delegates rendering to the router.
 func (a *AppModel) View() string {
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		if elapsed > 5*time.Millisecond {
-			log.Debug("AppModel.View elapsed", "elapsed", elapsed)
-		}
-	}()
-
 	if a.router == nil {
 		return ""
 	}

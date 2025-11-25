@@ -1395,6 +1395,7 @@ func (m *mockPbSvcOK) SetVolume(v float64)            {}
 func (m *mockPbSvcOK) GetVolume() float64             { return 0 }
 func (m *mockPbSvcOK) GetPosition() int               { return 0 }
 func (m *mockPbSvcOK) GetDuration() int               { return 0 }
+func (m *mockPbSvcOK) SampleRate() int                { return 44100 }
 func (m *mockPbSvcOK) GetState() domain.PlaybackState { return domain.PlaybackPlaying }
 func (m *mockPbSvcOK) PlayDomainTrack(ctx context.Context, lib interface {
 	FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
@@ -1516,14 +1517,25 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 	page.pbEvtCh = page.orchestrator.Subscribe(page.ctx)
 	page.nowPlaying = components.NewNowPlayingComponent(coord, page.orchestrator)
 
-	// Simulate end-of-track via a playback.position event; position >= length triggers auto-advance
+	// Simulate end-of-track via a playback.finished event
 	ev := domain.PlaybackEvent{
-		Type:     "playback.position",
-		Position: 100,
-		Duration: 100,
+		Type: "playback.finished",
 	}
 	_, cmd := page.Update(ev)
+
+	// The update should return a command (the tick delay)
+	if cmd == nil {
+		t.Fatal("expected a command from playback.finished update")
+	}
+
+	// Execute the command to get the delayed message (playback.advance_next)
+	msg := cmd()
+
+	// Now update the page with the delayed message
+	_, cmd = page.Update(msg)
 	if cmd != nil {
+		// If the advance triggers another command (e.g. play), execute it too just in case,
+		// though for this test checking the coordinator state is enough.
 		_ = cmd()
 	}
 

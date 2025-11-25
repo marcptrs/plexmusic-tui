@@ -45,6 +45,8 @@ type LibraryKeyMap struct {
 	QueueRemove     key.Binding
 	Back            key.Binding
 	Quit            key.Binding
+	SeekForward     key.Binding
+	SeekBackward    key.Binding
 }
 
 // ShortHelp returns keybindings to be shown in the mini help view.
@@ -56,7 +58,7 @@ func (k LibraryKeyMap) ShortHelp() []key.Binding {
 func (k LibraryKeyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter, k.PlaySelected, k.Back},
-		{k.Play, k.Next, k.Prev, k.VolumeUp, k.VolumeDown, k.FocusNowPlaying},
+		{k.Play, k.Next, k.Prev, k.SeekForward, k.SeekBackward, k.VolumeUp, k.VolumeDown, k.FocusNowPlaying},
 		{
 			k.Queue,
 			k.Refresh,
@@ -101,6 +103,14 @@ func DefaultLibraryKeyMap() LibraryKeyMap {
 		Prev: key.NewBinding(
 			key.WithKeys("b"),
 			key.WithHelp("b", "prev"),
+		),
+		SeekForward: key.NewBinding(
+			key.WithKeys("right", "l"),
+			key.WithHelp("→/l", "seek +10s"),
+		),
+		SeekBackward: key.NewBinding(
+			key.WithKeys("left", "h"),
+			key.WithHelp("←/h", "seek -10s"),
 		),
 		VolumeUp: key.NewBinding(
 			key.WithKeys("+", "="),

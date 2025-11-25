@@ -89,6 +89,7 @@ func (m *mockPbSvcPlayErr) Seek(position int) error        { return m.err }
 func (m *mockPbSvcPlayErr) SetVolume(v float64)            {}
 func (m *mockPbSvcPlayErr) GetPosition() int               { return 0 }
 func (m *mockPbSvcPlayErr) GetDuration() int               { return 0 }
+func (m *mockPbSvcPlayErr) SampleRate() int                { return 44100 }
 func (m *mockPbSvcPlayErr) GetState() domain.PlaybackState { return domain.PlaybackStopped }
 func (m *mockPbSvcPlayErr) GetVolume() float64             { return 0 }
 func (m *mockPbSvcPlayErr) PlayDomainTrack(ctx context.Context, lib interface {
@@ -169,6 +170,7 @@ func (m *mockPbSvcVolume) Seek(position int) error        { return nil }
 func (m *mockPbSvcVolume) SetVolume(v float64)            { m.vol = v }
 func (m *mockPbSvcVolume) GetPosition() int               { return 0 }
 func (m *mockPbSvcVolume) GetDuration() int               { return 0 }
+func (m *mockPbSvcVolume) SampleRate() int                { return 44100 }
 func (m *mockPbSvcVolume) GetState() domain.PlaybackState { return domain.PlaybackStopped }
 func (m *mockPbSvcVolume) GetVolume() float64             { return m.vol }
 func (m *mockPbSvcVolume) PlayDomainTrack(ctx context.Context, lib interface {

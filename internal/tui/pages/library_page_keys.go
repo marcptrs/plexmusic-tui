@@ -3,6 +3,7 @@ package pages
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -287,6 +288,73 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return p, p.playNext()
 	case key.Matches(msg, p.keys.Prev):
 		return p, p.playPrev()
+	case key.Matches(msg, p.keys.SeekForward):
+		if p.coordinator.PlaybackService() != nil && p.orchestrator != nil {
+			svc := p.coordinator.PlaybackService()
+			// Guard against nil pointer wrapped in interface
+			if reflect.ValueOf(svc).Kind() == reflect.Ptr && reflect.ValueOf(svc).IsNil() {
+				return p, nil
+			}
+
+			pos := svc.GetPosition()
+			duration := svc.GetDuration()
+			sr := svc.SampleRate()
+			if sr == 0 {
+				sr = 44100
+			}
+
+			// Seek +10 seconds (in samples)
+			newPos := pos + (10 * sr)
+			if newPos > duration {
+				newPos = duration
+			}
+
+			return p, func() tea.Msg {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Error("Panic in SeekForward", "error", r)
+					}
+				}()
+				if err := p.orchestrator.Seek(newPos); err != nil {
+					log.Error("Orchestrator seek failed", "error", err)
+				}
+				return nil
+			}
+		}
+		return p, nil
+	case key.Matches(msg, p.keys.SeekBackward):
+		if p.coordinator.PlaybackService() != nil && p.orchestrator != nil {
+			svc := p.coordinator.PlaybackService()
+			// Guard against nil pointer wrapped in interface
+			if reflect.ValueOf(svc).Kind() == reflect.Ptr && reflect.ValueOf(svc).IsNil() {
+				return p, nil
+			}
+
+			pos := svc.GetPosition()
+			sr := svc.SampleRate()
+			if sr == 0 {
+				sr = 44100
+			}
+
+			// Seek -10 seconds (in samples)
+			newPos := pos - (10 * sr)
+			if newPos < 0 {
+				newPos = 0
+			}
+
+			return p, func() tea.Msg {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Error("Panic in SeekBackward", "error", r)
+					}
+				}()
+				if err := p.orchestrator.Seek(newPos); err != nil {
+					log.Error("Orchestrator seek failed", "error", err)
+				}
+				return nil
+			}
+		}
+		return p, nil
 	case key.Matches(msg, p.keys.VolumeUp):
 		p.adjustVolumeByPercent(5)
 		return p, nil

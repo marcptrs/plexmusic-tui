@@ -97,9 +97,6 @@ type LibraryPage struct {
 	// Key bindings
 	keys tui.LibraryKeyMap
 
-	// Playback finished trigger
-	finishedTriggered bool
-
 	focusedNowPlaying bool
 	focusedQueue      bool
 }
@@ -210,6 +207,7 @@ func (p *LibraryPage) Init() tea.Cmd {
 	}
 	// create or update orchestrator and nowplaying component (pass orchestrator as PlaybackServicer)
 	p.orchestrator = tui.NewOrchestrator(p.coordinator, p.libSvc, pbSvc)
+	p.queueComponent.SetOrchestrator(p.orchestrator)
 	p.pbEvtCh = p.orchestrator.Subscribe(p.ctx)
 	if p.nowPlaying == nil {
 		p.nowPlaying = components.NewNowPlayingComponent(p.coordinator, p.orchestrator)

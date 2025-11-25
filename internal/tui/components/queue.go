@@ -44,7 +44,7 @@ func (c *QueueComponent) Init() tea.Cmd {
 }
 
 func (c *QueueComponent) SetSize(width, height int) {
-	c.list.SetSize(width, height)
+	c.list.SetSize(width, height-1)
 }
 
 func (c *QueueComponent) SetWidth(width int) {
@@ -96,7 +96,20 @@ func (c *QueueComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (c *QueueComponent) View() string {
-	return c.list.View()
+	v := c.list.View()
+
+	var total int
+	items := c.list.Items()
+	for _, item := range items {
+		if qi, ok := item.(util.QueueItem); ok {
+			total += qi.Track.Duration
+		}
+	}
+
+	summary := fmt.Sprintf("%d items • %s", len(items), util.FormatTrackDuration(total))
+	summaryView := styles.MutedStyle.Padding(0, 1).Render(summary)
+
+	return lipgloss.JoinVertical(lipgloss.Left, v, summaryView)
 }
 
 func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
@@ -105,7 +118,6 @@ func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
 		isRuneKey(msg, 'j') {
 		var cmd tea.Cmd
 		c.list, cmd = c.list.Update(msg)
-		c.coordinator.SetQueueIndex(c.list.Index())
 		return true, cmd
 	}
 
@@ -329,10 +341,10 @@ func (c *QueueComponent) RenderWithModal(base string, width, height int) string 
 	}
 
 	// Update list size for the modal
-	c.list.SetSize(modalWidth-4, modalHeight-2)
+	c.list.SetSize(modalWidth-4, modalHeight-3)
 
 	// Render the list
-	listView := c.list.View()
+	listView := c.View()
 
 	// Wrap in a border
 	modal := lipgloss.NewStyle().
@@ -351,4 +363,9 @@ func (c *QueueComponent) RenderWithModal(base string, width, height int) string 
 		lipgloss.Center,
 		modal,
 	)
+}
+
+// SetOrchestrator updates the orchestrator instance
+func (c *QueueComponent) SetOrchestrator(orch *tui.Orchestrator) {
+	c.orchestrator = orch
 }

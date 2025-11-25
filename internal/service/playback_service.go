@@ -20,10 +20,23 @@ type PlaybackService struct {
 
 // NewPlaybackService creates a new playback service
 func NewPlaybackService() *PlaybackService {
-	return &PlaybackService{
+	s := &PlaybackService{
 		player: playback.NewPlayer(),
 		broker: pubsub.NewBroker[domain.PlaybackEvent](),
 	}
+
+	// Set up completion callback
+	s.player.SetCompletionCallback(func() {
+		s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
+			Type: "playback.finished",
+			Payload: domain.PlaybackEvent{
+				Type: "playback.finished",
+			},
+		})
+		log.Debug("playback.finished")
+	})
+
+	return s
 }
 
 // Subscribe returns a channel for receiving playback events

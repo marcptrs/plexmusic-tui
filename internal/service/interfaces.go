@@ -48,6 +48,7 @@ type PlaybackServicer interface {
 	GetVolume() float64
 	GetPosition() int
 	GetDuration() int
+	SampleRate() int
 	GetState() domain.PlaybackState
 	PlayDomainTrack(ctx context.Context, lib interface {
 		FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)

@@ -207,13 +207,12 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		}
 	case "playback.started":
 		p.coordinator.SetPlaybackState(app.PlaybackPlaying)
-		// Reset our finished-triggered debounce to allow auto-advance for the next
-		// track when it completes.
-		p.finishedTriggered = false
 		if msg.Track != nil {
 			track := util.DomainTrackToApp(msg.Track)
 			p.coordinator.SetCurrentTrack(track)
 		}
+		// Update queue UI to reflect the new playing track
+		p.queueComponent.UpdateListFromCoordinator()
 	case "playback.resumed":
 		p.coordinator.SetPlaybackState(app.PlaybackPlaying)
 	case "playback.paused":
@@ -222,6 +221,18 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		p.coordinator.SetPlaybackState(app.PlaybackStopped)
 	case "playback.volume_changed":
 		// Playback service publishes floats — we don't keep it in coordinator as a primitive.
+	case "playback.finished":
+		// Auto-advance to the next queued track.
+		// We check IsPlaying to ensure we don't auto-advance if the user explicitly stopped playback,
+		// although playback.finished usually implies the stream ran to completion.
+		if p.coordinator.IsPlaying() {
+			// Use a small delay to allow the previous track cleanup to complete
+			return p, tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
+				return domain.PlaybackEvent{Type: "playback.advance_next"}
+			})
+		}
+	case "playback.advance_next":
+		return p, p.playNext()
 	case "playback.position":
 		// Periodic position updates from the service.
 		if msg.Position >= 0 {
@@ -232,21 +243,6 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		}
 		if msg.SampleRate > 0 {
 			p.coordinator.SetSampleRate(beep.SampleRate(msg.SampleRate))
-		}
-
-		// Detect end-of-track and auto-advance to the next queued track if applicable.
-		// We debounce using `finishedTriggered` to avoid issuing multiple commands for
-		// the same track-end event as position updates can be frequent.
-		if msg.Duration > 0 && msg.Position >= msg.Duration {
-			if p.coordinator.IsPlaying() && !p.finishedTriggered {
-				p.finishedTriggered = true
-				// Trigger next; playNext handles the queue logic and will stop playback
-				// when the queue is complete.
-				return p, p.playNext()
-			}
-		} else {
-			// Reset the debounce when position is before the end (new track started, resumed, or seeked).
-			p.finishedTriggered = false
 		}
 	}
 	// Re-subscribe to continue receiving playback/library events
