@@ -422,6 +422,8 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch sw {
 		case "1", "2", "3", "4", "6":
 			p.drawerOpen = true
+			// Clear queue focus when switching to non-queue tabs
+			p.SetFocusedQueue(false)
 		case "5":
 			p.drawerOpen = false
 		}
