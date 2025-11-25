@@ -17,8 +17,9 @@ linters:
     - errcheck
     - ineffassign
     - unused
+  settings:
+    lll:
+      line-length: 120
 
-linters-settings:
-  lll:
-    line-length: 120
+
 
