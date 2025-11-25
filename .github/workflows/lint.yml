@@ -20,10 +20,10 @@ jobs:
         with:
           go-version-file: ./go.mod
       
-      - name: Install golangci-lint
+      - name: Install golangci-lint (v2)
         uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v2.6.1
           args: --timeout=10m
       - name: Verify golangci-lint config
         run: golangci-lint config verify
