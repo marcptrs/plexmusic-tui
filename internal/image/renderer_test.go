@@ -90,8 +90,9 @@ func TestRenderITerm2UsesCanvasPixelSize(t *testing.T) {
 	r := NewRendererWithProtocol(domain.ProtocolITerm2)
 	img := coloredImg(32, 32, color.RGBA{255, 0, 0, 255})
 
-	widthChar := 10
-	heightChar := 5
+	// Use dimensions that are already bucket-aligned (multiples of 4)
+	widthChar := 12
+	heightChar := 8
 	expectedWidthPx := widthChar * pixelPerCellITerm2
 	expectedHeightPx := heightChar * pixelPerCellITerm2
 
@@ -109,8 +110,9 @@ func TestRenderKittyCanvasHasExpectedPNGSize(t *testing.T) {
 	r := NewRendererWithProtocol(domain.ProtocolKitty)
 	img := coloredImg(64, 64, color.RGBA{0, 255, 0, 255})
 
-	widthChar := 9
-	heightChar := 7
+	// Use dimensions that are already bucket-aligned (multiples of 4)
+	widthChar := 8
+	heightChar := 4
 	expectedPxW := widthChar * pixelPerCellKitty
 	expectedPxH := heightChar * pixelPerCellKitty
 

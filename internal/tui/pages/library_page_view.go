@@ -240,49 +240,7 @@ func (p *LibraryPage) View() string {
 			Height(leftContentHeight).
 			Render(leftContent)
 	} else {
-		// Stacked artwork + info
-		// Choose an art height that is roughly square but doesn't consume all
-		// the available vertical space; reserve at least 6 lines for the info.
-		// The pane has a border (2 lines), so available height is contentHeight - 2.
-		availableHeight := contentHeight - 2
-		if availableHeight < 12 {
-			availableHeight = 12
-		}
-
-		artHeight := leftWidth / 2
-		if artHeight > availableHeight-6 {
-			artHeight = availableHeight - 6
-		}
-		if artHeight < 6 {
-			artHeight = 6
-		}
-		infoHeight := availableHeight - artHeight
-		if infoHeight < 6 {
-			infoHeight = 6
-		}
-
-		// Render art if available, otherwise show fallback
-		artView := ""
-		if p.coordinator.PlaybackAlbumArt() != nil && p.coordinator.PlaybackImgRenderer() != nil {
-			artView = p.coordinator.PlaybackImgRenderer().Render(p.coordinator.PlaybackAlbumArt(), leftWidth, artHeight)
-			artView = strings.TrimRight(artView, "\r\n ")
-		} else {
-			if p.coordinator.PlaybackAlbumArtThumb() != "" {
-				artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", p.coordinator.PlaybackAlbumArtThumb()))
-			} else {
-				artView = ""
-			}
-		}
-
-		// Normalize the artView to have exactly artHeight lines, then center it.
-		artView = padOrCropLines(artView, leftWidth, artHeight)
-		// Center the art view horizontally and keep it at the top of the art area
-		artView = lipgloss.Place(leftWidth, artHeight, lipgloss.Center, lipgloss.Top, artView)
-
-		// Render info via the component method
-		infoView := p.nowPlaying.RenderInfo(leftWidth, infoHeight)
-		infoView = padOrCropLines(infoView, leftWidth, infoHeight)
-
+		// Stacked artwork + info - reuse artView and infoView computed above
 		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).
 			Height(leftContentHeight).
 			Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))

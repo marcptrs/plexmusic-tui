@@ -16,6 +16,14 @@ import (
 	"plexmusic-tui/internal/tui/util"
 )
 
+// abs returns the absolute value of an integer
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, tea.Cmd) {
 	switch msg.Type {
 	case "libraries.loaded":
@@ -235,14 +243,35 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		return p, p.playNext()
 	case "playback.position":
 		// Periodic position updates from the service.
+		// Only update state if values actually changed to avoid unnecessary re-renders.
+		stateChanged := false
 		if msg.Position >= 0 {
-			p.coordinator.SetStreamPosition(msg.Position)
+			// Only update if position changed by at least 1 second worth of samples
+			// to reduce re-render frequency while still showing progress.
+			oldPos := p.coordinator.StreamPosition()
+			sr := p.coordinator.SampleRate()
+			if sr == 0 {
+				sr = 44100 // default sample rate
+			}
+			// Threshold: 1 second of samples
+			threshold := int(sr)
+			if abs(msg.Position-oldPos) >= threshold {
+				p.coordinator.SetStreamPosition(msg.Position)
+				stateChanged = true
+			}
 		}
-		if msg.Duration > 0 {
+		if msg.Duration > 0 && msg.Duration != p.coordinator.StreamLength() {
 			p.coordinator.SetStreamLength(msg.Duration)
+			stateChanged = true
 		}
-		if msg.SampleRate > 0 {
+		if msg.SampleRate > 0 && beep.SampleRate(msg.SampleRate) != p.coordinator.SampleRate() {
 			p.coordinator.SetSampleRate(beep.SampleRate(msg.SampleRate))
+			stateChanged = true
+		}
+		// Only trigger re-render if state actually changed
+		if !stateChanged {
+			// Still need to re-subscribe but skip triggering a view update
+			return p, p.subscribeToPlaybackEvents()
 		}
 	}
 	// Re-subscribe to continue receiving playback/library events

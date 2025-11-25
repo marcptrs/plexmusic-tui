@@ -32,6 +32,15 @@ type Renderer struct {
 	debug     bool
 }
 
+// bucketSize rounds a dimension to the nearest bucket size to improve cache hit rates.
+// Small changes in terminal size (e.g., 80->82 columns) will hit the same cache entry.
+func bucketSize(size, bucketWidth int) int {
+	if bucketWidth <= 0 {
+		bucketWidth = 4
+	}
+	return (size / bucketWidth) * bucketWidth
+}
+
 // NewRenderer creates a new image renderer, auto-detecting the best protocol
 func NewRenderer() *Renderer {
 	protocol := DetectImageProtocol()
@@ -147,12 +156,16 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		}
 	}
 
-	// Generate cache key from protocol, content hash and sizes
+	// Generate cache key from protocol, content hash and bucketed sizes.
+	// Bucketing dimensions (rounding to nearest 4) improves cache hit rates when
+	// terminal size changes slightly (e.g., window resize by a few columns).
 	bounds := img.Bounds()
+	bucketedW := bucketSize(width, 4)
+	bucketedH := bucketSize(height, 4)
 	cacheKey := fmt.Sprintf("%s_%s_%d_%d_%dx%d_%dx%d",
 		r.protocol.String(),
 		contentHash,
-		width, height,
+		bucketedW, bucketedH,
 		bounds.Dx(), bounds.Dy(),
 		bounds.Min.X, bounds.Min.Y)
 
@@ -160,6 +173,10 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 	if cached, found := r.cache[cacheKey]; found {
 		return cached
 	}
+
+	// Use bucketed dimensions for actual rendering to ensure cache key matches output
+	width = bucketedW
+	height = bucketedH
 
 	var result string
 	switch r.protocol {
@@ -409,8 +426,18 @@ func (r *Renderer) renderImageUnicodeBlocks(img image.Image, width, height int) 
 	// width and height are already in a 2:1 ratio (e.g., 80x40) for square display
 	resized := imaging.Fit(img, width, height*2, imaging.Lanczos)
 
-	var output strings.Builder
 	bounds := resized.Bounds()
+	// Pre-allocate output buffer with estimated capacity to reduce allocations
+	// Each cell produces ~30-40 bytes of ANSI escape codes + character
+	estimatedSize := bounds.Dx() * (bounds.Dy() / 2) * 45
+	var output strings.Builder
+	output.Grow(estimatedSize)
+
+	// Pre-allocate a hex lookup table for faster color formatting
+	hexChars := []byte("0123456789abcdef")
+	// Reusable buffer for color string building (avoids fmt.Sprintf per pixel)
+	var colorBuf [7]byte // "#RRGGBB"
+	colorBuf[0] = '#'
 
 	for y := bounds.Min.Y; y < bounds.Max.Y; y += 2 {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
@@ -429,12 +456,31 @@ func (r *Renderer) renderImageUnicodeBlocks(img image.Image, width, height int) 
 			r1, g1, b1 = r1>>8, g1>>8, b1>>8
 			r2, g2, b2 = r2>>8, g2>>8, b2>>8
 
-			// Use upper half block with top color as foreground and bottom color as background
-			style := lipgloss.NewStyle().
-				Foreground(lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r1, g1, b1))).
-				Background(lipgloss.Color(fmt.Sprintf("#%02x%02x%02x", r2, g2, b2)))
+			// Build foreground color string directly
+			colorBuf[1] = hexChars[r1>>4]
+			colorBuf[2] = hexChars[r1&0xf]
+			colorBuf[3] = hexChars[g1>>4]
+			colorBuf[4] = hexChars[g1&0xf]
+			colorBuf[5] = hexChars[b1>>4]
+			colorBuf[6] = hexChars[b1&0xf]
+			fgColor := string(colorBuf[:])
 
-			output.WriteString(style.Render("▀"))
+			// Build background color string directly
+			colorBuf[1] = hexChars[r2>>4]
+			colorBuf[2] = hexChars[r2&0xf]
+			colorBuf[3] = hexChars[g2>>4]
+			colorBuf[4] = hexChars[g2&0xf]
+			colorBuf[5] = hexChars[b2>>4]
+			colorBuf[6] = hexChars[b2&0xf]
+			bgColor := string(colorBuf[:])
+
+			// Write ANSI escape codes directly instead of using lipgloss.Style per pixel
+			// Format: \x1b[38;2;R;G;B;48;2;R;G;Bm▀\x1b[0m
+			// Using hex colors via lipgloss for terminal compatibility
+			output.WriteString(lipgloss.NewStyle().
+				Foreground(lipgloss.Color(fgColor)).
+				Background(lipgloss.Color(bgColor)).
+				Render("▀"))
 		}
 		output.WriteString("\n")
 	}
