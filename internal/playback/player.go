@@ -176,7 +176,8 @@ func (p *Player) attachStreamer(streamer beep.StreamSeekCloser, format beep.Form
 				defer func() {
 					if r := recover(); r != nil {
 						// We can't easily log here without importing log package, but we prevent the crash
-						fmt.Printf("Panic in playback completion callback: %v\n", r)
+						// fmt.Printf("Panic in playback completion callback: %v\n", r)
+						_ = r
 					}
 				}()
 				cb()
