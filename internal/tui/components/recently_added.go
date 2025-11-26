@@ -16,8 +16,9 @@ type RecentlyAddedComponent struct {
 func NewRecentlyAddedComponent(coord app.Coordinatorer) *RecentlyAddedComponent {
 	delegate := list.NewDefaultDelegate()
 	l := list.New(nil, delegate, 20, 10)
-	l.Title = "Recently Added"
+	l.Title = "" // Title is rendered by the page, not the component
 	l.SetShowHelp(false)
+	l.SetShowTitle(false)
 
 	return &RecentlyAddedComponent{
 		coordinator: coord,

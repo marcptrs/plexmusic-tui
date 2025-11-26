@@ -134,6 +134,19 @@ type Coordinatorer interface {
 	// Server and helper accessors
 	GetCurrentServer() *PlexServer
 	ConfigManager() *config.Manager
+	// Plex Pass and sonic-related lists
+	HasPlexPass() bool
+	SetPlexPass(bool)
+	MixesForYou() []Playlist
+	SetMixesForYou([]Playlist)
+	OnThisDay() []Album
+	SetOnThisDay([]Album)
+	MoodStations() []Track
+	SetMoodStations([]Track)
+	LibraryHubs() []Hub
+	SetLibraryHubs([]Hub)
+	HasSonicAvailable() bool
+	SetSonicAvailable(bool)
 	// Debug/troubleshooting toggles
 	SetDumpView(bool)
 	DumpView() bool

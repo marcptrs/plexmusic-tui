@@ -1,6 +1,39 @@
 package domain
 
-import "github.com/faiface/beep"
+import (
+	"encoding/json"
+	"strconv"
+
+	"github.com/faiface/beep"
+)
+
+// FlexInt is an int that can be unmarshaled from either a JSON number or string.
+// Plex sometimes returns numeric fields as strings.
+type FlexInt int
+
+func (fi *FlexInt) UnmarshalJSON(data []byte) error {
+	// Try as number first
+	var n int
+	if err := json.Unmarshal(data, &n); err == nil {
+		*fi = FlexInt(n)
+		return nil
+	}
+	// Try as string
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		if s == "" {
+			*fi = 0
+			return nil
+		}
+		n, err := strconv.Atoi(s)
+		if err != nil {
+			return err
+		}
+		*fi = FlexInt(n)
+		return nil
+	}
+	return nil // Default to 0
+}
 
 // SessionState represents the current state of the application
 type SessionState int
@@ -103,6 +136,8 @@ type PlexServer struct {
 	AccessToken  string `json:"accessToken"`
 	LocalAddress string `json:"localAddresses"`
 	Scheme       string `json:"scheme"`
+	// PlexPass indicates whether this server supports Plex Pass features
+	PlexPass bool `json:"plexPass"`
 }
 
 // PlexResourceResponse is the response from Plex resources API
@@ -133,6 +168,8 @@ type Album struct {
 	Year   int    `json:"year"`
 	Key    string `json:"key"`
 	Thumb  string `json:"thumb"` // Album cover art URL
+	// Distance is the sonic distance (if part of a similarity response)
+	Distance float64 `json:"distance"`
 }
 
 // Playlist represents a music playlist
@@ -142,6 +179,19 @@ type Playlist struct {
 	LeafCount    int    `json:"leafCount"`
 	Duration     int    `json:"duration"`
 	PlaylistType string `json:"playlistType"`
+}
+
+// Hub represents a Plex hub (group of content like stations, mixes, etc.)
+type Hub struct {
+	HubIdentifier string     `json:"hubIdentifier"`
+	Title         string     `json:"title"`
+	Type          string     `json:"type"`
+	Context       string     `json:"context"`
+	Style         string     `json:"style"`
+	Size          int        `json:"size"`
+	Playlists     []Playlist `json:"Metadata"` // Playlists/stations in the hub
+	Albums        []Album    // For album-based hubs (like On This Day)
+	Tracks        []Track    // For track-based hubs
 }
 
 // Track represents a music track
@@ -160,6 +210,17 @@ type Track struct {
 			Key string `json:"key"`
 		} `json:"Part"`
 	} `json:"Media"`
+	// Sonic analysis fields
+	HasSonicAnalysis     bool    `json:"hasSonicAnalysis"`
+	MusicAnalysisVersion FlexInt `json:"musicAnalysisVersion"`
+	Distance             float64 `json:"distance"`
+	Moods                []Mood  `json:"moods"`
+}
+
+// Mood represents a detected mood tag in Plex sonic analysis
+type Mood struct {
+	Title string `json:"title"`
+	Key   string `json:"key"`
 }
 
 // PlexMediaContainer represents a media container response from Plex

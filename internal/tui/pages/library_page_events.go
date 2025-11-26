@@ -26,6 +26,22 @@ func abs(x int) int {
 
 func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, tea.Cmd) {
 	switch msg.Type {
+	case "server.plexpass":
+		// Plex Pass available on the server
+		p.coordinator.SetPlexPass(true)
+		p.coordinator.SetNotification("Plex Pass detected: sonic features may be available.", "info", 6*time.Second)
+		return p, tea.Batch(p.subscribeToLibraryEvents(), p.subscribeToPlaybackEvents())
+	case "library.sonic_analyzed":
+		// Sonic analysis detected — enable sonic features and fetch related home content
+		p.coordinator.SetSonicAvailable(true)
+		// Trigger home content fetches for Mixes/OnThisDay/MoodStations
+		return p, tea.Batch(
+			p.fetchMixesForYou(),
+			p.fetchOnThisDay(),
+			p.fetchMoodStations(),
+			p.subscribeToLibraryEvents(),
+			p.subscribeToPlaybackEvents(),
+		)
 	case "libraries.loaded":
 		log.Debug("LibraryPage: libraries.loaded", "count", len(msg.Libraries))
 		appLibs := make([]app.MusicLibrary, len(msg.Libraries))
@@ -99,6 +115,35 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			p.lastSelectedPlaylistIndex = -1
 		}
 
+	case "mixes.loaded":
+		appPlaylists := make([]app.Playlist, len(msg.Playlists))
+		for i, pl := range msg.Playlists {
+			appPlaylists[i] = app.Playlist{
+				Title:        pl.Title,
+				Key:          pl.Key,
+				LeafCount:    pl.LeafCount,
+				Duration:     pl.Duration,
+				PlaylistType: pl.PlaylistType,
+			}
+		}
+		p.coordinator.SetMixesForYou(appPlaylists)
+
+	case "onthisday.loaded":
+		appAlbums := make([]app.Album, len(msg.Albums))
+		for i, a := range msg.Albums {
+			appAlbums[i] = app.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
+		}
+		p.coordinator.SetOnThisDay(appAlbums)
+
+	case "moodstation.loaded":
+		appTracks := make([]app.Track, len(msg.Tracks))
+		for i, t := range msg.Tracks {
+			if at := util.DomainTrackToApp(&t); at != nil {
+				appTracks[i] = *at
+			}
+		}
+		p.coordinator.SetMoodStations(appTracks)
+
 	case "tracks.loaded":
 		appTracks := make([]app.Track, len(msg.Tracks))
 		items := make([]list.Item, len(msg.Tracks))
@@ -126,6 +171,9 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 		"playlists.fetch_failed",
 		"albums.fetch_failed",
 		"tracks.fetch_failed":
+	case "mixes.fetch_failed",
+		"onthisday.fetch_failed",
+		"moodstation.fetch_failed":
 		if msg.Error != nil {
 			// Extract just the error message without full error chain for display
 			errMsg := msg.Error.Error()

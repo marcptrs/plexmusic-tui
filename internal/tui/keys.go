@@ -36,6 +36,7 @@ type LibraryKeyMap struct {
 	VolumeDown      key.Binding
 	Queue           key.Binding
 	Refresh         key.Binding
+	Detect          key.Binding
 	Search          key.Binding
 	Settings        key.Binding
 	SwitchView      key.Binding
@@ -62,6 +63,7 @@ func (k LibraryKeyMap) FullHelp() [][]key.Binding {
 		{
 			k.Queue,
 			k.Refresh,
+			k.Detect,
 			k.Search,
 			k.Settings,
 			k.SwitchView,
@@ -140,6 +142,10 @@ func DefaultLibraryKeyMap() LibraryKeyMap {
 			key.WithKeys("r"),
 			key.WithHelp("r", "refresh"),
 		),
+		Detect: key.NewBinding(
+			key.WithKeys("d"),
+			key.WithHelp("d", "re-check sonic"),
+		),
 		Search: key.NewBinding(
 			key.WithKeys("s", "/"),
 			key.WithHelp("s", "search"),
@@ -203,8 +209,8 @@ func DefaultLoginKeyMap() LoginKeyMap {
 			key.WithHelp("enter", "sign in"),
 		),
 		Quit: key.NewBinding(
-			key.WithKeys("q", "ctrl+c"),
-			key.WithHelp("q", "quit"),
+			key.WithKeys("ctrl+c"),
+			key.WithHelp("ctrl+c", "quit"),
 		),
 	}
 }

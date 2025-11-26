@@ -286,3 +286,112 @@ func TestFetchTracksChildrenFallbackAbsoluteKey(t *testing.T) {
 		t.Fatalf("unexpected track title: %s", tracks[0].Title)
 	}
 }
+
+// When recentlyAdded returns album entries with children, HasSonicAnalysis should
+// fetch the children and detect sonic analysis fields on the tracks.
+func TestHasSonicAnalysisWithAlbumChildren(t *testing.T) {
+	childCalled := false
+	// Mock server: /library/recentlyAdded returns album entries with key=/library/metadata/84564/children
+	// and /library/metadata/84564/children returns a track with hasSonicAnalysis true.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(
+			w,
+			`{"MediaContainer":{"Metadata":[{"title":"Album A",`+
+				`"key":"/library/metadata/84564/children","parentTitle":"Artist A"}]}}`,
+		)
+	})
+	mux.HandleFunc("/library/metadata/84564/children", func(w http.ResponseWriter, r *http.Request) {
+		childCalled = true
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Track X","grandparentTitle":"Artist A",`+
+				`"parentTitle":"Album A","hasSonicAnalysis":true,"musicAnalysisVersion":1}]}`,
+		)
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ok, err := s.HasSonicAnalysis(ctx)
+	if err != nil {
+		t.Fatalf("HasSonicAnalysis returned error: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected HasSonicAnalysis to detect sonic analysis via album children, got false")
+	}
+	if !childCalled {
+		t.Fatalf("expected child endpoint to be called, but it wasn't")
+	}
+}
+
+func TestDecodePlexTrackContainerHubItems(t *testing.T) {
+	// Some plex hubs return tracks nested under 'Hub' -> [{'Metadata': []}]
+	body := `{"Hub":[{"Metadata":[{"title":"Hub Track","grandparentTitle":"Artist",` +
+		`"parentTitle":"Album","duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}]}`
+	_ = NewLibraryService("http://example.com", "token", plexhttp.NewFactory())
+	var container domain.PlexTrackContainer
+	if err := decodePlexTrackContainer([]byte(body), &container); err != nil {
+		t.Fatalf("decodePlexTrackContainer failed to decode Hub payload: %v", err)
+	}
+	if len(container.Metadata) != 1 || container.Metadata[0].Title != "Hub Track" {
+		t.Fatalf("unexpected decoded metadata: %+v", container.Metadata)
+	}
+}
+
+func TestDecodePlexTrackContainerItemsArray(t *testing.T) {
+	// Some responses return a top-level 'items' array of tracks
+	body := `{"items":[{"title":"Item Track","grandparentTitle":"Artist",` +
+		`"parentTitle":"Album","duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}`
+	var container domain.PlexTrackContainer
+	if err := decodePlexTrackContainer([]byte(body), &container); err != nil {
+		t.Fatalf("decodePlexTrackContainer failed to decode items payload: %v", err)
+	}
+	if len(container.Metadata) != 1 || container.Metadata[0].Title != "Item Track" {
+		t.Fatalf("unexpected decoded metadata: %+v", container.Metadata)
+	}
+}
+
+// Per-library detection: HasSonicAnalysis should return true when a library's
+// recentlyAdded contains a track with hasSonicAnalysis set to true.
+func TestHasSonicAnalysisPerLibrary(t *testing.T) {
+	mux := http.NewServeMux()
+	// Global recentlyAdded returns empty or album entries without sonic fields
+	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[]}}`)
+	})
+	// Return one library in sections
+	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"MediaContainer":{"Directory":[{"key":"1","type":"artist","title":"MusicLib"}]}}`)
+	})
+	// Per-library recentlyAdded returns a track with hasSonicAnalysis true
+	mux.HandleFunc("/library/sections/1/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Type=10 style track items
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Library Track","grandparentTitle":"Artist",`+
+				`"parentTitle":"Album","hasSonicAnalysis":true,"musicAnalysisVersion":1}]}`,
+		)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	ok, err := s.HasSonicAnalysis(ctx)
+	if err != nil {
+		t.Fatalf("HasSonicAnalysis returned error: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected HasSonicAnalysis to detect sonic analysis via per-library recentlyAdded, got false")
+	}
+}

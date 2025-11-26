@@ -7,6 +7,7 @@ type LibraryEvent struct {
 	Albums    []Album
 	Playlists []Playlist
 	Tracks    []Track
+	Hubs      []Hub
 	TotalSize int
 	Error     error
 }

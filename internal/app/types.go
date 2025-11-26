@@ -81,6 +81,17 @@ type Playlist struct {
 	PlaylistType string
 }
 
+// Hub represents a Plex hub (group of content like stations, recommendations, etc.)
+type Hub struct {
+	HubIdentifier string
+	Title         string
+	Type          string
+	Context       string
+	Size          int
+	Playlists     []Playlist
+	Albums        []Album
+}
+
 // Track represents a music track (app-facing type)
 type Track struct {
 	Title          string

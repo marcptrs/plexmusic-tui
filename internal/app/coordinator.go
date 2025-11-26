@@ -102,6 +102,14 @@ type Coordinator struct {
 	configMgr *config.Manager
 	// Debug/troubleshooting
 	dumpView bool
+	// Plex Pass and sonic-enhanced contents
+	plexPass     bool
+	mixesForYou  []domain.Playlist
+	onThisDay    []domain.Album
+	moodStations []domain.Track
+	libraryHubs  []domain.Hub
+	// Indicates the server has sonic analysis available for at least some items
+	sonicAvailable bool
 }
 
 // NewCoordinatorWithServices creates a new coordinator with service dependencies
@@ -374,6 +382,160 @@ func (c *Coordinator) SetPlaylistsTotal(total int) { c.playlistsTotal = total }
 
 func (c *Coordinator) SelectedPlaylist() int       { return c.selectedPlaylist }
 func (c *Coordinator) SetSelectedPlaylist(idx int) { c.selectedPlaylist = idx }
+
+// Plex Pass flag
+func (c *Coordinator) HasPlexPass() bool        { return c.plexPass }
+func (c *Coordinator) SetPlexPass(enabled bool) { c.plexPass = enabled }
+
+// Stations (formerly Mixes For You)
+func (c *Coordinator) MixesForYou() []Playlist {
+	out := make([]Playlist, len(c.mixesForYou))
+	for i, p := range c.mixesForYou {
+		out[i] = Playlist{
+			Title:        p.Title,
+			Key:          p.Key,
+			LeafCount:    p.LeafCount,
+			Duration:     p.Duration,
+			PlaylistType: p.PlaylistType,
+		}
+	}
+	return out
+}
+
+func (c *Coordinator) SetMixesForYou(mixes []Playlist) {
+	out := make([]domain.Playlist, len(mixes))
+	for i, p := range mixes {
+		out[i] = domain.Playlist{
+			Title:        p.Title,
+			Key:          p.Key,
+			LeafCount:    p.LeafCount,
+			Duration:     p.Duration,
+			PlaylistType: p.PlaylistType,
+		}
+	}
+	c.mixesForYou = out
+}
+
+// OnThisDay
+func (c *Coordinator) OnThisDay() []Album {
+	out := make([]Album, len(c.onThisDay))
+	for i, a := range c.onThisDay {
+		out[i] = Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
+	}
+	return out
+}
+
+func (c *Coordinator) SetOnThisDay(albums []Album) {
+	out := make([]domain.Album, len(albums))
+	for i, a := range albums {
+		out[i] = domain.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
+	}
+	c.onThisDay = out
+}
+
+// MoodStations
+func (c *Coordinator) MoodStations() []Track {
+	out := make([]Track, len(c.moodStations))
+	for i, t := range c.moodStations {
+		out[i] = Track{
+			Title:       t.Title,
+			Artist:      t.Artist,
+			Album:       t.Album,
+			Duration:    t.Duration,
+			TrackNumber: t.TrackNumber,
+			Key:         t.Key,
+			RatingKey:   t.RatingKey,
+			Thumb:       t.Thumb,
+		}
+	}
+	return out
+}
+
+func (c *Coordinator) SetMoodStations(tracks []Track) {
+	out := make([]domain.Track, len(tracks))
+	for i, t := range tracks {
+		out[i] = domain.Track{
+			Title:       t.Title,
+			Artist:      t.Artist,
+			Album:       t.Album,
+			Duration:    t.Duration,
+			TrackNumber: t.TrackNumber,
+			Key:         t.Key,
+			RatingKey:   t.RatingKey,
+			Thumb:       t.Thumb,
+		}
+	}
+	c.moodStations = out
+}
+
+// LibraryHubs returns all available hubs for the current library
+func (c *Coordinator) LibraryHubs() []Hub {
+	out := make([]Hub, len(c.libraryHubs))
+	for i, h := range c.libraryHubs {
+		// Convert playlists
+		playlists := make([]Playlist, len(h.Playlists))
+		for j, p := range h.Playlists {
+			playlists[j] = Playlist{
+				Title:        p.Title,
+				Key:          p.Key,
+				LeafCount:    p.LeafCount,
+				Duration:     p.Duration,
+				PlaylistType: p.PlaylistType,
+			}
+		}
+		// Convert albums
+		albums := make([]Album, len(h.Albums))
+		for j, a := range h.Albums {
+			albums[j] = Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
+		}
+		out[i] = Hub{
+			HubIdentifier: h.HubIdentifier,
+			Title:         h.Title,
+			Type:          h.Type,
+			Context:       h.Context,
+			Size:          h.Size,
+			Playlists:     playlists,
+			Albums:        albums,
+		}
+	}
+	return out
+}
+
+func (c *Coordinator) SetLibraryHubs(hubs []Hub) {
+	out := make([]domain.Hub, len(hubs))
+	for i, h := range hubs {
+		// Convert playlists
+		playlists := make([]domain.Playlist, len(h.Playlists))
+		for j, p := range h.Playlists {
+			playlists[j] = domain.Playlist{
+				Title:        p.Title,
+				Key:          p.Key,
+				LeafCount:    p.LeafCount,
+				Duration:     p.Duration,
+				PlaylistType: p.PlaylistType,
+			}
+		}
+		// Convert albums
+		albums := make([]domain.Album, len(h.Albums))
+		for j, a := range h.Albums {
+			albums[j] = domain.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
+		}
+		out[i] = domain.Hub{
+			HubIdentifier: h.HubIdentifier,
+			Title:         h.Title,
+			Type:          h.Type,
+			Context:       h.Context,
+			Size:          h.Size,
+			Playlists:     playlists,
+			Albums:        albums,
+		}
+	}
+	c.libraryHubs = out
+}
+
+// Sonic analysis available flag
+func (c *Coordinator) HasSonicAvailable() bool        { return c.sonicAvailable }
+func (c *Coordinator) SetSonicAvailable(enabled bool) { c.sonicAvailable = enabled }
 
 // Tracks
 func (c *Coordinator) Tracks() []Track {

@@ -117,7 +117,16 @@ func (p *LibraryPage) View() string {
 	// Build left-hand content based on active tab.
 	var leftContent string
 	switch active {
-	case app.HomeTab, app.LibraryTab:
+	case app.HomeTab:
+		if p.showingTracks {
+			leftContent = p.renderTracks(leftWidth)
+		} else {
+			// Use scrollable home component for home tab
+			p.homeComponent.SetSize(leftWidth, listHeight)
+			p.homeComponent.RefreshFromCoordinator()
+			leftContent = p.homeComponent.View()
+		}
+	case app.LibraryTab:
 		if p.showingTracks {
 			leftContent = p.renderTracks(leftWidth)
 		} else {
@@ -156,26 +165,16 @@ func (p *LibraryPage) View() string {
 		pos = p.coordinator.ConfigManager().GetCoverArtPosition()
 	}
 
-	// Build right-side content - Queue by default, or drawer content when open.
+	// Build right-side content - Home by default when queue is empty, otherwise queue.
 	p.queueComponent.SetSize(rightWidth, listHeight)
-	var queueContent string
+	var rightPaneContent string
 	if len(p.coordinator.Queue()) == 0 {
-		// Show retro logo if queue is empty
-		// Use vertical logo if space is tight (approx 80 chars needed for full logo)
-		logoStr := retroLogo
-		if rightWidth < 80 {
-			logoStr = retroLogoVertical
-		}
-		logo := styles.PrimaryTextStyle().Render(logoStr)
-		queueContent = lipgloss.Place(
-			rightWidth,
-			listHeight,
-			lipgloss.Center,
-			lipgloss.Center,
-			logo,
-		)
+		// Show home content when queue is empty
+		p.homeComponent.SetSize(rightWidth, listHeight)
+		p.homeComponent.RefreshFromCoordinator()
+		rightPaneContent = p.homeComponent.View()
 	} else {
-		queueContent = p.renderQueue(rightWidth)
+		rightPaneContent = p.renderQueue(rightWidth)
 	}
 
 	// Calculate the art size and info view so they can be used regardless of
@@ -203,7 +202,7 @@ func (p *LibraryPage) View() string {
 		infoHeight = 6
 	}
 
-	// Render art if available, otherwise show fallback. Then center it within the
+	// Render art if available, otherwise show the logo as fallback. Then center it within the
 	// left pane's art area so the layout appears balanced.
 	artView := ""
 	if p.coordinator.PlaybackAlbumArt() != nil && p.coordinator.PlaybackImgRenderer() != nil {
@@ -211,11 +210,12 @@ func (p *LibraryPage) View() string {
 			Render(p.coordinator.PlaybackAlbumArt(), leftWidth, artHeight)
 		artView = strings.TrimRight(artView, "\r\n ")
 	} else {
-		if p.coordinator.PlaybackAlbumArtThumb() != "" {
-			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", p.coordinator.PlaybackAlbumArtThumb()))
-		} else {
-			artView = ""
+		// Show logo when no album art is available
+		logoStr := retroLogoVertical
+		if leftWidth >= 80 {
+			logoStr = retroLogo
 		}
+		artView = styles.PrimaryTextStyle().Render(logoStr)
 	}
 	// Normalize the artView to have exactly artHeight lines, then center it.
 	artView = padOrCropLines(artView, leftWidth, artHeight)
@@ -257,20 +257,20 @@ func (p *LibraryPage) View() string {
 				Height(leftContentHeight).
 				Render(leftContent)
 		} else {
-			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(queueContent)
+			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(rightPaneContent)
 		}
 		rightColumn = styles.PaneStyle(rightWidth, contentHeight).
 			Height(contentHeight).
 			Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
 	} else {
-		// Default: cover art left, queue right
+		// Default: cover art left, home/queue right
 		leftColumn = leftPane
 		// When a drawer is open or the tracklist is active (and art is left),
-		// render the active content in the right pane; otherwise show the queue.
+		// render the active content in the right pane; otherwise show home/queue.
 		if p.drawerOpen || p.showingTracks {
 			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(leftContent)
 		} else {
-			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(queueContent)
+			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(rightPaneContent)
 		}
 	}
 
@@ -317,6 +317,19 @@ func (p *LibraryPage) View() string {
 	}
 
 	var statusLine string
+	// Compose sonic capability indicator to help users understand whether
+	// server supports sonic analysis and whether any analyzed tracks were detected
+	sonicStatus := ""
+	if p.coordinator != nil {
+		if p.coordinator.HasSonicAvailable() {
+			sonicStatus = styles.SuccessStyle.Render("Sonic: enabled")
+		} else if p.coordinator.HasPlexPass() {
+			sonicStatus = styles.InfoStyle.Render("Sonic: no analyzed tracks (Plex Pass present)")
+		} else {
+			sonicStatus = styles.BlurredStyle.Render("Sonic: unavailable")
+		}
+	}
+
 	if p.loadingStats {
 		statusLine = styles.BlurredStyle.Render(
 			fmt.Sprintf("Server: %s • %s Loading stats...", serverName, p.spinner.View()),
@@ -329,6 +342,10 @@ func (p *LibraryPage) View() string {
 				util.FormatNumber(albumsCount),
 				util.FormatNumber(playlistsCount),
 				util.FormatNumber(tracksCount)))
+	}
+	// Append sonic status if available
+	if sonicStatus != "" {
+		statusLine = fmt.Sprintf("%s • %s", statusLine, sonicStatus)
 	}
 
 	// Render a transient top notification line if set on the coordinator.
@@ -424,7 +441,63 @@ func padOrCropLines(s string, width, height int) string {
 
 // renderRecentlyAdded displays the current recently-added albums list.
 func (p *LibraryPage) renderRecentlyAdded(width int) string {
-	return p.recentlyAddedComponent.View()
+	// Build a combined home view showing radio stations and recently added
+	var b strings.Builder
+
+	// Only show radio stations from hubs - keep home screen clean
+	hubs := p.coordinator.LibraryHubs()
+	for _, hub := range hubs {
+		// Only render station hubs (radio stations)
+		if strings.Contains(strings.ToLower(hub.Context), "station") && len(hub.Playlists) > 0 {
+			b.WriteString(styles.TitleStyle.Render("Stations"))
+			for _, pl := range hub.Playlists {
+				b.WriteString("\n  " + styles.PrimaryTextStyle().Render(pl.Title))
+			}
+			b.WriteString("\n\n")
+			break // Only show one stations hub
+		}
+	}
+
+	// Recently Added list
+	b.WriteString(styles.TitleStyle.Render("Recently Added"))
+	b.WriteString("\n")
+	// On the home screen, always limit to 5 albums for a cleaner view
+	items := p.recentlyAddedComponent.Items()
+	const homeLimit = 5
+	selectedIdx := p.recentlyAddedComponent.Index()
+	limit := homeLimit
+	if len(items) < limit {
+		limit = len(items)
+	}
+	for i := 0; i < limit; i++ {
+		item := items[i]
+		if albumItem, ok := item.(util.AlbumItem); ok {
+			prefix := "  "
+			style := styles.PrimaryTextStyle()
+			if i == selectedIdx {
+				prefix = "> "
+				style = styles.SelectedItemStyle
+			}
+			b.WriteString(
+				fmt.Sprintf(
+					"%s%s\n",
+					prefix,
+					style.Render(
+						fmt.Sprintf(
+							"%s — %s (%d)",
+							albumItem.Album.Title,
+							albumItem.Album.Artist,
+							albumItem.Album.Year,
+						),
+					),
+				),
+			)
+		}
+	}
+	if len(items) > homeLimit {
+		b.WriteString(fmt.Sprintf("\n  %d more items...\n", len(items)-homeLimit))
+	}
+	return b.String()
 }
 
 // renderPlaylists displays the playlists list.

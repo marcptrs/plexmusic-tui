@@ -191,3 +191,142 @@ func (s *LibraryServiceWithEvents) Close() error {
 	s.broker.Close()
 	return nil
 }
+
+// HasPlexPass checks if the current server supports Plex Pass
+func (s *LibraryServiceWithEvents) HasPlexPass(ctx context.Context) (bool, error) {
+	ok, err := s.LibraryService.HasPlexPass(ctx)
+	if err == nil && ok {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type: "server.plexpass",
+			Payload: domain.LibraryEvent{
+				Type:  "server.plexpass",
+				Error: nil,
+			},
+		})
+	}
+	return ok, err
+}
+
+// HasSonicAnalysis asks whether sonic analysis is available for the library.
+func (s *LibraryServiceWithEvents) HasSonicAnalysis(ctx context.Context) (bool, error) {
+	ok, err := s.LibraryService.HasSonicAnalysis(ctx)
+	if err == nil && ok {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type: "library.sonic_analyzed",
+			Payload: domain.LibraryEvent{
+				Type:  "library.sonic_analyzed",
+				Error: nil,
+			},
+		})
+	}
+	return ok, err
+}
+
+func (s *LibraryServiceWithEvents) FetchSonicallySimilarTracks(
+	ctx context.Context,
+	ratingKey string,
+	limit int,
+	maxDistance float64,
+) ([]domain.Track, int, error) {
+	tracks, total, err := s.LibraryService.FetchSonicallySimilarTracks(ctx, ratingKey, limit, maxDistance)
+	// Optional: publish events if needed
+	if err != nil {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type:    "similar_tracks.fetch_failed",
+			Payload: domain.LibraryEvent{Type: "similar_tracks.fetch_failed", Error: err},
+		})
+		return nil, 0, err
+	}
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+		Type:    "similar_tracks.loaded",
+		Payload: domain.LibraryEvent{Type: "similar_tracks.loaded", Tracks: tracks, TotalSize: total},
+	})
+	return tracks, total, nil
+}
+
+func (s *LibraryServiceWithEvents) FetchSonicAdventure(
+	ctx context.Context,
+	start, end string,
+) ([]domain.Track, int, error) {
+	tracks, total, err := s.LibraryService.FetchSonicAdventure(ctx, start, end)
+	if err != nil {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type:    "sonic_adventure.fetch_failed",
+			Payload: domain.LibraryEvent{Type: "sonic_adventure.fetch_failed", Error: err},
+		})
+		return nil, 0, err
+	}
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+		Type:    "sonic_adventure.loaded",
+		Payload: domain.LibraryEvent{Type: "sonic_adventure.loaded", Tracks: tracks, TotalSize: total},
+	})
+	return tracks, total, nil
+}
+
+func (s *LibraryServiceWithEvents) FetchLibraryHubs(ctx context.Context, sectionKey string) ([]domain.Hub, error) {
+	hubs, err := s.LibraryService.FetchLibraryHubs(ctx, sectionKey)
+	if err != nil {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type:    "hubs.fetch_failed",
+			Payload: domain.LibraryEvent{Type: "hubs.fetch_failed", Error: err},
+		})
+		return nil, err
+	}
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+		Type:    "hubs.loaded",
+		Payload: domain.LibraryEvent{Type: "hubs.loaded", Hubs: hubs},
+	})
+	return hubs, nil
+}
+
+func (s *LibraryServiceWithEvents) FetchMixesForYou(ctx context.Context) ([]domain.Playlist, int, error) {
+	playlists, total, err := s.LibraryService.FetchMixesForYou(ctx)
+	if err != nil {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type:    "mixes.fetch_failed",
+			Payload: domain.LibraryEvent{Type: "mixes.fetch_failed", Error: err},
+		})
+		return nil, 0, err
+	}
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+		Type:    "mixes.loaded",
+		Payload: domain.LibraryEvent{Type: "mixes.loaded", Playlists: playlists, TotalSize: total},
+	})
+	return playlists, total, nil
+}
+
+func (s *LibraryServiceWithEvents) FetchOnThisDay(ctx context.Context) ([]domain.Album, int, error) {
+	albums, total, err := s.LibraryService.FetchOnThisDay(ctx)
+	if err != nil {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type:    "onthisday.fetch_failed",
+			Payload: domain.LibraryEvent{Type: "onthisday.fetch_failed", Error: err},
+		})
+		return nil, 0, err
+	}
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+		Type:    "onthisday.loaded",
+		Payload: domain.LibraryEvent{Type: "onthisday.loaded", Albums: albums, TotalSize: total},
+	})
+	return albums, total, nil
+}
+
+func (s *LibraryServiceWithEvents) FetchMoodStation(
+	ctx context.Context,
+	station string,
+	limit int,
+) ([]domain.Track, int, error) {
+	tracks, total, err := s.LibraryService.FetchMoodStation(ctx, station, limit)
+	if err != nil {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type:    "moodstation.fetch_failed",
+			Payload: domain.LibraryEvent{Type: "moodstation.fetch_failed", Error: err},
+		})
+		return nil, 0, err
+	}
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+		Type:    "moodstation.loaded",
+		Payload: domain.LibraryEvent{Type: "moodstation.loaded", Tracks: tracks, TotalSize: total},
+	})
+	return tracks, total, nil
+}

@@ -24,6 +24,27 @@ type LibraryServicer interface {
 	SetToken(token string)
 	FetchSectionCounts(ctx context.Context, sectionKey string) (int, int, int, error)
 	FetchImage(ctx context.Context, path string) (image.Image, error)
+	// HasPlexPass returns true if the connected server supports Plex Pass features
+	HasPlexPass(ctx context.Context) (bool, error)
+	// HasSonicAnalysis returns true if sonic analysis data is present for the server/library
+	HasSonicAnalysis(ctx context.Context) (bool, error)
+	// FetchSonicallySimilarTracks returns a list of tracks sonically similar to the given ratingKey
+	FetchSonicallySimilarTracks(
+		ctx context.Context,
+		ratingKey string,
+		limit int,
+		maxDistance float64,
+	) ([]domain.Track, int, error)
+	// FetchSonicAdventure returns a sonic adventure (tracks path) between two track ratingKeys
+	FetchSonicAdventure(ctx context.Context, start, end string) ([]domain.Track, int, error)
+	// FetchLibraryHubs returns all hubs for a music library section (stations, mixes, etc.)
+	FetchLibraryHubs(ctx context.Context, sectionKey string) ([]domain.Hub, error)
+	// FetchMixesForYou returns personalized mix playlists for the current user/server (deprecated - use FetchLibraryHubs)
+	FetchMixesForYou(ctx context.Context) ([]domain.Playlist, int, error)
+	// FetchOnThisDay returns albums that were released on today's date in history
+	FetchOnThisDay(ctx context.Context) ([]domain.Album, int, error)
+	// FetchMoodStation returns tracks for a named mood station (e.g., "90s Alternative")
+	FetchMoodStation(ctx context.Context, station string, limit int) ([]domain.Track, int, error)
 	Close() error
 }
 

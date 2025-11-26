@@ -20,7 +20,9 @@ import (
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
+	plexhttp "plexmusic-tui/internal/http"
 	"plexmusic-tui/internal/pubsub"
+	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	components "plexmusic-tui/internal/tui/components"
 	util "plexmusic-tui/internal/tui/util"
@@ -166,6 +168,206 @@ func TestLibraryPage_DefaultLayout_ShowsNowPlayingAndQueue(t *testing.T) {
 	}
 	if !strings.Contains(view, "Queue") {
 		t.Fatalf("expected Queue pane in default view; got: %q", view)
+	}
+}
+
+func TestLibraryPage_ViewHome_RendersSonicSections(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	// Make sonic features available and populate coordinator with hub data
+	coord.SetSonicAvailable(true)
+	coord.SetLibraryHubs([]app.Hub{
+		{
+			Title:   "Stations",
+			Context: "hub.music.stations",
+			Playlists: []app.Playlist{
+				{Title: "My Mix"},
+			},
+		},
+	})
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// The Home tab should render sonic sections when sonic is available
+	page.coordinator.SetActiveTab(app.HomeTab)
+	// Open the drawer so the left pane with 'Stations' is visible
+	page.drawerOpen = true
+	view := page.View()
+	if !strings.Contains(view, "Stations") || !strings.Contains(view, "My Mix") {
+		t.Fatalf("expected Home view to include Stations section with content, got: %q", view)
+	}
+}
+
+func TestLibraryPage_DetectKeyTriggersSonic(t *testing.T) {
+	coord := app.NewCoordinator()
+	// Provide server info for page and services to use
+	srvMux := http.NewServeMux()
+	// sections list
+	srvMux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(w, `{"MediaContainer":{"Directory":[{"key":"1","type":"artist","title":"MusicLib"}]}}`)
+	})
+	// per-library recentlyAdded returns a track with hasSonicAnalysis true
+	srvMux.HandleFunc("/library/sections/1/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintln(
+			w,
+			`{"Metadata":[{"title":"Lib Track","grandparentTitle":"Artist",`+
+				`"parentTitle":"Album","hasSonicAnalysis":true,"musicAnalysisVersion":1}]}`,
+		)
+	})
+	// Library section hubs endpoint (new approach)
+	srvMux.HandleFunc("/hubs/sections/1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		// Return hubs with stations/mixes and on this day content
+		fmt.Fprintln(w, `{"MediaContainer":{"Hub":[
+			{"hubIdentifier":"music.stations.personalized","title":"Your Stations",`+
+			`"context":"hub.music.stations",`+
+			`"Metadata":[{"title":"My Mix","key":"/playlists/1","type":"playlist"}]},
+			{"hubIdentifier":"music.onthisday","title":"On This Day",`+
+			`"context":"hub.music.onthisday",`+
+			`"Metadata":[{"title":"On Day","parentTitle":"Artist","year":2001,`+
+			`"key":"/library/metadata/66","type":"album"}]}
+		]}}`)
+	})
+	// Keep legacy hubs endpoint for backward compatibility tests
+	srvMux.HandleFunc("/hubs", func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query().Get("identifier")
+		w.Header().Set("Content-Type", "application/json")
+		switch q {
+		case "home.mixesForYou":
+			fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"My Mix","key":"/playlists/1"}]}}`)
+		case "home.onThisDay":
+			fmt.Fprintln(
+				w,
+				`{"MediaContainer":{"Metadata":[{"title":"On Day",`+
+					`"parentTitle":"Artist","year":2001,"key":"/library/metadata/66"}]}}`,
+			)
+		default:
+			fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[]}}`)
+		}
+	})
+
+	srv := httptest.NewServer(srvMux)
+	defer srv.Close()
+
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        strings.TrimPrefix(strings.TrimPrefix(srv.URL, "http://"), "https://"),
+		Port:        "",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	// Inject a LibraryService wired to test server so the 'd' key will trigger detection
+	page.libSvc = service.NewLibraryServiceWithEvents(srv.URL, "token", plexhttp.NewFactory())
+	page.libEvtCh = page.libSvc.Subscribe(page.ctx)
+
+	// Confirm fetching libraries works (ensures service gets Directory listings)
+	ctxCheck, cancelCheck := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelCheck()
+	libs, _, err := page.libSvc.FetchLibraries(ctxCheck)
+	if err != nil || len(libs) == 0 {
+		t.Fatalf("expected to fetch libraries for test server, got err=%v len=%d", err, len(libs))
+	}
+	if libs[0].Key != "1" {
+		t.Fatalf("expected library key '1' from test server, got %s", libs[0].Key)
+	}
+	// Confirm direct call to HasSonicAnalysis works as expected on the service
+	okDirect, _ := page.libSvc.HasSonicAnalysis(ctxCheck)
+	// Sanity check raw endpoint returns expected JSON so we know the mocked server is correct
+	req, _ := http.NewRequestWithContext(ctxCheck, "GET", srv.URL+"/library/sections/1/recentlyAdded?type=10", nil)
+	resp, rerr := http.DefaultClient.Do(req)
+	if rerr != nil {
+		t.Fatalf("failed to GET per-library endpoint: %v", rerr)
+	}
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(bodyBytes), "hasSonicAnalysis") {
+		t.Fatalf("expected per-library endpoint to contain hasSonicAnalysis field; body: %s", string(bodyBytes))
+	}
+	// Also verify FetchTracks returns parsed metadata with sonic fields for this endpoint
+	tracks, _, terr := page.libSvc.FetchTracks(ctxCheck, "/library/sections/1/recentlyAdded?type=10")
+	if terr != nil || len(tracks) == 0 {
+		t.Fatalf("expected FetchTracks to return parsed tracks; err=%v len=%d", terr, len(tracks))
+	}
+	if !tracks[0].HasSonicAnalysis {
+		t.Fatalf("expected first track to have HasSonicAnalysis=true; got %+v", tracks[0])
+	}
+	// Also test the non-event LibraryService directly to ensure detection logic
+	svcDirect := service.NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	okSimple, serr := svcDirect.HasSonicAnalysis(ctxCheck)
+	if serr != nil || !okSimple {
+		t.Fatalf("expected LibraryService.HasSonicAnalysis to return true; err=%v ok=%v", serr, okSimple)
+	}
+	if !okDirect {
+		t.Fatalf("expected direct HasSonicAnalysis call to return true for test server; got false")
+	}
+
+	// Simulate pressing 'd' to run detection via key binding
+	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	_ = m
+	if cmd == nil {
+		t.Fatalf("expected command to run from 'd' key; got nil")
+	}
+	// Execute the returned command; it should return a sonicDetectResultMsg
+	msg := cmd()
+	// Forward the message to page.Update so it runs follow-up fetching
+	m2, cmd2 := page.Update(msg)
+	_ = m2
+	// Now coordinator should have sonic available and load Mixes/OnThisDay via fetch commands
+	if !coord.HasSonicAvailable() {
+		t.Fatalf("expected sonic detection to be set on coordinator; got false")
+	}
+	// The cmd2 is a tea.Batch which contains multiple commands (fetchMixesForYou, fetchOnThisDay, fetchMoodStations).
+	// We need to execute each command in the batch. Tea.Batch returns a batchMsg containing all commands.
+	// Since the fetch commands directly set coordinator state, we can execute them directly.
+	if cmd2 != nil {
+		// Execute and apply each message in the batch
+		batchResult := cmd2()
+		// The batch result is another batch of messages from the executed commands
+		// For our fetch commands, they directly set coordinator state and return nil
+		// So we need to iterate through the batch to actually invoke them
+		switch batch := batchResult.(type) {
+		case tea.BatchMsg:
+			for _, subCmd := range batch {
+				if subCmd != nil {
+					subCmd() // This actually runs the fetch and sets coordinator state
+				}
+			}
+		default:
+			// Not a batch, just execute directly
+			_ = batchResult
+		}
+	}
+	// Allow short time for any async operations to settle
+	time.Sleep(50 * time.Millisecond)
+	// Verify coordinator entries set by fetch commands
+	mixes := coord.MixesForYou()
+	if len(mixes) == 0 || mixes[0].Title != "My Mix" {
+		t.Fatalf("expected Stations to be populated; got: %+v", mixes)
+	}
+	onThis := coord.OnThisDay()
+	if len(onThis) == 0 || onThis[0].Title != "On Day" {
+		t.Fatalf("expected On This Day to be populated; got: %+v", onThis)
 	}
 }
 
@@ -627,11 +829,22 @@ func TestLibraryPage_FetchesLibraryDataFromServer(t *testing.T) {
 	}
 
 	// Read and apply events to the page update
-	// We expect at least two events: recently_added.loaded and playlists.loaded
-	for i := 0; i < 2; i++ {
-		ev := <-evCh
-		// Convert to page-level update message
-		page.Update(ev.Payload)
+	// We expect at least 'recently_added.loaded' and 'playlists.loaded' events.
+	seen := map[string]bool{}
+	timeout := time.After(2 * time.Second)
+LOOP:
+	for {
+		select {
+		case ev := <-evCh:
+			t.Logf("received event type: %s", ev.Type)
+			page.Update(ev.Payload)
+			seen[ev.Type] = true
+			if seen["recently_added.loaded"] && seen["playlists.loaded"] {
+				break LOOP
+			}
+		case <-timeout:
+			t.Fatalf("timeout waiting for playlist and recently added events; seen=%v", seen)
+		}
 	}
 
 	// Now coordinator should have both albums and playlists populated
@@ -735,8 +948,9 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	if len(page.recentlyAddedComponent.Items()) < 2 {
 		t.Fatalf("expected at least 2 albums in list")
 	}
-	// Switch active tab to Home to ensure key navigation updates the recentlyAdded list
-	page.coordinator.SetActiveTab(app.HomeTab)
+	// Switch active tab to Library to ensure key navigation updates the recentlyAdded list
+	// (HomeTab now uses the homeComponent with scrollable sections)
+	page.coordinator.SetActiveTab(app.LibraryTab)
 	// Move selection to index 1 (Down) which should trigger a track fetch for album 2
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
 	page = m.(*LibraryPage)
@@ -881,8 +1095,9 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	if len(page.recentlyAddedComponent.Items()) < 2 {
 		t.Fatalf("expected at least 2 albums in list")
 	}
-	// Switch active tab to Home to ensure key navigation updates the recentlyAdded list
-	page.coordinator.SetActiveTab(app.HomeTab)
+	// Switch active tab to Library to ensure key navigation updates the recentlyAdded list
+	// (HomeTab now uses the homeComponent with scrollable sections)
+	page.coordinator.SetActiveTab(app.LibraryTab)
 	// Move selection to index 1 (Down) which should trigger a track fetch for album 2
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
 	page = m.(*LibraryPage)
@@ -1140,7 +1355,8 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 		t.Fatalf("expected recently added albums after fetch")
 	}
 	// Make sure tab is active and selection set
-	page.coordinator.SetActiveTab(app.HomeTab)
+	// Use LibraryTab since HomeTab now uses scrollable homeComponent
+	page.coordinator.SetActiveTab(app.LibraryTab)
 	page.coordinator.SetSelectedAlbum(0)
 
 	// Open the drawer on the right so the track list shows

@@ -388,6 +388,22 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return p, tea.Batch(p.fetchRecentlyAdded(), p.fetchPlaylists())
 		}
 		return p, nil
+	case key.Matches(msg, p.keys.Detect):
+		// Re-run sonic detection and return a `sonicDetectResultMsg` indicating
+		// whether sonic analysis was detected. The Update handler will translate
+		// the result into follow-up actions (fetch content or show a notification).
+		if p.libSvc == nil {
+			return p, nil
+		}
+		return p, func() tea.Msg {
+			ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+			defer cancel()
+			ok, _ := p.libSvc.HasSonicAnalysis(ctx)
+			if p.coordinator != nil {
+				p.coordinator.SetSonicAvailable(ok)
+			}
+			return sonicDetectResultMsg{ok: ok}
+		}
 	case key.Matches(msg, p.keys.Search):
 		// Toggle Search tab and focus/blur the search input accordingly
 		if p.coordinator.ActiveTab() == app.SearchTab {
@@ -472,7 +488,51 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch active {
-	case app.HomeTab, app.LibraryTab:
+	case app.HomeTab:
+		if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
+			p.homeComponent.SetFocused(true)
+			_, cmd = p.homeComponent.Update(msg)
+
+			// Handle Enter key for home items
+			if key.Matches(msg, p.keys.Enter) {
+				if item := p.homeComponent.SelectedItem(); item != nil {
+					switch item.Type {
+					case "album":
+						// Fetch tracks for the album
+						if p.libSvc != nil {
+							reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+							defer cancel()
+							_, _, _ = p.libSvc.FetchTracks(reqCtx, item.Key)
+							p.showingTracks = true
+						}
+					case "station":
+						// Play the station - fetch its tracks and play
+						if p.libSvc != nil {
+							reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+							defer cancel()
+							tracks, _, _ := p.libSvc.FetchTracks(reqCtx, item.Key)
+							if len(tracks) > 0 {
+								// Convert domain tracks to app tracks and play
+								var appTracks []app.Track
+								for _, t := range tracks {
+									if at := util.DomainTrackToApp(&t); at != nil {
+										appTracks = append(appTracks, *at)
+									}
+								}
+								p.coordinator.SetQueue(appTracks)
+								p.coordinator.SetQueueIndex(0)
+								if len(appTracks) > 0 {
+									cmd = p.playAppTrack(&appTracks[0])
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return p, cmd
+
+	case app.LibraryTab:
 		if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
 			_, cmd = p.recentlyAddedComponent.Update(msg)
 			p.coordinator.SetSelectedAlbum(p.recentlyAddedComponent.Index())

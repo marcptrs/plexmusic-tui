@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/help"
@@ -67,6 +68,7 @@ type LibraryPage struct {
 	pbEvtCh <-chan pubsub.Event[domain.PlaybackEvent]
 
 	// Lists
+	homeComponent          *components.HomeComponent
 	recentlyAddedComponent *components.RecentlyAddedComponent
 	playlistComponent      *components.PlaylistsComponent
 	trackComponent         *components.TracksComponent
@@ -101,6 +103,10 @@ type LibraryPage struct {
 	focusedQueue      bool
 }
 
+// sonicDetectResultMsg is an internal message indicating the result of a
+// manual sonic analysis detection run triggered by a keybinding or command.
+type sonicDetectResultMsg struct{ ok bool }
+
 // NewLibraryPage creates a library page and its cancellable event context.
 func NewLibraryPage(coord app.Coordinatorer) *LibraryPage {
 	return NewLibraryPageWithAuth(coord, nil)
@@ -130,6 +136,7 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		lastSelectedPlaylistIndex: -1,
 		help:                      help.New(),
 		keys:                      tui.DefaultLibraryKeyMap(),
+		homeComponent:             components.NewHomeComponent(coord),
 		recentlyAddedComponent:    components.NewRecentlyAddedComponent(coord),
 		playlistComponent:         components.NewPlaylistsComponent(coord),
 		trackComponent:            components.NewTracksComponent(coord),
@@ -192,6 +199,19 @@ func (p *LibraryPage) Init() tea.Cmd {
 		p.libSvc.SetBaseURL(baseURL)
 		p.libSvc.SetToken(token)
 	}
+	// Detect Plex Pass and sonic analysis availability and cache in coordinator
+	if p.coordinator != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
+			defer cancel()
+			if ok, _ := p.libSvc.HasPlexPass(ctx); ok {
+				p.coordinator.SetPlexPass(true)
+			}
+			if ok, _ := p.libSvc.HasSonicAnalysis(ctx); ok {
+				p.coordinator.SetSonicAvailable(true)
+			}
+		}()
+	}
 
 	// Create (or reuse) playback service and subscribe to events.
 	// Initialize playback orchestrator using coordinator-provided service or creating a new one.
@@ -229,6 +249,7 @@ func (p *LibraryPage) Init() tea.Cmd {
 		p.fetchLibraries(),
 		p.fetchRecentlyAdded(),
 		p.fetchPlaylists(),
+		p.fetchLibraryHubs(),
 	)
 }
 
@@ -299,6 +320,16 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		return p.handleKeyMsg(msg)
+	case sonicDetectResultMsg:
+		if msg.ok {
+			// Fetch sonic enhanced content when analysis is present
+			return p, tea.Batch(p.fetchMixesForYou(), p.fetchOnThisDay(), p.fetchMoodStations())
+		}
+		// Not found: notify user
+		if p.coordinator != nil {
+			p.coordinator.SetNotification("No sonic analysis detected", "error", 5*time.Second)
+		}
+		return p, nil
 	}
 	return p, nil
 }
@@ -422,6 +453,179 @@ func (p *LibraryPage) fetchPlaylists() tea.Cmd {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
 		_, _, _ = p.libSvc.FetchPlaylists(ctx)
+		return nil
+	}
+}
+
+// fetchLibraryHubs fetches all library hubs and stores them in coordinator for UI consumption.
+func (p *LibraryPage) fetchLibraryHubs() tea.Cmd {
+	if p.libSvc == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(p.ctx, 15*time.Second)
+		defer cancel()
+
+		// Get the library section key
+		libs, _, err := p.libSvc.FetchLibraries(ctx)
+		if err != nil || len(libs) == 0 {
+			log.Debug("fetchLibraryHubs: no libraries available", "err", err)
+			return nil
+		}
+		sectionKey := libs[0].Key
+
+		// Fetch all hubs for this library section
+		hubs, err := p.libSvc.FetchLibraryHubs(ctx, sectionKey)
+		if err != nil {
+			log.Debug("fetchLibraryHubs failed", "err", err)
+			return nil
+		}
+
+		log.Debug("fetchLibraryHubs success", "count", len(hubs))
+
+		// Convert and store in coordinator
+		if p.coordinator != nil {
+			var appHubs []app.Hub
+			for _, h := range hubs {
+				// Convert playlists
+				playlists := make([]app.Playlist, len(h.Playlists))
+				for j, pl := range h.Playlists {
+					playlists[j] = app.Playlist{
+						Title:        pl.Title,
+						Key:          pl.Key,
+						LeafCount:    pl.LeafCount,
+						Duration:     pl.Duration,
+						PlaylistType: pl.PlaylistType,
+					}
+				}
+				// Convert albums
+				albums := make([]app.Album, len(h.Albums))
+				for j, a := range h.Albums {
+					albums[j] = app.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
+				}
+				appHubs = append(appHubs, app.Hub{
+					HubIdentifier: h.HubIdentifier,
+					Title:         h.Title,
+					Type:          h.Type,
+					Context:       h.Context,
+					Size:          h.Size,
+					Playlists:     playlists,
+					Albums:        albums,
+				})
+			}
+			p.coordinator.SetLibraryHubs(appHubs)
+
+			// Also extract stations into MixesForYou for backward compatibility
+			var mixes []app.Playlist
+			for _, h := range appHubs {
+				if strings.Contains(strings.ToLower(h.Context), "station") {
+					mixes = append(mixes, h.Playlists...)
+				}
+			}
+			if len(mixes) > 0 {
+				p.coordinator.SetMixesForYou(mixes)
+			}
+		}
+		return nil
+	}
+}
+
+// fetchMixesForYou triggers fetching personalized mixes via library service.
+func (p *LibraryPage) fetchMixesForYou() tea.Cmd {
+	if p.libSvc == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+		playlists, _, err := p.libSvc.FetchMixesForYou(ctx)
+		if err != nil {
+			log.Debug("fetchMixesForYou failed", "err", err)
+		} else {
+			log.Debug("fetchMixesForYou success", "count", len(playlists))
+		}
+		// store results in coordinator for UI consumption
+		if p.coordinator != nil {
+			var out []app.Playlist
+			for _, pl := range playlists {
+				out = append(
+					out,
+					app.Playlist{
+						Title:        pl.Title,
+						Key:          pl.Key,
+						LeafCount:    pl.LeafCount,
+						Duration:     pl.Duration,
+						PlaylistType: pl.PlaylistType,
+					},
+				)
+			}
+			p.coordinator.SetMixesForYou(out)
+		}
+		return nil
+	}
+}
+
+// fetchOnThisDay triggers fetching the on-this-day albums.
+func (p *LibraryPage) fetchOnThisDay() tea.Cmd {
+	if p.libSvc == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+		albums, _, err := p.libSvc.FetchOnThisDay(ctx)
+		if err != nil {
+			log.Debug("fetchOnThisDay failed", "err", err)
+		} else {
+			log.Debug("fetchOnThisDay success", "count", len(albums))
+		}
+		if p.coordinator != nil {
+			var out []app.Album
+			for _, a := range albums {
+				out = append(out, app.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb})
+			}
+			p.coordinator.SetOnThisDay(out)
+		}
+		return nil
+	}
+}
+
+// fetchMoodStations triggers fetching mood-based station tracks.
+// Instead of using hardcoded station names, we now fetch all available
+// station-like hubs and display them.
+func (p *LibraryPage) fetchMoodStations() tea.Cmd {
+	if p.libSvc == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+		// FetchMoodStation with empty station name will return all mood-like content
+		tracks, _, err := p.libSvc.FetchMoodStation(ctx, "", 20)
+		if err != nil {
+			log.Debug("fetchMoodStations failed", "err", err)
+		} else {
+			log.Debug("fetchMoodStations success", "count", len(tracks))
+		}
+		if p.coordinator != nil && len(tracks) > 0 {
+			var out []app.Track
+			for _, t := range tracks {
+				out = append(
+					out,
+					app.Track{
+						Title:       t.Title,
+						Artist:      t.Artist,
+						Album:       t.Album,
+						Duration:    t.Duration,
+						TrackNumber: t.TrackNumber,
+						Key:         t.Key,
+						RatingKey:   t.RatingKey,
+						Thumb:       t.Thumb,
+					},
+				)
+			}
+			p.coordinator.SetMoodStations(out)
+		}
 		return nil
 	}
 }
