@@ -51,9 +51,10 @@ func Execute(
 		fmt.Fprintf(os.Stderr, "Error: Failed to initialize application\n")
 		os.Exit(1)
 	}
+	defer appData.Close()
 
-	// Start the position updater goroutine
-	bootstrap.InitializePlaybackPositionUpdater(appData.PlaybackService)
+	// Start the position updater goroutine on the app's errgroup
+	bootstrap.InitializePlaybackPositionUpdater(appData, appData.PlaybackService)
 
 	// Initialize volume from config
 	bootstrap.InitializeVolume(appData.ConfigManager, appData.Orchestrator)

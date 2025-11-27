@@ -1,8 +1,11 @@
 package bootstrap
 
 import (
+	"context"
 	"net/http"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/auth"
@@ -33,6 +36,20 @@ type App struct {
 	Orchestrator    *tui.Orchestrator
 	PlaybackService *service.PlaybackService
 	ConfigManager   *config.Manager
+	ctx             context.Context
+	cancel          context.CancelFunc
+	eg              *errgroup.Group
+}
+
+// Context returns the application's context for background tasks
+func (a *App) Context() context.Context {
+	return a.ctx
+}
+
+// Close shuts down background goroutines and releases resources
+func (a *App) Close() error {
+	a.cancel()
+	return a.eg.Wait()
 }
 
 // provideHTTPClient provides a standard HTTP client
@@ -185,23 +202,34 @@ func provideApp(
 	pbSvc *service.PlaybackService,
 	cfgMgr *config.Manager,
 ) *App {
+	ctx, cancel := context.WithCancel(context.Background())
+	eg, egCtx := errgroup.WithContext(ctx)
 	return &App{
 		Model:           model,
 		Orchestrator:    orch,
 		PlaybackService: pbSvc,
 		ConfigManager:   cfgMgr,
+		ctx:             egCtx,
+		cancel:          cancel,
+		eg:              eg,
 	}
 }
 
 // InitializePlaybackPositionUpdater starts the background position updater
-func InitializePlaybackPositionUpdater(playbackService *service.PlaybackService) {
-	go func() {
+// It schedules the position update task on the app's errgroup for managed lifecycle
+func InitializePlaybackPositionUpdater(appData *App, playbackService *service.PlaybackService) {
+	appData.eg.Go(func() error {
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
-		for range ticker.C {
-			playbackService.UpdatePosition()
+		for {
+			select {
+			case <-appData.ctx.Done():
+				return appData.ctx.Err()
+			case <-ticker.C:
+				playbackService.UpdatePosition()
+			}
 		}
-	}()
+	})
 }
 
 // InitializeVolume loads and applies saved volume from config
