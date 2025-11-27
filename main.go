@@ -4,27 +4,19 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
-	"time"
 
+	"plexmusic-tui/internal/bootstrap"
+	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/logging"
 
 	log "github.com/charmbracelet/log/v2"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"plexmusic-tui/internal/app"
-	"plexmusic-tui/internal/auth"
-	"plexmusic-tui/internal/config"
-	"plexmusic-tui/internal/domain"
-	"plexmusic-tui/internal/service"
-	"plexmusic-tui/internal/tui"
-	"plexmusic-tui/internal/tui/pages"
 )
 
-func buildAppModel() *tui.AppModel {
+func buildAppModel() *bootstrap.App {
 	// default options: no forced renderer; no render debug; no dump view
 	return buildAppModelWithOptions(nil, false, false)
 }
@@ -33,79 +25,13 @@ func buildAppModelWithOptions(
 	forceRenderer *domain.Protocol,
 	renderDebug bool,
 	dumpView bool,
-) *tui.AppModel {
-	// Create service instances first then pass to coordinator so pages can use them
-	authGateway := auth.NewAuthenticator(&http.Client{})
-	authSvc := service.NewAuthService(authGateway)
-	var libSvc service.LibraryServicer = nil
-	// Create a singleton playback service now and pass to coordinator
-	pbSvc := service.NewPlaybackService()
-	// pass through rendering options to the coordinator so pages can use them
-	coord := app.NewCoordinatorWithServices(
-		authSvc,
-		libSvc,
-		pbSvc,
-		forceRenderer,
-		renderDebug,
-		dumpView,
-	)
-	// Playback service has already been created above; wire it to the coordinator
-	coord.SetPlaybackService(pbSvc)
-	// Create orchestrator: used for playback and initial bootstrapping.
-	orch := tui.NewOrchestrator(coord, nil, pbSvc)
-	// Background ticker updates playback position for UI progress reporting.
-	go func(svc *service.PlaybackService) {
-		ticker := time.NewTicker(250 * time.Millisecond)
-		defer ticker.Stop()
-		for range ticker.C {
-			svc.UpdatePosition()
-		}
-	}(pbSvc)
-	cfgMgr, _ := config.NewManager()
-	coord.SetConfigManager(cfgMgr)
-	// Load and apply saved volume from config (persisted setting)
-	if cfgMgr != nil {
-		savedVolume := cfgMgr.GetVolume()
-		// Use orchestrator to set volume so any orchestration logic or config
-		// persistence behaves consistently with UI actions.
-		orch.SetVolume(savedVolume)
+) *bootstrap.App {
+	opts := bootstrap.AppOptions{
+		ForceRenderer: forceRenderer,
+		RenderDebug:   renderDebug,
+		DumpView:      dumpView,
 	}
-
-	keyMap := tui.DefaultKeyMap()
-
-	// Choose initial page based on saved auth token.
-	var initialPage tui.Page
-	var initialID tui.PageID
-	token := ""
-	if cfgMgr != nil {
-		token = cfgMgr.GetAuthToken()
-	}
-	if token != "" {
-		// We have a saved token — prefer server selection as initial page
-		initialPage = pages.NewServerSelectionPage(coord, authSvc, cfgMgr)
-		initialID = tui.ServerSelectionPageID
-		coord.SetToken(token)
-	} else {
-		initialPage = pages.NewLoginPageWithConfig(coord, authSvc, cfgMgr)
-		initialID = tui.LoginPageID
-	}
-	router := tui.NewRouter(initialPage, initialID)
-
-	// pageFactory returns a Page for a PageID; used by AppModel to create pages
-	pageFactory := func(id tui.PageID) tui.Page {
-		switch id {
-		case tui.LoginPageID:
-			return pages.NewLoginPageWithConfig(coord, authSvc, cfgMgr)
-		case tui.ServerSelectionPageID:
-			return pages.NewServerSelectionPage(coord, authSvc, cfgMgr)
-		case tui.LibraryPageID:
-			return pages.NewLibraryPageWithAuth(coord, authSvc)
-		default:
-			return nil
-		}
-	}
-
-	return tui.NewAppModel(router, coord, authSvc, cfgMgr, keyMap, pageFactory)
+	return bootstrap.InitializeApp(opts)
 }
 
 func main() {
@@ -176,10 +102,16 @@ func main() {
 			forcedProtocol = &p
 		}
 	}
-	appModel := buildAppModelWithOptions(forcedProtocol, *renderDebug, *dumpViewFlag)
+	appData := buildAppModelWithOptions(forcedProtocol, *renderDebug, *dumpViewFlag)
+
+	// Start the position updater goroutine
+	bootstrap.InitializePlaybackPositionUpdater(appData.PlaybackService)
+
+	// Initialize volume from config
+	bootstrap.InitializeVolume(appData.ConfigManager, appData.Orchestrator)
 
 	p := tea.NewProgram(
-		appModel,
+		appData.Model,
 		tea.WithAltScreen(),
 		tea.WithMouseCellMotion(),
 	)

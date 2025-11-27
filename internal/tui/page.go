@@ -22,3 +22,6 @@ type Page interface {
 	tea.Model
 	Close() // Cleanup when navigating away
 }
+
+// PageFactoryFn is a callback function that creates a Page for a given PageID
+type PageFactoryFn func(PageID) Page

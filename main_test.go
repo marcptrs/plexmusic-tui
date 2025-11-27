@@ -22,14 +22,14 @@ func TestBuildAppModel_UsesServerSelectionWhenTokenPresent(t *testing.T) {
 		t.Fatalf("failed to save test config: %v", err)
 	}
 
-	appModel := buildAppModel()
-	if appModel == nil {
+	appData := buildAppModel()
+	if appData == nil {
 		t.Fatalf("buildAppModel returned nil")
 	}
 
 	// Check the initial page ID is server selection
-	if appModel.CurrentPageID() != "server_selection" {
-		t.Fatalf("expected initial PageID 'server_selection', got %s", appModel.CurrentPageID())
+	if appData.Model.CurrentPageID() != "server_selection" {
+		t.Fatalf("expected initial PageID 'server_selection', got %s", appData.Model.CurrentPageID())
 	}
 
 	// Clean up - not strictly necessary since using TempDir
