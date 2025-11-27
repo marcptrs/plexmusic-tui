@@ -5,10 +5,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"plexmusic-tui/internal/bootstrap"
 	"plexmusic-tui/internal/config"
 )
 
-func TestBuildAppModel_UsesServerSelectionWhenTokenPresent(t *testing.T) {
+func TestInitializeApp_UsesServerSelectionWhenTokenPresent(t *testing.T) {
 	// Create a temporary HOME dir so we can write config without touching user files
 	tempHome := t.TempDir()
 	os.Setenv("HOME", tempHome)
@@ -22,9 +23,9 @@ func TestBuildAppModel_UsesServerSelectionWhenTokenPresent(t *testing.T) {
 		t.Fatalf("failed to save test config: %v", err)
 	}
 
-	appData := buildAppModel()
+	appData := bootstrap.InitializeApp(bootstrap.AppOptions{})
 	if appData == nil {
-		t.Fatalf("buildAppModel returned nil")
+		t.Fatalf("InitializeApp returned nil")
 	}
 
 	// Check the initial page ID is server selection
