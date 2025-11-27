@@ -618,18 +618,34 @@ func (s *LibraryService) addPlexHeaders(req *http.Request) {
 }
 
 // SetBaseURL updates the base URL (useful for switching servers).
-func (s *LibraryService) SetBaseURL(baseURL string) {
+// The URL is validated to ensure it's a properly formatted Plex server URL.
+func (s *LibraryService) SetBaseURL(baseURL string) error {
+	// Validate URL format
+	validator := domain.NewValidator()
+	if err := validator.ValidateVar(baseURL, "required,plexurl"); err != nil {
+		return ErrValidation{Message: "Invalid Plex server URL: " + baseURL}
+	}
+
 	s.baseURL = baseURL
 	// Update HTTP client for new host
 	u, err := url.Parse(baseURL)
 	if err == nil && s.clientFactory != nil {
 		s.httpClient = s.clientFactory.GetClient(u.Host)
 	}
+	return nil
 }
 
 // SetToken updates the authentication token.
-func (s *LibraryService) SetToken(token string) {
+// The token is validated to ensure it meets Plex authentication token requirements.
+func (s *LibraryService) SetToken(token string) error {
+	// Validate token format
+	validator := domain.NewValidator()
+	if err := validator.ValidateVar(token, "required,plextoken"); err != nil {
+		return ErrValidation{Message: "Invalid Plex authentication token"}
+	}
+
 	s.token = token
+	return nil
 }
 
 // FetchSectionCounts fetches the total count of artists, albums, and tracks for a library section.

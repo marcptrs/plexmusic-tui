@@ -19,8 +19,8 @@ type LibraryServicer interface {
 	FetchTracks(ctx context.Context, key string) ([]Track, int, error)
 	FetchStream(ctx context.Context, track *Track) (io.ReadCloser, string, error)
 	BuildStreamURL(track *Track) (string, error)
-	SetBaseURL(baseURL string)
-	SetToken(token string)
+	SetBaseURL(baseURL string) error
+	SetToken(token string) error
 	FetchSectionCounts(ctx context.Context, sectionKey string) (int, int, int, error)
 	FetchImage(ctx context.Context, path string) (image.Image, error)
 	Close() error

@@ -34,6 +34,17 @@ func (s *AuthService) AuthenticateUser(
 	ctx context.Context,
 	username, password string,
 ) (string, error) {
+	// Validate credentials before attempting authentication
+	creds := &domain.CredentialsInput{
+		Username: username,
+		Password: password,
+	}
+	if err := creds.Validate(); err != nil {
+		validationErr := domain.ValidationErrorMessage(err)
+		log.Warn("Credentials validation failed", "error", validationErr)
+		return "", ErrValidation{Message: validationErr}
+	}
+
 	token, err := s.auth.AuthenticateUser(ctx, username, password)
 	if err != nil {
 		// Do not publish auth failure events for context cancellations.

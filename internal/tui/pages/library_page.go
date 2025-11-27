@@ -196,8 +196,12 @@ func (p *LibraryPage) Init() tea.Cmd {
 		p.libEvtCh = p.libSvc.Subscribe(p.ctx)
 	} else {
 		// Update base URL and token to reflect current selected server.
-		p.libSvc.SetBaseURL(baseURL)
-		p.libSvc.SetToken(token)
+		if err := p.libSvc.SetBaseURL(baseURL); err != nil {
+			log.Warn("Failed to set base URL", "error", err)
+		}
+		if err := p.libSvc.SetToken(token); err != nil {
+			log.Warn("Failed to set authentication token", "error", err)
+		}
 	}
 	// Detect Plex Pass and sonic analysis availability and cache in coordinator
 	if p.coordinator != nil {

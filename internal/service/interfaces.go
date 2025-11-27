@@ -20,8 +20,8 @@ type LibraryServicer interface {
 	FetchTracks(ctx context.Context, key string) ([]domain.Track, int, error)
 	FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
 	BuildStreamURL(track *domain.Track) (string, error)
-	SetBaseURL(baseURL string)
-	SetToken(token string)
+	SetBaseURL(baseURL string) error
+	SetToken(token string) error
 	FetchSectionCounts(ctx context.Context, sectionKey string) (int, int, int, error)
 	FetchImage(ctx context.Context, path string) (image.Image, error)
 	// HasPlexPass returns true if the connected server supports Plex Pass features
@@ -74,4 +74,13 @@ type PlaybackServicer interface {
 	PlayDomainTrack(ctx context.Context, lib interface {
 		FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
 	}, track *domain.Track) error
+}
+
+// ErrValidation represents a validation error from user input
+type ErrValidation struct {
+	Message string
+}
+
+func (e ErrValidation) Error() string {
+	return e.Message
 }
