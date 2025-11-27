@@ -24,6 +24,7 @@ require (
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
+	github.com/go-resty/resty/v2 v2.17.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/google/subcommands v1.2.0 // indirect
 	github.com/google/wire v0.7.0 // indirect
@@ -62,6 +63,7 @@ require (
 	golang.org/x/image v0.32.0 // indirect
 	golang.org/x/mobile v0.0.0-20250911085028-6912353760cf // indirect
 	golang.org/x/mod v0.28.0 // indirect
+	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
