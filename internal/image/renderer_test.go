@@ -76,10 +76,10 @@ func TestRenderCacheKeyIncludesContentHash(t *testing.T) {
 		bounds2.Min.Y,
 	)
 
-	if _, ok := r.cache[key1]; !ok {
+	if _, ok := r.cache.Get(key1); !ok {
 		t.Fatalf("expected renderer cache to contain key for first image: %s", key1)
 	}
-	if _, ok := r.cache[key2]; !ok {
+	if _, ok := r.cache.Get(key2); !ok {
 		t.Fatalf("expected renderer cache to contain key for second image: %s", key2)
 	}
 }

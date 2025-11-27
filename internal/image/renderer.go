@@ -12,19 +12,21 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	log "github.com/charmbracelet/log/v2"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/disintegration/imaging"
 
+	"plexmusic-tui/internal/cache"
 	"plexmusic-tui/internal/domain"
 )
 
 // Renderer handles image rendering to terminal with various protocols
 type Renderer struct {
 	protocol domain.Protocol
-	cache    map[string]string // Cache rendered output by key
+	cache    cache.Cache // Hybrid cache (memory + disk)
 	// Cache derived from image content
 	pngCache  map[uintptr][]byte
 	hashCache map[uintptr]string
@@ -44,9 +46,10 @@ func bucketSize(size, bucketWidth int) int {
 // NewRenderer creates a new image renderer, auto-detecting the best protocol
 func NewRenderer() *Renderer {
 	protocol := DetectImageProtocol()
+	cacheDir, _ := cache.GetCacheDir()
 	return &Renderer{
 		protocol:  protocol,
-		cache:     make(map[string]string),
+		cache:     cache.NewHybridCache(100, cacheDir, 7*24*time.Hour), // 7 day TTL
 		pngCache:  make(map[uintptr][]byte),
 		hashCache: make(map[uintptr]string),
 	}
@@ -54,9 +57,10 @@ func NewRenderer() *Renderer {
 
 // NewRendererWithProtocol creates a new image renderer with a specific protocol
 func NewRendererWithProtocol(p domain.Protocol) *Renderer {
+	cacheDir, _ := cache.GetCacheDir()
 	return &Renderer{
 		protocol:  p,
-		cache:     make(map[string]string),
+		cache:     cache.NewHybridCache(100, cacheDir, 7*24*time.Hour), // 7 day TTL
 		pngCache:  make(map[uintptr][]byte),
 		hashCache: make(map[uintptr]string),
 	}
@@ -170,7 +174,7 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		bounds.Min.X, bounds.Min.Y)
 
 	// Check cache first
-	if cached, found := r.cache[cacheKey]; found {
+	if cached, found := r.cache.Get(cacheKey); found {
 		return cached
 	}
 
@@ -193,7 +197,7 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 	// Trim trailing whitespace to avoid extra blank lines from renderers.
 	result = strings.TrimRight(result, "\r\n ")
 	// Cache the result
-	r.cache[cacheKey] = result
+	_ = r.cache.Set(cacheKey, result)
 	return result
 }
 
