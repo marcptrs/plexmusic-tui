@@ -92,6 +92,8 @@ type LibraryPage struct {
 	// State tracking for selection changes
 	lastSelectedAlbumIndex    int
 	lastSelectedPlaylistIndex int
+	lastSelectedQueueIndex    int
+	lastSelectedTrackIndex    int
 
 	// Help model
 	help help.Model
@@ -101,11 +103,25 @@ type LibraryPage struct {
 
 	focusedNowPlaying bool
 	focusedQueue      bool
+	// Playback initialization state signals that we are in the process of
+	// starting playback (e.g., fetching stream, creating PlayQueue). While
+	// true, show a spinner and prevent the UI from indicating playback started.
+	playbackInitializing bool
+	playbackInitCancel   context.CancelFunc
+	// Debounce Play key events (to avoid terminal auto-repeat toggles)
+	lastPlayKey time.Time
+	// autoPlayOnTracksLoaded signals that after tracks are fetched, we should
+	// automatically begin playback of the first track (useful for async fetches).
+	autoPlayOnTracksLoaded bool
 }
 
 // sonicDetectResultMsg is an internal message indicating the result of a
 // manual sonic analysis detection run triggered by a keybinding or command.
 type sonicDetectResultMsg struct{ ok bool }
+
+// playResultMsg is returned from background playback startup commands to
+// signal success or error to the UI loop.
+type playResultMsg struct{ Err error }
 
 // NewLibraryPage creates a library page and its cancellable event context.
 func NewLibraryPage(coord app.Coordinatorer) *LibraryPage {
@@ -134,6 +150,8 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		// without issuing repeated fetches.
 		lastSelectedAlbumIndex:    -1,
 		lastSelectedPlaylistIndex: -1,
+		lastSelectedQueueIndex:    -1,
+		lastSelectedTrackIndex:    -1,
 		help:                      help.New(),
 		keys:                      tui.DefaultLibraryKeyMap(),
 		homeComponent:             components.NewHomeComponent(coord),
@@ -300,11 +318,23 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case domain.PlaybackEvent:
 		return p.handlePlaybackEvent(msg)
+	case components.PlayResultMsg:
+		// From queue component asynchronous play command
+		p.playbackInitializing = false
+		if p.playbackInitCancel != nil {
+			p.playbackInitCancel = nil
+		}
+		if msg.Err != nil {
+			p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", msg.Err), "error", 10*time.Second)
+			p.coordinator.SetPlaybackState(app.PlaybackStopped)
+		}
+		return p, nil
 
 	case spinner.TickMsg:
-		if p.loadingStats {
+		if p.loadingStats || p.playbackInitializing {
 			var cmd tea.Cmd
 			p.spinner, cmd = p.spinner.Update(msg)
+			log.Debug("spinner: tick", "loadingStats", p.loadingStats, "playbackInitializing", p.playbackInitializing)
 			return p, cmd
 		}
 
@@ -320,6 +350,19 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.dumpPageView("before_art_load")
 		p.coordinator.SetPlaybackAlbumArt(msg.Image, msg.Path)
 		p.dumpPageView("after_art_load")
+		return p, nil
+
+	case playResultMsg:
+		// Playback initialization finished (success or error)
+		p.playbackInitializing = false
+		if p.playbackInitCancel != nil {
+			p.playbackInitCancel = nil
+		}
+		if msg.Err != nil {
+			// Show error
+			p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", msg.Err), "error", 10*time.Second)
+			p.coordinator.SetPlaybackState(app.PlaybackStopped)
+		}
 		return p, nil
 
 	case tea.KeyMsg:

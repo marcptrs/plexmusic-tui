@@ -63,3 +63,11 @@ func (c *RecentlyAddedComponent) Items() []list.Item {
 func (c *RecentlyAddedComponent) SelectedItem() list.Item {
 	return c.list.SelectedItem()
 }
+
+func (c *RecentlyAddedComponent) SetFocused(focused bool) {
+	c.focused = focused
+}
+
+func (c *RecentlyAddedComponent) IsFocused() bool {
+	return c.focused
+}

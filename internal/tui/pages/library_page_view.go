@@ -334,6 +334,10 @@ func (p *LibraryPage) View() string {
 		statusLine = styles.BlurredStyle.Render(
 			fmt.Sprintf("Server: %s • %s Loading stats...", serverName, p.spinner.View()),
 		)
+	} else if p.playbackInitializing {
+		statusLine = styles.BlurredStyle.Render(
+			fmt.Sprintf("Server: %s • %s Starting playback...", serverName, p.spinner.View()),
+		)
 	} else {
 		statusLine = styles.BlurredStyle.Render(
 			fmt.Sprintf("Server: %s • Artists: %s • Albums: %s • Playlists: %s • Tracks: %s",

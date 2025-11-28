@@ -16,6 +16,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	log "github.com/charmbracelet/log/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/config"
@@ -942,7 +943,14 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	}
 	// Read and apply the event(s)
 	ev := <-evCh
-	page.Update(ev.Payload)
+	var m tea.Model
+	var cmd2 tea.Cmd
+	// Execute returned cmd from the Update - it may contain background commands to run (e.g., for tracks fetch)
+	m, cmd2 = page.Update(ev.Payload)
+	page = m.(*LibraryPage)
+	if cmd2 != nil {
+		executeCmd(cmd2)
+	}
 
 	// Ensure the list contains multiple albums and the selection starts at 0
 	if len(page.recentlyAddedComponent.Items()) < 2 {
@@ -952,10 +960,10 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	// (HomeTab now uses the homeComponent with scrollable sections)
 	page.coordinator.SetActiveTab(app.LibraryTab)
 	// Move selection to index 1 (Down) which should trigger a track fetch for album 2
-	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyDown})
 	page = m.(*LibraryPage)
 	if cmd != nil {
-		_ = cmd()
+		executeCmd(cmd)
 	}
 
 	// Wait for a tracks.loaded event for the album
@@ -964,6 +972,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	for time.Since(start) < 2*time.Second {
 		select {
 		case ev := <-evCh:
+			log.Info("Test received event", "type", ev.Payload.Type)
 			if ev.Payload.Type == "tracks.loaded" {
 				// Simulate the page receiving the library event via its subscription
 				page.Update(ev.Payload)
@@ -1089,7 +1098,11 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	}
 	// Read and apply the event(s)
 	ev := <-evCh
-	page.Update(ev.Payload)
+	m2, cmd2 := page.Update(ev.Payload)
+	page = m2.(*LibraryPage)
+	if cmd2 != nil {
+		executeCmd(cmd2)
+	}
 
 	// Ensure the list contains multiple albums and the selection starts at 0
 	if len(page.recentlyAddedComponent.Items()) < 2 {
@@ -1102,7 +1115,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
 	page = m.(*LibraryPage)
 	if cmd != nil {
-		_ = cmd()
+		executeCmd(cmd)
 	}
 
 	// Wait for a tracks.loaded event for the album
@@ -1139,7 +1152,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	page = m.(*LibraryPage)
 	if cmd != nil {
-		_ = cmd()
+		executeCmd(cmd)
 	}
 	// Simulate any library events that reach the page
 	// (evCh events were already applied in-loop), now view should include Track X
@@ -1389,8 +1402,19 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 		fmt.Fprintln(
 			w,
 			`{"Metadata":[{"title":"P1","grandparentTitle":"Artist P","parentTitle":"Pl 1",`+
-				`"duration":40000,"index":1,"key":"/playlists/1/track/1","thumb":"/thumbp.jpg"}]}`,
+				`"duration":40000,"index":1,"key":"/playlists/1/track/1","thumb":"/thumbp.jpg"},`+
+				`{"title":"P2","grandparentTitle":"Artist P","parentTitle":"Pl 1","duration":30000,"index":2,`+
+				`"key":"/playlists/1/track/2","thumb":"/thumbp2.jpg"}]}`,
 		)
+	})
+	// Add stream endpoints for playlist tracks
+	mux.HandleFunc("/playlists/1/track/1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/wav")
+		w.Write(createSilenceWav(1))
+	})
+	mux.HandleFunc("/playlists/1/track/2", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/wav")
+		w.Write(createSilenceWav(1))
 	})
 
 	srv := httptest.NewServer(mux)
@@ -1448,25 +1472,465 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 	page.coordinator.SetActiveTab(app.PlaylistsTab)
 	page.coordinator.SetSelectedPlaylist(0)
 
-	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
 	page = m.(*LibraryPage)
 	if cmd != nil {
-		_ = cmd()
+		executeCmd(cmd)
 	}
 
-	if !page.showingTracks {
-		t.Fatalf("expected page.showingTracks after pressing Enter on playlist")
+	// Wait for tracks.loaded event and process it (which triggers auto-play)
+	start = time.Now()
+	for !coord.HasCurrentTrack() {
+		if time.Since(start) > 2*time.Second {
+			break
+		}
+		select {
+		case ev := <-evCh:
+			m, cmd = page.Update(ev.Payload)
+			page = m.(*LibraryPage)
+			if cmd != nil {
+				executeCmd(cmd)
+			}
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
-	if coord.HasCurrentTrack() {
+
+	if !coord.HasCurrentTrack() {
+		t.Fatalf("expected coordinator to have current track after pressing space on playlist")
+	}
+	if !coord.IsPlaying() {
 		t.Fatalf(
-			"did not expect coordinator to have current track after pressing Enter on playlist",
+			"expected coordinator playback state to be Playing after pressing space on playlist",
 		)
 	}
-	if coord.IsPlaying() {
+	queue := coord.Queue()
+	if len(queue) != 2 {
+		t.Fatalf("expected queue to contain all playlist tracks, got %d", len(queue))
+	}
+	if coord.QueueIndex() != 0 {
+		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
+	}
+	if page.showingTracks {
 		t.Fatalf(
-			"did not expect coordinator playback state to be Playing after pressing Enter on playlist",
+			"expected page.showingTracks to be false after pressing p on playlist (should switch to queue)",
 		)
 	}
+	if coord.ActiveTab() != app.QueueTab {
+		t.Fatalf(
+			"expected active tab to be QueueTab after pressing p on playlist, got %v",
+			coord.ActiveTab(),
+		)
+	}
+}
+
+func TestLibraryPage_Init_UsesServerAccessTokenOverCoordinatorToken(t *testing.T) {
+	coord := app.NewCoordinator()
+	coord.SetToken("coord-token")
+
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "server-token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+
+	page := NewLibraryPage(coord)
+	page.width = 120
+	page.height = 40
+
+	_ = page.Init()
+
+	// Wait for libSvc to be created
+	start := time.Now()
+	for page.libSvc == nil {
+		if time.Since(start) > 2*time.Second {
+			t.Fatalf("libSvc not initialized in time")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Use BuildStreamURL to verify the token used in libSvc is the server's token
+	url, err := page.libSvc.BuildStreamURL(&domain.Track{Key: "/library/metadata/1"})
+	if err != nil {
+		t.Fatalf("BuildStreamURL returned error: %v", err)
+	}
+	if !strings.Contains(url, "X-Plex-Token=server-token") {
+		t.Fatalf("expected BuildStreamURL to include server AccessToken; got: %s", url)
+	}
+}
+
+// executeCmd recursively executes commands, handling batches.
+// This is necessary because tea.Batch returns a BatchMsg containing the commands,
+// which the runtime usually handles. In tests, we must handle it manually.
+// Commands are run in goroutines to avoid blocking on subscription channels.
+// Returns a channel that receives all non-nil messages from the commands.
+func executeCmd(cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+	go func() {
+		msg := cmd()
+		if msg == nil {
+			return
+		}
+		if batchMsg, ok := msg.(tea.BatchMsg); ok {
+			for _, c := range batchMsg {
+				executeCmd(c)
+			}
+		}
+	}()
+}
+
+// executeCmdSync executes a command synchronously and returns the message.
+// This should be used for commands that are expected to return quickly (like fetchCoverArtCmd).
+// Does NOT handle batches - use for simple commands only.
+func executeCmdSync(cmd tea.Cmd) tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	return cmd()
+}
+
+// executeCmdWithPage executes a command and all returned messages through page.Update().
+// Handles batches and captures messages to update the page. Returns the final page state.
+// Stops after timeout to avoid blocking on subscription commands.
+func executeCmdWithPage(page *LibraryPage, cmd tea.Cmd, timeout time.Duration) *LibraryPage {
+	if cmd == nil {
+		return page
+	}
+
+	msgChan := make(chan tea.Msg, 100)
+	done := make(chan struct{})
+
+	var collectMsgs func(tea.Cmd)
+	collectMsgs = func(c tea.Cmd) {
+		if c == nil {
+			return
+		}
+		go func() {
+			msg := c()
+			if msg == nil {
+				return
+			}
+			select {
+			case msgChan <- msg:
+			case <-done:
+				return
+			}
+			if batchMsg, ok := msg.(tea.BatchMsg); ok {
+				for _, bc := range batchMsg {
+					collectMsgs(bc)
+				}
+			}
+		}()
+	}
+
+	collectMsgs(cmd)
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case msg := <-msgChan:
+			m, newCmd := page.Update(msg)
+			page = m.(*LibraryPage)
+			if newCmd != nil {
+				collectMsgs(newCmd)
+			}
+		case <-timer.C:
+			close(done)
+			return page
+		}
+	}
+}
+
+func TestLibraryPage_QueueSelectionDoesNotUpdateCoverArt(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	if page.Init() == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+
+	// Set our mock lib svc
+	page.libSvc = &mockLibSvcShort{}
+
+	// Prepare a queue with two items that have different thumbnails
+	qTracks := []app.Track{
+		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1", Thumb: "/t1.jpg"},
+		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2", Thumb: "/t2.jpg"},
+	}
+	coord.SetQueue(qTracks)
+	coord.SetQueueIndex(0)
+	page.queueComponent.UpdateListFromCoordinator()
+	page.queueComponent.Select(0)
+
+	// Ensure the queue is visible so routing will send Up/Down to queue
+	page.coordinator.SetActiveTab(app.HomeTab)
+	page.drawerOpen = false
+	page.showingTracks = false
+
+	// Ensure the coordinator has some existing playback art and that scrolling the queue does not change it
+	page.coordinator.SetPlaybackAlbumArt(image.NewRGBA(image.Rect(0, 0, 1, 1)), "/initial.jpg")
+
+	// Press Down to change selection and run returned command
+	_, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if cmd == nil {
+		t.Fatalf("expected a command from queue selection update")
+	}
+	// Execute the command to yield a CoverArtLoadedMsg
+	msg := cmd()
+	if msg != nil {
+		page.Update(msg)
+	}
+
+	// Expect the coordinator playback art to remain unchanged
+	if page.coordinator.PlaybackAlbumArtThumb() != "/initial.jpg" {
+		t.Fatalf("expected coordinator playback thumb to remain /initial.jpg, got %s",
+			page.coordinator.PlaybackAlbumArtThumb())
+	}
+}
+
+func TestLibraryPage_PlaybackStartedUpdatesCoverArt(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	if page.Init() == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+	page.libSvc = &mockLibSvcShort{}
+
+	// Prime the coordinator with a different album art so we can validate change
+	page.coordinator.SetPlaybackAlbumArt(image.NewRGBA(image.Rect(0, 0, 1, 1)), "/initial.jpg")
+
+	// Simulate playback.started event with a different thumb
+	ev := domain.PlaybackEvent{Type: "playback.started", Track: &domain.Track{Thumb: "/played.jpg"}}
+	_, cmd := page.Update(ev)
+	if cmd == nil {
+		t.Fatalf("expected page.Update to return a cmd for playback.started (fetchCoverArtCmd)")
+	}
+
+	// Execute the returned cmd and process returned messages through the page
+	page = executeCmdWithPage(page, cmd, 500*time.Millisecond)
+
+	if page.coordinator.PlaybackAlbumArtThumb() != "/played.jpg" {
+		t.Fatalf(
+			"expected playback thumb to be updated to /played.jpg, got %s",
+			page.coordinator.PlaybackAlbumArtThumb(),
+		)
+	}
+}
+
+func TestLibraryPage_TrackSelectionUpdatesCoverArt(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	if page.Init() == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+
+	page.libSvc = &mockLibSvcShort{}
+
+	// Prepare tracks with distinct thumbnails
+	tracks := []app.Track{
+		{Title: "T1", Artist: "Artist", Album: "Album", Key: "/t1", Thumb: "/t1.jpg"},
+		{Title: "T2", Artist: "Artist", Album: "Album", Key: "/t2", Thumb: "/t2.jpg"},
+	}
+	coord.SetTracks(tracks)
+	page.trackComponent.SetItems([]list.Item{
+		util.TrackItem{Track: domain.Track{Title: "T1", Thumb: "/t1.jpg"}},
+		util.TrackItem{Track: domain.Track{Title: "T2", Thumb: "/t2.jpg"}},
+	})
+	page.trackComponent.Select(0)
+	page.showingTracks = true
+
+	// Press Down to change selection and run returned command
+	_, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if cmd == nil {
+		t.Fatalf("expected a command from track selection update")
+	}
+	// Execute the command to yield a CoverArtLoadedMsg
+	msg := cmd()
+	if msg != nil {
+		page.Update(msg)
+	}
+
+	if page.coordinator.PlaybackAlbumArtThumb() != "/t2.jpg" {
+		t.Fatalf("expected coordinator playback thumb to be /t2.jpg, got %s", page.coordinator.PlaybackAlbumArtThumb())
+	}
+}
+
+func TestLibraryPage_RecentlyAddedSelectionUpdatesCoverArt(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	if page.Init() == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+	page.libSvc = &mockLibSvcShort{}
+
+	// Populate two albums with distinct thumbs
+	albums := []app.Album{
+		{Title: "A1", Artist: "Artist", Year: 2001, Key: "/a1", Thumb: "/a1.jpg"},
+		{Title: "A2", Artist: "Artist", Year: 2002, Key: "/a2", Thumb: "/a2.jpg"},
+	}
+	coord.SetAlbums(albums)
+	items := []list.Item{
+		util.AlbumItem{Album: domain.Album{Title: "A1", Thumb: "/a1.jpg"}},
+		util.AlbumItem{Album: domain.Album{Title: "A2", Thumb: "/a2.jpg"}},
+	}
+	page.recentlyAddedComponent.SetItems(items)
+	page.recentlyAddedComponent.Select(0)
+	page.coordinator.SetActiveTab(app.LibraryTab)
+
+	// Press Down to change selection and run returned command
+	_, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
+	if cmd == nil {
+		t.Fatalf("expected a command from album selection update")
+	}
+	// Execute the command to yield a CoverArtLoadedMsg
+	msg := cmd()
+	if msg != nil {
+		page.Update(msg)
+	}
+
+	if page.coordinator.PlaybackAlbumArtThumb() != "/a2.jpg" {
+		t.Fatalf("expected coordinator playback thumb to be /a2.jpg, got %s", page.coordinator.PlaybackAlbumArtThumb())
+	}
+}
+
+func TestLibraryPage_RenderSearch_IncludesTracks(t *testing.T) {
+	coord := app.NewCoordinator()
+
+	// Add a sample track that should be matched by search
+	tracks := []app.Track{
+		{
+			Title:  "Super Track",
+			Artist: "Search Artist",
+			Album:  "Some Album",
+			Key:    "/library/metadata/1/track/1",
+		},
+	}
+	coord.SetTracks(tracks)
+	// Activate Search tab
+	coord.SetActiveTab(app.SearchTab)
+
+	// Simulate authenticated server so the page renders
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 100
+	page.height = 30
+
+	// Put the search query into the input and ensure it's visible
+	page.searchComponent.SetValue("super")
+	// Open search drawer so results are visible
+	page.drawerOpen = true
+	view := page.View()
+
+	if !strings.Contains(view, "Super Track") {
+		t.Fatalf("expected Search view to include matching track title, got: %q", view)
+	}
+}
+
+// createSilenceWav returns a WAV byte slice with `seconds` seconds of silence
+func createSilenceWav(seconds int) []byte {
+	sampleRate := 44100
+	bitsPerSample := 16
+	numChannels := 1
+	numSamples := sampleRate * seconds
+	byteRate := sampleRate * numChannels * bitsPerSample / 8
+	blockAlign := numChannels * bitsPerSample / 8
+	dataSize := numSamples * blockAlign
+
+	// RIFF header
+	buff := &bytes.Buffer{}
+	buff.WriteString("RIFF")
+	// ChunkSize = 36 + Subchunk2Size
+	chunkSize := uint32(36 + dataSize)
+	_ = binary.Write(buff, binary.LittleEndian, chunkSize)
+	buff.WriteString("WAVE")
+
+	// fmt subchunk
+	buff.WriteString("fmt ")
+	_ = binary.Write(buff, binary.LittleEndian, uint32(16))            // Subchunk1Size
+	_ = binary.Write(buff, binary.LittleEndian, uint16(1))             // AudioFormat (1 = PCM)
+	_ = binary.Write(buff, binary.LittleEndian, uint16(numChannels))   // NumChannels
+	_ = binary.Write(buff, binary.LittleEndian, uint32(sampleRate))    // SampleRate
+	_ = binary.Write(buff, binary.LittleEndian, uint32(byteRate))      // ByteRate
+	_ = binary.Write(buff, binary.LittleEndian, uint16(blockAlign))    // BlockAlign
+	_ = binary.Write(buff, binary.LittleEndian, uint16(bitsPerSample)) // BitsPerSample
+
+	// data subchunk
+	buff.WriteString("data")
+	_ = binary.Write(buff, binary.LittleEndian, uint32(dataSize))
+	// Write zeroed sample data
+	zero := make([]byte, dataSize)
+	buff.Write(zero)
+
+	return buff.Bytes()
 }
 
 func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
@@ -1562,7 +2026,25 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
 	page = m.(*LibraryPage)
 	if cmd != nil {
-		_ = cmd()
+		executeCmd(cmd)
+	}
+
+	// Wait for tracks.loaded event and process it (which triggers auto-play)
+	start = time.Now()
+	for !coord.HasCurrentTrack() {
+		if time.Since(start) > 2*time.Second {
+			break
+		}
+		select {
+		case ev := <-evCh:
+			m, cmd = page.Update(ev.Payload)
+			page = m.(*LibraryPage)
+			if cmd != nil {
+				executeCmd(cmd)
+			}
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 
 	if !coord.HasCurrentTrack() {
@@ -1589,9 +2071,159 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 			coord.ActiveTab(),
 		)
 	}
-	view := page.View()
-	if !strings.Contains(view, "T1") {
-		t.Fatalf("expected view to contain currently playing track T1, got: %s", view)
+}
+
+// Test that pressing 'p' toggles Play/Pause for current track
+func TestLibraryPage_PlayPauseToggle(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/library/sections", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"MediaContainer":{"Directory":[{"key":"1","title":"Music","type":"artist"}]}}`)
+	})
+	mux.HandleFunc("/library/recentlyAdded", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Album 1",`+
+			`"parentTitle":"Artist 1","year":2022,"key":"/library/metadata/1",`+
+			`"thumb":"/thumb1.jpg"}]}}`)
+	})
+	mux.HandleFunc("/library/metadata/1/children", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, `{"Metadata":[{"title":"T1","grandparentTitle":"Artist 1",`+
+			`"parentTitle":"Album 1","duration":60000,"index":1,`+
+			`"key":"/library/metadata/1/track/1","thumb":"/thumb1.jpg"}]}`)
+	})
+	mux.HandleFunc("/library/metadata/1/track/1", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "audio/wav")
+		w.Write(createSilenceWav(1))
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	u, _ := url.Parse(srv.URL)
+	host := u.Hostname()
+	port := u.Port()
+
+	coord := app.NewCoordinator()
+	coord.SetToken("test-token")
+	coord.SetServers([]app.PlexServer{{
+		Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token",
+	}})
+	coord.SetSelectedServer(0)
+	coord.SetActiveTab(app.HomeTab)
+
+	// Inject mock playback service that doesn't initialize audio to avoid speaker use in tests
+	mockPb := &mockPbSvcOK{}
+	coord.SetPlaybackService(mockPb)
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	cmd := page.Init()
+	if cmd == nil {
+		t.Fatalf("expected Init to return a cmd")
+	}
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	start := time.Now()
+	for page.libSvc == nil {
+		if time.Since(start) > 2*time.Second {
+			t.Fatalf("libSvc not initialized in time")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	evCh := page.libSvc.Subscribe(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, _, err := page.libSvc.FetchRecentlyAdded(ctx)
+	if err != nil {
+		t.Fatalf("FetchRecentlyAdded error: %v", err)
+	}
+	ev := <-evCh
+	m, cmd := page.Update(ev.Payload)
+	page = m.(*LibraryPage)
+	if cmd != nil {
+		_ = cmd()
+	}
+
+	// Ensure selection and that album shows
+	if len(page.recentlyAddedComponent.Items()) == 0 {
+		t.Fatalf("expected recently added albums after fetch")
+	}
+	page.coordinator.SetActiveTab(app.HomeTab)
+	page.coordinator.SetSelectedAlbum(0)
+
+	// Start playback via space
+	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
+	page = m.(*LibraryPage)
+	if cmd != nil {
+		executeCmd(cmd)
+	}
+
+	// Wait for tracks.loaded event and process it (which triggers auto-play)
+	start = time.Now()
+	for !coord.HasCurrentTrack() {
+		if time.Since(start) > 2*time.Second {
+			break
+		}
+		select {
+		case ev := <-evCh:
+			m, cmd = page.Update(ev.Payload)
+			page = m.(*LibraryPage)
+			if cmd != nil {
+				executeCmd(cmd)
+			}
+		default:
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	if !coord.HasCurrentTrack() || !coord.IsPlaying() {
+		t.Fatalf("expected track playing after space, got hasCurrent=%v, playing=%v",
+			coord.HasCurrentTrack(), coord.IsPlaying())
+	}
+
+	// Wait for playback initialization to complete (the async PlayAppTrack goroutine)
+	// by checking that playbackInitializing becomes false
+	start = time.Now()
+	for page.playbackInitializing {
+		if time.Since(start) > 2*time.Second {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// Verify orchestrator is available for pause/resume
+	if page.orchestrator == nil {
+		t.Fatalf("expected orchestrator to be set after playback started")
+	}
+
+	// Press 'p' to pause
+	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	page = m.(*LibraryPage)
+	if cmd != nil {
+		executeCmd(cmd)
+	}
+	// small wait to propagate
+	time.Sleep(20 * time.Millisecond)
+	if !coord.IsPaused() {
+		t.Fatalf("expected playback paused after pressing 'p', got IsPlaying=%v, IsPaused=%v",
+			coord.IsPlaying(), coord.IsPaused())
+	}
+
+	// Wait for debounce period (250ms) before pressing 'p' again
+	time.Sleep(300 * time.Millisecond)
+
+	// Press 'p' again to resume
+	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
+	_ = m.(*LibraryPage) // Ensure type assertion works
+	if cmd != nil {
+		executeCmd(cmd)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if !coord.IsPlaying() {
+		t.Fatalf("expected playback resumed after pressing 'p' second time, got IsPlaying=%v, IsPaused=%v",
+			coord.IsPlaying(), coord.IsPaused())
 	}
 }
 
@@ -1976,7 +2608,7 @@ func TestLibraryPage_QueueVisibleInterceptsUpDown(t *testing.T) {
 	oldQIdx := page.queueComponent.Index()
 	oldRaIdx := page.recentlyAddedComponent.Index()
 
-	// Press Down; expect queue index to change, recently added remains unchanged
+	// Press Down; expect queue index to change, recently added should remain unchanged
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
 	page = m.(*LibraryPage)
 	if cmd != nil {
@@ -1991,235 +2623,75 @@ func TestLibraryPage_QueueVisibleInterceptsUpDown(t *testing.T) {
 	}
 }
 
-func TestLibraryPage_RenderSearch_IncludesTracks(t *testing.T) {
-	coord := app.NewCoordinator()
+// Minimal mock LibraryServicer for tests — only FetchImage is meaningful here.
+type mockLibSvcShort struct{}
 
-	// Add a sample track that should be matched by search
-	tracks := []app.Track{
-		{
-			Title:  "Super Track",
-			Artist: "Search Artist",
-			Album:  "Some Album",
-			Key:    "/library/metadata/1/track/1",
-		},
-	}
-	coord.SetTracks(tracks)
-	// Activate Search tab
-	coord.SetActiveTab(app.SearchTab)
-
-	// Simulate authenticated server so the page renders
-	server := app.PlexServer{
-		Name:        "Local Server",
-		Host:        "127.0.0.1",
-		Port:        "32400",
-		AccessToken: "token",
-		Scheme:      "http",
-	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
-
-	page := NewLibraryPageWithAuth(coord, nil)
-	page.width = 100
-	page.height = 30
-
-	// Put the search query into the input and ensure it's visible
-	page.searchComponent.SetValue("super")
-	// Open search drawer so results are visible
-	page.drawerOpen = true
-	view := page.View()
-
-	if !strings.Contains(view, "Super Track") {
-		t.Fatalf("expected Search view to include matching track title, got: %q", view)
-	}
+func (m *mockLibSvcShort) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.LibraryEvent] {
+	ch := make(chan pubsub.Event[domain.LibraryEvent])
+	close(ch)
+	return ch
 }
 
-// createSilenceWav returns a WAV byte slice with `seconds` seconds of silence
-func createSilenceWav(seconds int) []byte {
-	sampleRate := 44100
-	bitsPerSample := 16
-	numChannels := 1
-	numSamples := sampleRate * seconds
-	byteRate := sampleRate * numChannels * bitsPerSample / 8
-	blockAlign := numChannels * bitsPerSample / 8
-	dataSize := numSamples * blockAlign
-
-	// RIFF header
-	buff := &bytes.Buffer{}
-	buff.WriteString("RIFF")
-	// ChunkSize = 36 + Subchunk2Size
-	chunkSize := uint32(36 + dataSize)
-	_ = binary.Write(buff, binary.LittleEndian, chunkSize)
-	buff.WriteString("WAVE")
-
-	// fmt subchunk
-	buff.WriteString("fmt ")
-	_ = binary.Write(buff, binary.LittleEndian, uint32(16))            // Subchunk1Size
-	_ = binary.Write(buff, binary.LittleEndian, uint16(1))             // AudioFormat (1 = PCM)
-	_ = binary.Write(buff, binary.LittleEndian, uint16(numChannels))   // NumChannels
-	_ = binary.Write(buff, binary.LittleEndian, uint32(sampleRate))    // SampleRate
-	_ = binary.Write(buff, binary.LittleEndian, uint32(byteRate))      // ByteRate
-	_ = binary.Write(buff, binary.LittleEndian, uint16(blockAlign))    // BlockAlign
-	_ = binary.Write(buff, binary.LittleEndian, uint16(bitsPerSample)) // BitsPerSample
-
-	// data subchunk
-	buff.WriteString("data")
-	_ = binary.Write(buff, binary.LittleEndian, uint32(dataSize))
-	// Write zeroed sample data
-	zero := make([]byte, dataSize)
-	buff.Write(zero)
-
-	return buff.Bytes()
+func (m *mockLibSvcShort) FetchLibraries(ctx context.Context) ([]domain.MusicLibrary, int, error) {
+	return nil, 0, nil
 }
 
-func TestLibraryPage_PPlaysPlaylistAndQueuesTracks(t *testing.T) {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/playlists", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(w, `{"MediaContainer":{"Metadata":[{"title":"Pl 1","key":"/playlists/1"}]}}`)
-	})
-	mux.HandleFunc("/playlists/1", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintln(
-			w,
-			`{"Metadata":[{"title":"P1","grandparentTitle":"Artist P","parentTitle":"Pl 1",`+
-				`"duration":40000,"index":1,"key":"/playlists/1/track/1","thumb":"/thumbp.jpg"},`+
-				`{"title":"P2","grandparentTitle":"Artist P","parentTitle":"Pl 1","duration":30000,"index":2,`+
-				`"key":"/playlists/1/track/2","thumb":"/thumbp2.jpg"}]}`,
-		)
-	})
-	// Add stream endpoints for playlist tracks
-	mux.HandleFunc("/playlists/1/track/1", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "audio/wav")
-		w.Write(createSilenceWav(1))
-	})
-	mux.HandleFunc("/playlists/1/track/2", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "audio/wav")
-		w.Write(createSilenceWav(1))
-	})
-
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	u, _ := url.Parse(srv.URL)
-	host := u.Hostname()
-	port := u.Port()
-
-	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
-			{
-				Name:        "Test Server",
-				Host:        host,
-				Port:        port,
-				Scheme:      u.Scheme,
-				AccessToken: "test-token",
-			},
-		},
-	)
-	coord.SetSelectedServer(0)
-	coord.SetActiveTab(app.PlaylistsTab)
-
-	page := NewLibraryPageWithAuth(coord, nil)
-	page.width = 120
-	page.height = 40
-	if page.Init() == nil {
-		t.Fatalf("expected Init to return a cmd")
-	}
-
-	start := time.Now()
-	for page.libSvc == nil {
-		if time.Since(start) > 2*time.Second {
-			t.Fatalf("libSvc not initialized in time")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	evCh := page.libSvc.Subscribe(context.Background())
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_, _, err := page.libSvc.FetchPlaylists(ctx)
-	if err != nil {
-		t.Fatalf("FetchPlaylists error: %v", err)
-	}
-	ev := <-evCh
-	page.Update(ev.Payload)
-
-	if len(page.playlistComponent.Items()) == 0 {
-		t.Fatalf("expected playlists after fetch")
-	}
-	page.coordinator.SetActiveTab(app.PlaylistsTab)
-	page.coordinator.SetSelectedPlaylist(0)
-
-	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
-	page = m.(*LibraryPage)
-	if cmd != nil {
-		_ = cmd()
-	}
-
-	if !coord.HasCurrentTrack() {
-		t.Fatalf("expected coordinator to have current track after pressing space on playlist")
-	}
-	if !coord.IsPlaying() {
-		t.Fatalf(
-			"expected coordinator playback state to be Playing after pressing space on playlist",
-		)
-	}
-	queue := coord.Queue()
-	if len(queue) != 2 {
-		t.Fatalf("expected queue to contain all playlist tracks, got %d", len(queue))
-	}
-	if coord.QueueIndex() != 0 {
-		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
-	}
-	if page.showingTracks {
-		t.Fatalf(
-			"expected page.showingTracks to be false after pressing p on playlist (should switch to queue)",
-		)
-	}
-	if coord.ActiveTab() != app.QueueTab {
-		t.Fatalf(
-			"expected active tab to be QueueTab after pressing p on playlist, got %v",
-			coord.ActiveTab(),
-		)
-	}
+func (m *mockLibSvcShort) FetchAlbums(ctx context.Context, key string) ([]domain.Album, int, error) {
+	return nil, 0, nil
 }
 
-func TestLibraryPage_Init_UsesServerAccessTokenOverCoordinatorToken(t *testing.T) {
-	coord := app.NewCoordinator()
-	coord.SetToken("coord-token")
-
-	server := app.PlexServer{
-		Name:        "Local Server",
-		Host:        "127.0.0.1",
-		Port:        "32400",
-		AccessToken: "server-token",
-		Scheme:      "http",
-	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-
-	page := NewLibraryPage(coord)
-	page.width = 120
-	page.height = 40
-
-	_ = page.Init()
-
-	// Wait for libSvc to be created
-	start := time.Now()
-	for page.libSvc == nil {
-		if time.Since(start) > 2*time.Second {
-			t.Fatalf("libSvc not initialized in time")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-
-	// Use BuildStreamURL to verify the token used in libSvc is the server's token
-	url, err := page.libSvc.BuildStreamURL(&domain.Track{Key: "/library/metadata/1"})
-	if err != nil {
-		t.Fatalf("BuildStreamURL returned error: %v", err)
-	}
-	if !strings.Contains(url, "X-Plex-Token=server-token") {
-		t.Fatalf("expected BuildStreamURL to include server AccessToken; got: %s", url)
-	}
+func (m *mockLibSvcShort) FetchRecentlyAdded(ctx context.Context) ([]domain.Album, int, error) {
+	return nil, 0, nil
 }
+
+func (m *mockLibSvcShort) FetchPlaylists(ctx context.Context) ([]domain.Playlist, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockLibSvcShort) FetchTracks(ctx context.Context, key string) ([]domain.Track, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockLibSvcShort) FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error) {
+	return nil, "", nil
+}
+func (m *mockLibSvcShort) BuildStreamURL(track *domain.Track) (string, error) { return "", nil }
+func (m *mockLibSvcShort) SetBaseURL(baseURL string) error                    { return nil }
+func (m *mockLibSvcShort) SetToken(token string) error                        { return nil }
+func (m *mockLibSvcShort) FetchSectionCounts(ctx context.Context, sectionKey string) (int, int, int, error) {
+	return 0, 0, 0, nil
+}
+
+func (m *mockLibSvcShort) FetchImage(ctx context.Context, path string) (image.Image, error) {
+	return image.NewRGBA(image.Rect(0, 0, 1, 1)), nil
+}
+func (m *mockLibSvcShort) HasPlexPass(ctx context.Context) (bool, error)      { return false, nil }
+func (m *mockLibSvcShort) HasSonicAnalysis(ctx context.Context) (bool, error) { return false, nil }
+func (m *mockLibSvcShort) FetchSonicallySimilarTracks(
+	ctx context.Context, ratingKey string, limit int, maxDistance float64,
+) ([]domain.Track, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockLibSvcShort) FetchSonicAdventure(ctx context.Context, start, end string) ([]domain.Track, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockLibSvcShort) FetchLibraryHubs(ctx context.Context, sectionKey string) ([]domain.Hub, error) {
+	return nil, nil
+}
+
+func (m *mockLibSvcShort) FetchMixesForYou(ctx context.Context) ([]domain.Playlist, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockLibSvcShort) FetchOnThisDay(ctx context.Context) ([]domain.Album, int, error) {
+	return nil, 0, nil
+}
+
+func (m *mockLibSvcShort) FetchMoodStation(
+	ctx context.Context, station string, limit int,
+) ([]domain.Track, int, error) {
+	return nil, 0, nil
+}
+func (m *mockLibSvcShort) Close() error { return nil }

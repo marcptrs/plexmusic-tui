@@ -25,6 +25,10 @@ type QueueComponent struct {
 	focused      bool
 }
 
+// PlayResultMsg is emitted by components that initiate playback to notify
+// the caller (page) about the result of starting playback.
+type PlayResultMsg struct{ Err error }
+
 func NewQueueComponent(coord app.Coordinatorer, orch *tui.Orchestrator) *QueueComponent {
 	delegate := list.NewDefaultDelegate()
 	l := list.New(nil, delegate, 20, 10)
@@ -261,25 +265,14 @@ func (c *QueueComponent) playAppTrack(at *app.Track) tea.Cmd {
 
 	// Orchestrator is required
 	if c.orchestrator != nil {
-		// We need a context. Since we are in a component, we don't have one handy.
-		// We can use context.Background() or pass it in.
-		// Ideally Update should receive context but it doesn't.
-		// We'll use context.Background() for now as PlayAppTrack creates its own timeout context usually?
-		// Wait, PlayAppTrack takes ctx.
-		// We should probably store ctx in the component or pass it.
-		// For now, let's use context.TODO()
-		if err := c.orchestrator.PlayAppTrack(context.TODO(), at); err != nil {
-			c.coordinator.SetNotification(
-				fmt.Sprintf("Play failed: %v", err),
-				"error",
-				10*time.Second,
-			)
-			return nil
+		// Use a background command to call PlayAppTrack to avoid blocking caller.
+		return func() tea.Msg {
+			err := c.orchestrator.PlayAppTrack(context.TODO(), at)
+			return PlayResultMsg{Err: err}
 		}
-	} else {
-		c.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
-		return nil
 	}
+	c.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
+	return nil
 
 	// We also need to fetch cover art. LibraryPage did this.
 	// But QueueComponent doesn't have LibraryService directly (it's in Orchestrator but private/interface).
@@ -316,8 +309,6 @@ func (c *QueueComponent) playAppTrack(at *app.Track) tea.Cmd {
 
 	// So if I don't do it here, cover art won't update immediately.
 	// But maybe that's fine for now.
-
-	return nil
 }
 
 // Helper to detect rune keypresses

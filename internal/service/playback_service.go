@@ -134,6 +134,7 @@ func (s *PlaybackService) Pause() error {
 		return err
 	}
 
+	log.Debug("PlaybackService.Pause success")
 	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.paused",
 		Payload: domain.PlaybackEvent{
@@ -152,6 +153,7 @@ func (s *PlaybackService) Resume() error {
 		return err
 	}
 
+	log.Debug("PlaybackService.Resume success")
 	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.resumed",
 		Payload: domain.PlaybackEvent{

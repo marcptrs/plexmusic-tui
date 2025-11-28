@@ -194,10 +194,13 @@ func decodePlexTrackContainer(body []byte, out *domain.PlexTrackContainer) error
 
 // LibraryService provides methods to fetch library data from Plex servers.
 type LibraryService struct {
-	baseURL       string // e.g., "https://192.168.1.100:32400"
-	token         string
-	httpClient    domain.HTTPClient
-	clientFactory domain.HTTPClientFactory
+	baseURL           string // e.g., "https://192.168.1.100:32400"
+	token             string
+	httpClient        domain.HTTPClient
+	clientFactory     domain.HTTPClientFactory
+	machineIdentifier string            // Cached machine identifier for the server
+	stationKeyCache   map[string]string // Cache mapping section station keys to metadata keys
+	mu                sync.RWMutex
 }
 
 // NewLibraryService creates a new library service for a Plex server.
@@ -418,8 +421,119 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 		endpoint = s.baseURL + key
 	}
 
+	// Special handling for stations: Plex stations generate tracks dynamically
+	// via the playQueues API endpoint rather than having static track lists.
+	isStation := strings.Contains(pathOnly, "/stations/")
+	if isStation {
+		// Attempt to resolve a section/ station key to a metadata key first
+		if strings.Contains(pathOnly, "/library/sections/") && strings.Contains(pathOnly, "/stations/") {
+			if resolved, rerr := s.resolveStationMetadataKey(ctx, pathOnly); rerr == nil && resolved != "" {
+				log.Debug("FetchTracks: resolved station key to metadata key", "orig", pathOnly, "resolved", resolved)
+				pathOnly = resolved
+			} else if rerr != nil {
+				log.Debug("FetchTracks: failed to resolve station metadata key", "orig", pathOnly, "err", rerr)
+			}
+		}
+
+		// Get machine identifier for proper server:// URI format
+		machineID, merr := s.getMachineIdentifier(ctx)
+		if merr != nil {
+			return nil, 0, fmt.Errorf("failed to get machine identifier for station playback: %w", merr)
+		}
+
+		// Create a play queue for the station which generates the track list.
+		// PlayQueue API requires URI in format:
+		// server://{machineIdentifier}/com.plexapp.plugins.library{key}?includeSharedContent=1
+		// This matches the format used by Plex Web UI.
+		var keyForURI string
+		if strings.Contains(pathOnly, "/com.plexapp.plugins.library/") {
+			keyForURI = pathOnly
+		} else {
+			keyForURI = "/com.plexapp.plugins.library" + pathOnly
+		}
+		if strings.Contains(keyForURI, "?") {
+			keyForURI = keyForURI + "&includeSharedContent=1"
+		} else {
+			keyForURI = keyForURI + "?includeSharedContent=1"
+		}
+		stationURI := "server://" + machineID + keyForURI
+		playQueueEndpoint := s.baseURL + "/playQueues"
+
+		// Build query string with properly encoded URI parameter
+		// Note: Plex Web uses own=1 to indicate the client owns this playqueue
+		params := url.Values{}
+		params.Set("type", "audio")
+		params.Set("shuffle", "0")
+		params.Set("repeat", "0")
+		params.Set("own", "1")
+		params.Set("includeChapters", "1")
+		params.Set("includeMarkers", "1")
+		params.Set("includeExternalMedia", "1")
+		params.Set("includeGeolocation", "1")
+
+		playQueueURL := playQueueEndpoint + "?" + params.Encode() + "&uri=" + url.QueryEscape(stationURI)
+		log.Debug(
+			"FetchTracks: creating playQueue for station",
+			"pathOnly",
+			pathOnly,
+			"machineID",
+			machineID,
+			"stationURI",
+			stationURI,
+			"endpoint",
+			playQueueURL,
+		)
+
+		req, rerr := http.NewRequestWithContext(ctx, "POST", playQueueURL, nil)
+		if rerr != nil {
+			return nil, 0, fmt.Errorf("failed to create playQueue request: %w", rerr)
+		}
+		s.addPlexHeaders(req)
+		resp, derr := s.httpClient.Do(req)
+		if derr != nil {
+			return nil, 0, fmt.Errorf("failed to create playQueue: %w", derr)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+			body, _ := io.ReadAll(resp.Body)
+			preview := string(body)
+			if len(preview) > 200 {
+				preview = preview[:200]
+			}
+			log.Debug("FetchTracks: playQueue creation failed", "status", resp.StatusCode, "body_preview", preview)
+			return nil, 0, fmt.Errorf("playQueue creation returned status %d: %s", resp.StatusCode, string(body))
+		}
+
+		body, rerr := io.ReadAll(resp.Body)
+		if rerr != nil {
+			return nil, 0, fmt.Errorf("failed to read playQueue response: %w", rerr)
+		}
+
+		preview := string(body)
+		if len(preview) > 300 {
+			preview = preview[:300]
+		}
+		log.Debug("FetchTracks: playQueue created", "body_len", len(body), "body_preview", preview)
+
+		var container domain.PlexTrackContainer
+		if derr := decodePlexTrackContainer(body, &container); derr != nil {
+			return nil, 0, fmt.Errorf("failed to decode playQueue tracks: %w", derr)
+		}
+		log.Debug(
+			"FetchTracks: playQueue decoded",
+			"trackCount",
+			len(container.Metadata),
+			"totalSize",
+			container.TotalSize,
+		)
+
+		return container.Metadata, container.TotalSize, nil
+	}
+
 	// Attempt primary fetch
 	tracks, totalSize, err := func() ([]domain.Track, int, error) {
+		log.Info("FetchTracks: fetching", "endpoint", endpoint)
 		// Use endpoint variable instead of constructing from baseURL
 		req, rerr := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 		if rerr != nil {
@@ -433,6 +547,11 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
+			preview := string(body)
+			if len(preview) > 200 {
+				preview = preview[:200]
+			}
+			log.Debug("FetchTracks: non-OK status", "status", resp.StatusCode, "body_preview", preview)
 			return nil, 0, fmt.Errorf(
 				"server returned status %d: %s",
 				resp.StatusCode,
@@ -444,56 +563,70 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 		if rerr != nil {
 			return nil, 0, fmt.Errorf("failed to read tracks response: %w", rerr)
 		}
+		preview := string(body)
+		if len(preview) > 300 {
+			preview = preview[:300]
+		}
+		log.Debug("FetchTracks: response received", "body_len", len(body), "body_preview", preview)
 		var container domain.PlexTrackContainer
 		if derr := decodePlexTrackContainer(body, &container); derr != nil {
 			return nil, 0, fmt.Errorf("failed to decode tracks: %w", derr)
 		}
+		log.Debug("FetchTracks: decoded", "trackCount", len(container.Metadata), "totalSize", container.TotalSize)
 		return container.Metadata, container.TotalSize, nil
 	}()
-	// If primary fetch returned no tracks, try a fallback endpoint that some
-	// Plex servers use for album children
+
+	// For stations, if we got tracks, return immediately (don't try fallbacks)
+	if isStation && len(tracks) > 0 {
+		return tracks, totalSize, nil
+	}
+
+	// If primary fetch returned no tracks, try fallback endpoints.
+	// We try /children (standard for albums) and /items (standard for playlists).
 	if err != nil || len(tracks) == 0 {
-		if strings.HasPrefix(pathOnly, "/library/metadata/") {
+		// Helper to try a suffix
+		trySuffix := func(suffix string) ([]domain.Track, int, error) {
 			alt := pathOnly
-			if !strings.HasSuffix(alt, "/children") {
-				alt = alt + "/children"
+			if !strings.HasSuffix(alt, suffix) {
+				alt = alt + suffix
+			} else {
+				// Suffix already present, no need to retry same URL
+				return nil, 0, fmt.Errorf("suffix already present")
 			}
-			// Build the alternate endpoint using the base URL, which ensures
-			// we query the current configured server rather than any absolute
-			// host that may have been embedded in the key.
+
 			altEndpoint := s.baseURL + alt
-			altTracks, altTotalSize, altErr := func() ([]domain.Track, int, error) {
-				req, rerr := http.NewRequestWithContext(ctx, "GET", altEndpoint, nil)
-				if rerr != nil {
-					return nil, 0, fmt.Errorf("failed to create request: %w", rerr)
-				}
-				s.addPlexHeaders(req)
-				resp, derr := s.httpClient.Do(req)
-				if derr != nil {
-					return nil, 0, fmt.Errorf("failed to fetch tracks: %w", derr)
-				}
-				defer resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					body, _ := io.ReadAll(resp.Body)
-					return nil, 0, fmt.Errorf(
-						"server returned status %d: %s",
-						resp.StatusCode,
-						string(body),
-					)
-				}
-				body, rerr := io.ReadAll(resp.Body)
-				if rerr != nil {
-					return nil, 0, fmt.Errorf("failed to read tracks response: %w", rerr)
-				}
-				var container domain.PlexTrackContainer
-				if derr := decodePlexTrackContainer(body, &container); derr != nil {
-					return nil, 0, fmt.Errorf("failed to decode tracks: %w", derr)
-				}
-				return container.Metadata, container.TotalSize, nil
-			}()
-			if altErr == nil && len(altTracks) > 0 {
-				return altTracks, altTotalSize, nil
+			req, rerr := http.NewRequestWithContext(ctx, "GET", altEndpoint, nil)
+			if rerr != nil {
+				return nil, 0, rerr
 			}
+			s.addPlexHeaders(req)
+			resp, derr := s.httpClient.Do(req)
+			if derr != nil {
+				return nil, 0, derr
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return nil, 0, fmt.Errorf("status %d", resp.StatusCode)
+			}
+			body, rerr := io.ReadAll(resp.Body)
+			if rerr != nil {
+				return nil, 0, rerr
+			}
+			var container domain.PlexTrackContainer
+			if derr := decodePlexTrackContainer(body, &container); derr != nil {
+				return nil, 0, derr
+			}
+			return container.Metadata, container.TotalSize, nil
+		}
+
+		// Try /children first (most common for metadata keys)
+		if altTracks, altTotal, altErr := trySuffix("/children"); altErr == nil && len(altTracks) > 0 {
+			return altTracks, altTotal, nil
+		}
+
+		// Try /items next (common for playlists, even if key is metadata)
+		if altTracks, altTotal, altErr := trySuffix("/items"); altErr == nil && len(altTracks) > 0 {
+			return altTracks, altTotal, nil
 		}
 	}
 	return tracks, totalSize, err
@@ -606,6 +739,13 @@ func (s *LibraryService) addPlexHeaders(req *http.Request) {
 	req.Header.Set("X-Plex-Token", s.token)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "plexmusic-tui")
+	// Add additional X-Plex headers to mimic typical client requests
+	req.Header.Set("X-Plex-Product", "Plex TUI")
+	req.Header.Set("X-Plex-Version", "1.0")
+	req.Header.Set("X-Plex-Client-Identifier", "plexmusic-tui-v1")
+	req.Header.Set("X-Plex-Platform", "Terminal")
+	req.Header.Set("X-Plex-Device", "Terminal")
+	req.Header.Set("X-Plex-Device-Name", "plexmusic-tui")
 	// Also add the token as a query parameter (some server configurations
 	// prefer receiving the token via URL when Host header parsing is different)
 	if s.token != "" && req.URL != nil {
@@ -615,6 +755,119 @@ func (s *LibraryService) addPlexHeaders(req *http.Request) {
 			req.URL.RawQuery = q.Encode()
 		}
 	}
+}
+
+// getMachineIdentifier fetches and caches the Plex server's machine identifier.
+// This is required for PlayQueue API calls which need URIs in the format:
+// server://{machineIdentifier}/path/to/resource
+func (s *LibraryService) getMachineIdentifier(ctx context.Context) (string, error) {
+	s.mu.RLock()
+	if s.machineIdentifier != "" {
+		defer s.mu.RUnlock()
+		return s.machineIdentifier, nil
+	}
+	s.mu.RUnlock()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if s.machineIdentifier != "" {
+		return s.machineIdentifier, nil
+	}
+
+	endpoint := s.baseURL + "/"
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+	s.addPlexHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch machine identifier: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to fetch machine identifier, status %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	var container struct {
+		MediaContainer struct {
+			MachineIdentifier string `json:"machineIdentifier"`
+		} `json:"MediaContainer"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&container); err != nil {
+		return "", fmt.Errorf("failed to decode machine identifier response: %w", err)
+	}
+
+	s.machineIdentifier = container.MediaContainer.MachineIdentifier
+	return s.machineIdentifier, nil
+}
+
+// resolveStationMetadataKey converts a /library/sections/{id}/stations/{id}
+// station path into a metadata key (/library/metadata/{ratingKey}/station/{uuid}?type=10)
+// if the server provides a metadata entry for the station. The result is
+// cached in LibraryService.stationKeyCache to avoid repeated lookups.
+func (s *LibraryService) resolveStationMetadataKey(ctx context.Context, sectionKey string) (string, error) {
+	// Fast-path: if it already looks like a metadata key, return it
+	if strings.Contains(sectionKey, "/library/metadata/") {
+		return sectionKey, nil
+	}
+
+	s.mu.RLock()
+	if s.stationKeyCache != nil {
+		if v, ok := s.stationKeyCache[sectionKey]; ok {
+			s.mu.RUnlock()
+			return v, nil
+		}
+	}
+	s.mu.RUnlock()
+
+	endpoint := s.baseURL + sectionKey
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request for station key resolution: %w", err)
+	}
+	s.addPlexHeaders(req)
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch station metadata: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("failed to fetch station metadata, status %d: %s", resp.StatusCode, string(body))
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read station metadata response: %w", err)
+	}
+
+	var container struct {
+		MediaContainer struct {
+			Metadata []struct {
+				Key string `json:"key"`
+			} `json:"Metadata"`
+		} `json:"MediaContainer"`
+	}
+	if derr := json.Unmarshal(body, &container); derr == nil {
+		if len(container.MediaContainer.Metadata) > 0 && container.MediaContainer.Metadata[0].Key != "" {
+			key := container.MediaContainer.Metadata[0].Key
+			s.mu.Lock()
+			if s.stationKeyCache == nil {
+				s.stationKeyCache = make(map[string]string)
+			}
+			s.stationKeyCache[sectionKey] = key
+			s.mu.Unlock()
+			return key, nil
+		}
+	}
+	// If JSON decoding failed or key absent, just return original path
+	return sectionKey, nil
 }
 
 // SetBaseURL updates the base URL (useful for switching servers).
@@ -1371,6 +1624,15 @@ func (s *LibraryService) FetchMoodStation(ctx context.Context, station string, l
 			if strings.EqualFold(hub.Title, station) ||
 				strings.Contains(strings.ToLower(hub.Title), strings.ToLower(station)) ||
 				strings.Contains(strings.ToLower(hub.HubIdentifier), strings.ToLower(station)) {
+				// For stations, fetch tracks from the playlist(s) in this hub
+				// Mood/genre stations often have playlists rather than direct tracks
+				for _, pl := range hub.Playlists {
+					plTracks, _, err := s.FetchTracks(ctx, pl.Key)
+					if err == nil {
+						tracks = append(tracks, plTracks...)
+					}
+				}
+				// Also include any direct tracks from the hub
 				tracks = append(tracks, hub.Tracks...)
 			}
 		}

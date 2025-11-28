@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/charmbracelet/log/v2"
+
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/effects"
 	"github.com/faiface/beep/flac"
@@ -20,16 +22,19 @@ import (
 
 // Player manages audio playback
 type Player struct {
-	state         domain.PlaybackState
-	currentTrack  *domain.Track
-	streamer      beep.StreamSeekCloser
+	state        domain.PlaybackState
+	currentTrack *domain.Track
+	// streamer is used by speaker.Play; seekStreamer is non-nil for seekable
+	// streams (files) to support seeking, length, and position.
+	streamer      beep.Streamer
+	seekStreamer  beep.StreamSeekCloser
 	ctrl          *beep.Ctrl
 	volume        *effects.Volume
 	desiredVolume float64 // Volume to apply when volume effect is created
 	speakerInit   bool
 	sampleRate    beep.SampleRate
-	position      int // Current position in samples
-	length        int // Total length in samples
+	position      int // Current position in samples (0 if unknown for live streams)
+	length        int // Total length in samples (0 for live streams)
 	onCompletion  func()
 }
 
@@ -70,88 +75,133 @@ func (p *Player) IsInitialized() bool {
 // contentType is used to determine the audio format
 func (p *Player) LoadStream(body io.ReadCloser, contentType string) error {
 	// Close previous streamer if it exists to free resources
-	if p.streamer != nil {
-		p.streamer.Close()
-		p.streamer = nil
+	if p.seekStreamer != nil {
+		_ = p.seekStreamer.Close()
+		p.seekStreamer = nil
+	}
+	p.streamer = nil
+
+	// If body implements ReadSeeker we can attempt buffered decode and
+	// multiple decoders; otherwise this is a streaming body and we will
+	// attempt a single decode based on Content-Type and not buffer the
+	// entire stream to avoid unbounded memory use.
+	var format beep.Format
+	var seekableStream beep.StreamSeekCloser
+	var stream beep.Streamer
+	var rs io.ReadSeeker
+	var errDecode error
+	tryDirect := func(decode func(io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error)) bool {
+		s, f, e := decode(body)
+		if e == nil {
+			seekableStream = s
+			stream = s
+			format = f
+			return true
+		}
+		errDecode = e
+		return false
 	}
 
-	// Buffer the entire stream to allow multiple decode attempts and avoid
-	// issues where a failed decode consumes the stream.
-	buf, err := io.ReadAll(body)
+	// For non-seekable bodies we only attempt a single decoder based on
+	// content type and will not fallback to buffering (can't re-read the body).
+	decoded := false
+	if strings.Contains(contentType, "mp3") || strings.Contains(contentType, "mpeg") {
+		if tryDirect(mp3.Decode) {
+			decoded = true
+		}
+	} else if strings.Contains(contentType, "flac") || strings.Contains(contentType, "x-flac") {
+		if tryDirect(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return flac.Decode(rc) }) {
+			decoded = true
+		}
+	} else if strings.Contains(contentType, "ogg") {
+		if tryDirect(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return vorbis.Decode(rc) }) {
+			decoded = true
+		}
+	} else if strings.Contains(contentType, "wav") {
+		if tryDirect(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return wav.Decode(rc) }) {
+			decoded = true
+		}
+	}
+
+	if decoded {
+		// Attach whichever stream we obtained (seekable or not)
+		if seekableStream != nil {
+			p.attachStreamer(seekableStream, format)
+			return nil
+		}
+		// If stream implements StreamSeekCloser, cast; else attach via helper
+		if ssc, ok := stream.(beep.StreamSeekCloser); ok {
+			p.attachStreamer(ssc, format)
+			return nil
+		}
+		// No seekable interface; attach streaming-only streamer
+		p.attachStreamerStream(stream, format)
+		return nil
+	}
+
+	// If we are here, and if the original body is seekable, we can fall
+	// back to buffering and trying more decoders. Otherwise, we failed.
+	if rsVal, ok := body.(io.ReadSeeker); ok {
+		rs = rsVal
+		// Rewind seeker so we can read whole content
+		_, _ = rs.Seek(0, io.SeekStart)
+		// Buffer and attempt decodes using the memory-backed reader, similar to legacy behavior
+	} else {
+		// Non-seekable body; we can't buffer and retry because bytes have
+		// been consumed by the failed decode attempt. Return the decode err.
+		if errDecode != nil {
+			return fmt.Errorf("stream decode failed: %w", errDecode)
+		}
+		return fmt.Errorf("stream decode failed: unable to decode stream")
+	}
+	// If still here, we have a seekable body; read it into memory and try decoders
+	buf, err := io.ReadAll(rs)
 	_ = body.Close() // Always close the network body
 	if err != nil {
 		return fmt.Errorf("failed to buffer stream: %w", err)
 	}
-
 	if len(buf) == 0 {
 		return fmt.Errorf("stream is empty")
 	}
-
-	var streamer beep.StreamSeekCloser
-	var format beep.Format
-
+	var streamerSeek beep.StreamSeekCloser
 	// Helper to try a decoder on the buffer
-	try := func(decode func(io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error)) bool {
-		// Create a new reader for each attempt
-		// Use nopCloserSeeker to ensure the decoder sees an io.Seeker, which is required
-		// for proper seeking support in some beep decoders (like mp3).
+	tryBuf := func(decode func(io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error)) bool {
 		r := nopCloserSeeker{bytes.NewReader(buf)}
 		s, f, e := decode(r)
 		if e == nil {
-			streamer = s
+			streamerSeek = s
 			format = f
 			return true
 		}
 		return false
 	}
-
-	// Wrappers for decoders that take io.Reader instead of io.ReadCloser
-	flacDecode := func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) {
-		return flac.Decode(rc)
-	}
-	wavDecode := func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) {
-		return wav.Decode(rc)
-	}
-
-	// Try to decode based on content type first
 	if strings.Contains(contentType, "mp3") || strings.Contains(contentType, "mpeg") {
-		if try(mp3.Decode) {
-			p.attachStreamer(streamer, format)
+		if tryBuf(mp3.Decode) {
+			p.attachStreamer(streamerSeek, format)
 			return nil
 		}
 	} else if strings.Contains(contentType, "flac") || strings.Contains(contentType, "x-flac") {
-		if try(flacDecode) {
-			p.attachStreamer(streamer, format)
+		if tryBuf(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return flac.Decode(rc) }) {
+			p.attachStreamer(streamerSeek, format)
 			return nil
 		}
 	} else if strings.Contains(contentType, "ogg") {
-		if try(vorbis.Decode) {
-			p.attachStreamer(streamer, format)
+		if tryBuf(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return vorbis.Decode(rc) }) {
+			p.attachStreamer(streamerSeek, format)
 			return nil
 		}
 	} else if strings.Contains(contentType, "wav") {
-		if try(wavDecode) {
-			p.attachStreamer(streamer, format)
+		if tryBuf(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return wav.Decode(rc) }) {
+			p.attachStreamer(streamerSeek, format)
 			return nil
 		}
 	}
-
-	// Fallback: try all decoders in order of likelihood
-	// MP3 is most common fallback
-	if try(mp3.Decode) {
-		p.attachStreamer(streamer, format)
-		return nil
-	}
-	if try(flacDecode) {
-		p.attachStreamer(streamer, format)
-		return nil
-	}
-	if try(vorbis.Decode) {
-		p.attachStreamer(streamer, format)
-		return nil
-	}
-	if try(wavDecode) {
-		p.attachStreamer(streamer, format)
+	// Final fallback: try all
+	if tryBuf(mp3.Decode) ||
+		tryBuf(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return flac.Decode(rc) }) ||
+		tryBuf(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return vorbis.Decode(rc) }) ||
+		tryBuf(func(rc io.ReadCloser) (beep.StreamSeekCloser, beep.Format, error) { return wav.Decode(rc) }) {
+		p.attachStreamer(streamerSeek, format)
 		return nil
 	}
 
@@ -161,6 +211,7 @@ func (p *Player) LoadStream(body io.ReadCloser, contentType string) error {
 // attachStreamer attaches a streamer to the player and sets up playback chain
 func (p *Player) attachStreamer(streamer beep.StreamSeekCloser, format beep.Format) {
 	p.streamer = streamer
+	p.seekStreamer = streamer
 	p.sampleRate = format.SampleRate
 	p.length = streamer.Len()
 
@@ -192,6 +243,29 @@ func (p *Player) attachStreamer(streamer beep.StreamSeekCloser, format beep.Form
 	p.volume = &effects.Volume{Streamer: p.ctrl, Base: 2}
 
 	// Apply the desired volume to the newly created effect
+	p.volume.Volume = p.desiredVolume
+}
+
+// attachStreamerStream attaches a non-seekable streamer (e.g., live stream)
+// and sets up the playback chain. Length will be zero for live streams.
+func (p *Player) attachStreamerStream(streamer beep.Streamer, format beep.Format) {
+	p.streamer = streamer
+	p.seekStreamer = nil
+	p.sampleRate = format.SampleRate
+	p.length = 0
+
+	// Wrap the streamer to detect completion similarly
+	wrappedStreamer := beep.Seq(streamer, beep.Callback(func() {
+		cb := p.onCompletion
+		if cb != nil {
+			go func() {
+				defer func() { _ = recover() }()
+				cb()
+			}()
+		}
+	}))
+	p.ctrl = &beep.Ctrl{Streamer: wrappedStreamer}
+	p.volume = &effects.Volume{Streamer: p.ctrl, Base: 2}
 	p.volume.Volume = p.desiredVolume
 }
 
@@ -243,7 +317,14 @@ func (p *Player) Pause() error {
 	}
 
 	speaker.Lock()
+	if p.ctrl == nil {
+		speaker.Unlock()
+		p.state = domain.PlaybackPaused
+		log.Debug("Player.Pause: ctrl is nil, pausing state only")
+		return nil
+	}
 	p.ctrl.Paused = true
+	log.Debug("Player.Pause: ctrl.Paused set to true")
 	speaker.Unlock()
 	p.state = domain.PlaybackPaused
 
@@ -257,7 +338,14 @@ func (p *Player) Resume() error {
 	}
 
 	speaker.Lock()
+	if p.ctrl == nil {
+		speaker.Unlock()
+		p.state = domain.PlaybackPlaying
+		log.Debug("Player.Resume: ctrl is nil, setting state to Playing")
+		return nil
+	}
 	p.ctrl.Paused = false
+	log.Debug("Player.Resume: ctrl.Paused set to false")
 	speaker.Unlock()
 	p.state = domain.PlaybackPlaying
 
@@ -305,7 +393,10 @@ func (p *Player) Seek(pos int) error {
 		}
 	}()
 
-	err := p.streamer.Seek(pos)
+	if p.seekStreamer == nil {
+		return fmt.Errorf("stream is not seekable")
+	}
+	err := p.seekStreamer.Seek(pos)
 	if err != nil {
 		// If we hit EOF while seeking (e.g. to the very end), treat it as success
 		if err == io.EOF {
@@ -326,7 +417,9 @@ func (p *Player) UpdatePosition() {
 		defer speaker.Unlock()
 
 		if p.streamer != nil {
-			p.position = p.streamer.Position()
+			if p.seekStreamer != nil {
+				p.position = p.seekStreamer.Position()
+			}
 		}
 	}
 }
@@ -339,12 +432,13 @@ func (p *Player) Close() error {
 		}
 	}
 
-	if p.streamer != nil {
-		if err := p.streamer.Close(); err != nil {
+	if p.seekStreamer != nil {
+		if err := p.seekStreamer.Close(); err != nil {
 			return err
 		}
-		p.streamer = nil
+		p.seekStreamer = nil
 	}
+	p.streamer = nil
 
 	return nil
 }

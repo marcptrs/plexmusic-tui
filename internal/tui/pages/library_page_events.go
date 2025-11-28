@@ -25,6 +25,7 @@ func abs(x int) int {
 }
 
 func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, tea.Cmd) {
+	var postCmd tea.Cmd
 	switch msg.Type {
 	case "server.plexpass":
 		// Plex Pass available on the server
@@ -165,6 +166,43 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			p.trackComponent.Select(0)
 		}
 
+		// Attempt to fetch cover art for the first track when tracks are loaded
+		if len(appTracks) > 0 {
+			if appTracks[0].Thumb != "" && p.coordinator.PlaybackAlbumArtThumb() != appTracks[0].Thumb {
+				postCmd = p.fetchCoverArtCmd(appTracks[0].Thumb)
+			}
+		}
+
+		// If playback was requested immediately after a fetch, set queue and
+		log.Debug(
+			"tracks.loaded: payload",
+			"autoPlayOnTracksLoaded",
+			p.autoPlayOnTracksLoaded,
+			"trackCount",
+			len(appTracks),
+		)
+		// kick off playback of the first track.
+		if p.autoPlayOnTracksLoaded {
+			p.autoPlayOnTracksLoaded = false
+			// Build queue and queue items
+			q := make([]app.Track, len(appTracks))
+			copy(q, appTracks)
+			p.coordinator.SetQueue(q)
+			p.coordinator.SetQueueIndex(0)
+			p.queueComponent.UpdateListFromCoordinator()
+			p.showingTracks = false
+			p.coordinator.SetActiveTab(app.QueueTab)
+			// Play first track asynchronously
+			if len(q) > 0 {
+				// Include postCmd (fetch cover art) alongside subscription/setup
+				if postCmd != nil {
+					return p, tea.Batch(
+						append([]tea.Cmd{postCmd}, p.playAppTrack(&q[0]), p.subscribeToPlaybackEvents())...)
+				}
+				return p, tea.Batch(p.playAppTrack(&q[0]), p.subscribeToPlaybackEvents())
+			}
+		}
+
 	// Error cases: log and display notification
 	case "libraries.fetch_failed",
 		"recently_added.fetch_failed",
@@ -188,6 +226,9 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 		}
 	}
 	// Re-subscribe to continue receiving library/playback events
+	if postCmd != nil {
+		return p, tea.Batch(postCmd, p.subscribeToLibraryEvents(), p.subscribeToPlaybackEvents())
+	}
 	return p, tea.Batch(p.subscribeToLibraryEvents(), p.subscribeToPlaybackEvents())
 }
 
@@ -246,6 +287,7 @@ func (p *LibraryPage) handleAuthEvent(msg domain.AuthEvent) (tea.Model, tea.Cmd)
 }
 
 func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, tea.Cmd) {
+	var postCmd tea.Cmd
 	switch msg.Type {
 	case "playback.load_failed":
 		if msg.Error != nil {
@@ -266,6 +308,10 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		if msg.Track != nil {
 			track := util.DomainTrackToApp(msg.Track)
 			p.coordinator.SetCurrentTrack(track)
+			// Fetch the album art for the track now that playback started
+			if track.Thumb != "" && p.coordinator.PlaybackAlbumArtThumb() != track.Thumb {
+				postCmd = p.fetchCoverArtCmd(track.Thumb)
+			}
 		}
 		// Update queue UI to reflect the new playing track
 		p.queueComponent.UpdateListFromCoordinator()
@@ -323,5 +369,8 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		}
 	}
 	// Re-subscribe to continue receiving playback/library events
+	if postCmd != nil {
+		return p, tea.Batch(postCmd, p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
+	}
 	return p, tea.Batch(p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 }

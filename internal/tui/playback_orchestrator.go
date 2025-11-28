@@ -71,6 +71,10 @@ func (o *Orchestrator) Resume() error {
 	if o.coordinator != nil {
 		o.coordinator.SetPlaybackState(app.PlaybackPlaying)
 	}
+	// Debug: emit playback state and position
+	if o.coordinator != nil {
+		o.coordinator.SetNotification("Playback resumed", "info", 2*time.Second)
+	}
 	return nil
 }
 
@@ -240,10 +244,8 @@ func (o *Orchestrator) PlayAppTrack(ctx context.Context, at *app.Track) error {
 	}
 	// Set coordinator current track for immediate UI feedback
 	if o.coordinator != nil {
-		if at != nil {
-			o.coordinator.SetCurrentTrack(at)
-			o.coordinator.SetPlaybackState(app.PlaybackPlaying)
-		}
+		o.coordinator.SetCurrentTrack(at)
+		o.coordinator.SetPlaybackState(app.PlaybackPlaying)
 	}
 	return nil
 }
