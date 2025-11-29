@@ -355,6 +355,33 @@ func TestDecodePlexTrackContainerItemsArray(t *testing.T) {
 	}
 }
 
+func TestDecodePlexTrackContainerPlayQueue(t *testing.T) {
+	// PlayQueue responses contain playQueueID, playQueueVersion at MediaContainer level
+	body := `{"MediaContainer":{"size":3,"playQueueID":12345,"playQueueSelectedItemID":99,` +
+		`"playQueueVersion":2,"Metadata":[` +
+		`{"title":"Track One","grandparentTitle":"Artist","parentTitle":"Album",` +
+		`"duration":1000,"index":1,"key":"/library/metadata/1"},` +
+		`{"title":"Track Two","grandparentTitle":"Artist","parentTitle":"Album",` +
+		`"duration":2000,"index":2,"key":"/library/metadata/2"}` +
+		`]}}`
+	var container domain.PlexTrackContainer
+	if err := decodePlexTrackContainer([]byte(body), &container); err != nil {
+		t.Fatalf("decodePlexTrackContainer failed to decode playQueue payload: %v", err)
+	}
+	if len(container.Metadata) != 2 {
+		t.Fatalf("expected 2 tracks, got %d", len(container.Metadata))
+	}
+	if container.PlayQueueID != 12345 {
+		t.Errorf("expected PlayQueueID=12345, got %d", container.PlayQueueID)
+	}
+	if container.PlayQueueSelectedItemID != 99 {
+		t.Errorf("expected PlayQueueSelectedItemID=99, got %d", container.PlayQueueSelectedItemID)
+	}
+	if container.PlayQueueVersion != 2 {
+		t.Errorf("expected PlayQueueVersion=2, got %d", container.PlayQueueVersion)
+	}
+}
+
 // Per-library detection: HasSonicAnalysis should return true when a library's
 // recentlyAdded contains a track with hasSonicAnalysis set to true.
 func TestHasSonicAnalysisPerLibrary(t *testing.T) {

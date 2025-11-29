@@ -142,6 +142,12 @@ func decodePlexTrackContainer(body []byte, out *domain.PlexTrackContainer) error
 					var elInner domain.PlexTrackContainer
 					if err := json.Unmarshal(el, &elInner); err == nil && len(elInner.Metadata) > 0 {
 						combined = append(combined, elInner.Metadata...)
+						// Copy playQueue fields if present
+						if elInner.PlayQueueID > 0 {
+							out.PlayQueueID = elInner.PlayQueueID
+							out.PlayQueueSelectedItemID = elInner.PlayQueueSelectedItemID
+							out.PlayQueueVersion = elInner.PlayQueueVersion
+						}
 						continue
 					}
 					// try alt for Metadata array under element
@@ -643,8 +649,17 @@ func (s *LibraryService) BuildStreamURL(track *domain.Track) (string, error) {
 	// Prefer the full media part key
 	if len(track.Media) > 0 && len(track.Media[0].Part) > 0 {
 		key = track.Media[0].Part[0].Key
+		log.Debug("BuildStreamURL: using Media.Part.Key",
+			"title", track.Title,
+			"key", key,
+			"playQueueItemID", track.PlayQueueItemID)
 	} else {
 		key = track.Key
+		log.Debug("BuildStreamURL: using track.Key fallback (no Media.Part)",
+			"title", track.Title,
+			"key", key,
+			"playQueueItemID", track.PlayQueueItemID,
+			"mediaLen", len(track.Media))
 	}
 
 	if key == "" {
@@ -1644,4 +1659,212 @@ func (s *LibraryService) FetchMoodStation(ctx context.Context, station string, l
 	}
 
 	return tracks, len(tracks), nil
+}
+
+// RefreshPlayQueue updates the playQueue with the current playing track and fetches new tracks.
+// This is used for station continuous playback - when a track starts playing,
+// we call this to tell Plex which track is playing and get additional tracks.
+// The selectedItemID should be the playQueueItemID of the track now playing.
+// If selectedItemID is 0, we just GET the current state without updating.
+func (s *LibraryService) RefreshPlayQueue(
+	ctx context.Context,
+	playQueueID int,
+	selectedItemID int,
+) ([]domain.Track, int, error) {
+	if playQueueID <= 0 {
+		return nil, 0, fmt.Errorf("invalid playQueueID: %d", playQueueID)
+	}
+
+	// Build query parameters based on Python PlexAPI implementation
+	// The key insight from python-plexapi is that we use 'center' and 'window' parameters
+	// to get a sliding window of tracks around the currently playing item
+	params := url.Values{}
+	params.Set("own", "1")
+	params.Set("window", "50") // Get 50 items on each side of center
+	params.Set("includeBefore", "1")
+	params.Set("includeAfter", "1")
+	// Critical: include these params to get full Media info for streaming
+	params.Set("includeChapters", "1")
+	params.Set("includeMarkers", "1")
+	params.Set("includeExternalMedia", "1")
+	params.Set("includeGeolocation", "1")
+
+	// If we have a selectedItemID, use it as the center of the window
+	// This tells Plex which track is currently playing and returns tracks around it
+	if selectedItemID > 0 {
+		params.Set("center", fmt.Sprintf("%d", selectedItemID))
+	}
+
+	endpoint := fmt.Sprintf("%s/playQueues/%d?%s", s.baseURL, playQueueID, params.Encode())
+
+	log.Debug("RefreshPlayQueue: fetching playQueue with center window",
+		"playQueueID", playQueueID,
+		"center", selectedItemID,
+		"endpoint", endpoint)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to create playQueue refresh request: %w", err)
+	}
+	s.addPlexHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to refresh playQueue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		preview := string(body)
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		log.Debug("RefreshPlayQueue: non-OK status", "status", resp.StatusCode, "body_preview", preview)
+		return nil, 0, fmt.Errorf("playQueue refresh returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to read playQueue response: %w", err)
+	}
+
+	preview := string(body)
+	if len(preview) > 300 {
+		preview = preview[:300]
+	}
+	log.Debug("RefreshPlayQueue: response received", "body_len", len(body), "body_preview", preview)
+
+	var container domain.PlexTrackContainer
+	if err := decodePlexTrackContainer(body, &container); err != nil {
+		return nil, 0, fmt.Errorf("failed to decode playQueue tracks: %w", err)
+	}
+
+	log.Debug("RefreshPlayQueue: decoded",
+		"trackCount", len(container.Metadata),
+		"playQueueVersion", container.PlayQueueVersion)
+
+	// Debug: log the first track's playQueueItemID to verify parsing
+	if len(container.Metadata) > 0 {
+		log.Debug("RefreshPlayQueue: first track details",
+			"title", container.Metadata[0].Title,
+			"playQueueItemID", container.Metadata[0].PlayQueueItemID,
+			"ratingKey", container.Metadata[0].RatingKey)
+	}
+
+	return container.Metadata, container.PlayQueueVersion, nil
+}
+
+// StartStationPlayback creates a playQueue for a station and returns tracks + playQueue info.
+// This is the entry point for starting continuous station playback.
+// The returned ActivePlayQueue should be stored to enable continuous playback via RefreshPlayQueue.
+func (s *LibraryService) StartStationPlayback(
+	ctx context.Context,
+	stationKey string,
+) ([]domain.Track, *domain.ActivePlayQueue, error) {
+	if stationKey == "" {
+		return nil, nil, fmt.Errorf("empty stationKey")
+	}
+
+	// Get machine identifier for proper server:// URI format
+	machineID, err := s.getMachineIdentifier(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get machine identifier for station playback: %w", err)
+	}
+
+	// Build the station URI
+	// PlayQueue API requires URI in format:
+	// server://{machineIdentifier}/com.plexapp.plugins.library{key}?includeSharedContent=1
+	var keyForURI string
+	if strings.Contains(stationKey, "/com.plexapp.plugins.library/") {
+		keyForURI = stationKey
+	} else {
+		keyForURI = "/com.plexapp.plugins.library" + stationKey
+	}
+	if strings.Contains(keyForURI, "?") {
+		keyForURI = keyForURI + "&includeSharedContent=1"
+	} else {
+		keyForURI = keyForURI + "?includeSharedContent=1"
+	}
+	stationURI := "server://" + machineID + keyForURI
+
+	playQueueEndpoint := s.baseURL + "/playQueues"
+
+	// Build query string with properly encoded URI parameter
+	params := url.Values{}
+	params.Set("type", "audio")
+	params.Set("shuffle", "0")
+	params.Set("repeat", "0")
+	params.Set("own", "1")
+	params.Set("includeChapters", "1")
+	params.Set("includeMarkers", "1")
+	params.Set("includeExternalMedia", "1")
+	params.Set("includeGeolocation", "1")
+
+	playQueueURL := playQueueEndpoint + "?" + params.Encode() + "&uri=" + url.QueryEscape(stationURI)
+	log.Debug("StartStationPlayback: creating playQueue",
+		"stationKey", stationKey,
+		"machineID", machineID,
+		"stationURI", stationURI,
+		"endpoint", playQueueURL)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", playQueueURL, nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create playQueue request: %w", err)
+	}
+	s.addPlexHeaders(req)
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create playQueue: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(resp.Body)
+		preview := string(body)
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		log.Debug("StartStationPlayback: playQueue creation failed", "status", resp.StatusCode, "body_preview", preview)
+		return nil, nil, fmt.Errorf("playQueue creation returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read playQueue response: %w", err)
+	}
+
+	preview := string(body)
+	if len(preview) > 1000 {
+		preview = preview[:1000]
+	}
+	log.Debug("StartStationPlayback: playQueue created", "body_len", len(body), "body_preview", preview)
+
+	var container domain.PlexTrackContainer
+	if err := decodePlexTrackContainer(body, &container); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode playQueue tracks: %w", err)
+	}
+
+	log.Info("StartStationPlayback: playQueue decoded",
+		"trackCount", len(container.Metadata),
+		"playQueueID", container.PlayQueueID,
+		"playQueueVersion", container.PlayQueueVersion)
+
+	// Debug: log the first track's playQueueItemID to verify parsing
+	if len(container.Metadata) > 0 {
+		log.Debug("StartStationPlayback: first track details",
+			"title", container.Metadata[0].Title,
+			"playQueueItemID", container.Metadata[0].PlayQueueItemID,
+			"ratingKey", container.Metadata[0].RatingKey)
+	}
+
+	// Create the ActivePlayQueue for tracking
+	activeQueue := &domain.ActivePlayQueue{
+		PlayQueueID: container.PlayQueueID,
+		StationKey:  stationKey,
+		Version:     container.PlayQueueVersion,
+	}
+
+	return container.Metadata, activeQueue, nil
 }

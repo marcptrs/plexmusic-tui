@@ -333,3 +333,42 @@ func (s *LibraryServiceWithEvents) FetchMoodStation(
 	})
 	return tracks, total, nil
 }
+
+func (s *LibraryServiceWithEvents) StartStationPlayback(
+	ctx context.Context,
+	stationKey string,
+) ([]domain.Track, *domain.ActivePlayQueue, error) {
+	tracks, activeQueue, err := s.LibraryService.StartStationPlayback(ctx, stationKey)
+	if err != nil {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type:    "station.start_failed",
+			Payload: domain.LibraryEvent{Type: "station.start_failed", Error: err},
+		})
+		return nil, nil, err
+	}
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+		Type:    "station.started",
+		Payload: domain.LibraryEvent{Type: "station.started", Tracks: tracks, TotalSize: len(tracks)},
+	})
+	return tracks, activeQueue, nil
+}
+
+func (s *LibraryServiceWithEvents) RefreshPlayQueue(
+	ctx context.Context,
+	playQueueID int,
+	selectedItemID int,
+) ([]domain.Track, int, error) {
+	tracks, version, err := s.LibraryService.RefreshPlayQueue(ctx, playQueueID, selectedItemID)
+	if err != nil {
+		s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+			Type:    "playqueue.refresh_failed",
+			Payload: domain.LibraryEvent{Type: "playqueue.refresh_failed", Error: err},
+		})
+		return nil, 0, err
+	}
+	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
+		Type:    "playqueue.refreshed",
+		Payload: domain.LibraryEvent{Type: "playqueue.refreshed", Tracks: tracks, TotalSize: len(tracks)},
+	})
+	return tracks, version, nil
+}

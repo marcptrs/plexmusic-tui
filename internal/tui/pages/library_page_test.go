@@ -2402,6 +2402,144 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 	}
 }
 
+// Test that PlayQueueRefreshMsg appends new tracks to the queue for station continuous playback
+func TestLibraryPage_PlayQueueRefresh_AppendsNewTracks(t *testing.T) {
+	coord := app.NewCoordinator()
+
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+
+	// Set up initial queue with 2 tracks (simulating station start)
+	// Each track needs a unique PlayQueueItemID for deduplication to work correctly
+	initialTracks := []app.Track{
+		{Title: "Track1", Artist: "Artist", Album: "Album", Key: "/t1", RatingKey: "1", PlayQueueItemID: 101},
+		{Title: "Track2", Artist: "Artist", Album: "Album", Key: "/t2", RatingKey: "2", PlayQueueItemID: 102},
+	}
+	coord.SetQueue(initialTracks)
+	coord.SetQueueIndex(0)
+
+	// Set up active playQueue to indicate station playback mode
+	activeQueue := &domain.ActivePlayQueue{
+		PlayQueueID: 12345,
+		StationKey:  "/library/metadata/station1",
+		Version:     1,
+	}
+	coord.SetActivePlayQueue(activeQueue)
+
+	// Verify we're in station playback mode
+	if !coord.IsStationPlayback() {
+		t.Fatal("expected IsStationPlayback to be true")
+	}
+
+	// Simulate a playQueue refresh returning the original 2 tracks + 1 new track
+	// The refresh uses PlayQueueItemID for deduplication - items 101 and 102 already exist
+	refreshedTracks := []domain.Track{
+		{Title: "Track1", Artist: "Artist", Album: "Album", Key: "/t1", RatingKey: "1", PlayQueueItemID: 101},
+		{Title: "Track2", Artist: "Artist", Album: "Album", Key: "/t2", RatingKey: "2", PlayQueueItemID: 102},
+		{Title: "Track3", Artist: "Artist", Album: "Album", Key: "/t3", RatingKey: "3", PlayQueueItemID: 103}, // NEW
+	}
+
+	refreshMsg := PlayQueueRefreshMsg{
+		Tracks:  refreshedTracks,
+		Version: 2,
+		Err:     nil,
+	}
+
+	// Send the refresh message
+	_, _ = page.Update(refreshMsg)
+
+	// Verify the new track was appended to the queue
+	queue := coord.Queue()
+	if len(queue) != 3 {
+		t.Fatalf("expected queue to have 3 tracks after refresh, got %d", len(queue))
+	}
+	if queue[2].Title != "Track3" {
+		t.Fatalf("expected third track to be Track3, got %s", queue[2].Title)
+	}
+
+	// Verify the activePlayQueue version was updated
+	if coord.ActivePlayQueue().Version != 2 {
+		t.Fatalf("expected activePlayQueue version to be 2, got %d", coord.ActivePlayQueue().Version)
+	}
+}
+
+// Test that StationPlaybackStartedMsg properly sets up the queue and activePlayQueue
+func TestLibraryPage_StationPlaybackStartedMsg_SetsUpQueue(t *testing.T) {
+	coord := app.NewCoordinator()
+
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.width = 120
+	page.height = 40
+	_ = page.Init()
+
+	// Simulate a StationPlaybackStartedMsg with tracks and activeQueue
+	msg := StationPlaybackStartedMsg{
+		Tracks: []domain.Track{
+			{Title: "Station Track 1", Artist: "Artist1", Album: "Album1", Duration: 180000},
+			{Title: "Station Track 2", Artist: "Artist2", Album: "Album2", Duration: 200000},
+			{Title: "Station Track 3", Artist: "Artist3", Album: "Album3", Duration: 220000},
+		},
+		ActiveQueue: &domain.ActivePlayQueue{
+			PlayQueueID: 9999,
+			StationKey:  "/library/sections/1/stations/1",
+			Version:     1,
+		},
+		StationKey: "/library/sections/1/stations/1",
+		Err:        nil,
+	}
+
+	_, _ = page.Update(msg)
+
+	// Verify the queue was set up
+	queue := coord.Queue()
+	if len(queue) != 3 {
+		t.Fatalf("expected queue to have 3 tracks, got %d", len(queue))
+	}
+	if queue[0].Title != "Station Track 1" {
+		t.Fatalf("expected first track to be 'Station Track 1', got %s", queue[0].Title)
+	}
+
+	// Verify activePlayQueue was set
+	activeQueue := coord.ActivePlayQueue()
+	if activeQueue == nil {
+		t.Fatal("expected activePlayQueue to be set")
+	}
+	if activeQueue.PlayQueueID != 9999 {
+		t.Fatalf("expected playQueueID to be 9999, got %d", activeQueue.PlayQueueID)
+	}
+	if activeQueue.StationKey != "/library/sections/1/stations/1" {
+		t.Fatalf("expected stationKey to be /library/sections/1/stations/1, got %s", activeQueue.StationKey)
+	}
+
+	// Verify IsStationPlayback returns true
+	if !coord.IsStationPlayback() {
+		t.Fatal("expected IsStationPlayback to return true")
+	}
+}
+
 // Test that when the Queue modal is open, Up/Down keys scroll the queue instead
 // of any other focused list (like Recently Added).
 func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
@@ -2694,4 +2832,20 @@ func (m *mockLibSvcShort) FetchMoodStation(
 ) ([]domain.Track, int, error) {
 	return nil, 0, nil
 }
+
+func (m *mockLibSvcShort) StartStationPlayback(
+	ctx context.Context,
+	stationKey string,
+) ([]domain.Track, *domain.ActivePlayQueue, error) {
+	return nil, nil, nil
+}
+
+func (m *mockLibSvcShort) RefreshPlayQueue(
+	ctx context.Context,
+	playQueueID int,
+	selectedItemID int,
+) ([]domain.Track, int, error) {
+	return nil, 0, nil
+}
+
 func (m *mockLibSvcShort) Close() error { return nil }

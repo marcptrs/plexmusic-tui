@@ -110,7 +110,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, p.keys.Play):
-		log.Debug("Play key matched", "msg", msg)
+		log.Info("Play key matched", "msg", msg, "activeTab", p.coordinator.ActiveTab())
 		// Debounce Play key events to avoid auto-repeat toggles (e.g., if key is held).
 		if !p.lastPlayKey.IsZero() && time.Since(p.lastPlayKey) < 250*time.Millisecond {
 			log.Debug("Play key: ignored due to debounce", "elapsed_ms", time.Since(p.lastPlayKey).Milliseconds())
@@ -173,8 +173,14 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Stopped: try to start playback. First prefer current track, else try to play
 		// based on the currently selected item (mirroring Space behavior)
 		if !p.coordinator.IsPlaying() && !p.coordinator.IsPaused() {
+			log.Info(
+				"Play key: stopped state, starting new playback",
+				"hasCurrentTrack",
+				p.coordinator.HasCurrentTrack(),
+			)
 			// Try to restart current track if present
 			if p.coordinator.HasCurrentTrack() {
+				log.Info("Play key: playing current track")
 				if tr := p.coordinator.CurrentTrack(); tr != nil {
 					return p, p.playAppTrack(tr)
 				}
@@ -229,6 +235,14 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					}
 				case app.HomeTab:
 					if item := p.homeComponent.SelectedItem(); item != nil {
+						log.Info("HomeTab: Play pressed for new playback", "itemType", item.Type, "itemKey", item.Key)
+						// Check if this is a station - use StartStationPlayback for continuous playback
+						if item.Type == "station" {
+							log.Info("HomeTab: detected station, using startStationPlaybackCmd")
+							return p, p.startStationPlaybackCmd(item.Key)
+						}
+						// For albums and other items, use regular fetch
+						log.Info("HomeTab: using fetchTracksCmd for non-station")
 						p.playbackInitializing = true
 						p.autoPlayOnTracksLoaded = true
 						return p, tea.Batch(p.fetchTracksCmd(item.Key), p.spinner.Tick)
@@ -243,7 +257,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case key.Matches(msg, p.keys.PlaySelected):
-		log.Debug("PlaySelected key matched", "msg", msg)
+		log.Info("PlaySelected key matched", "msg", msg, "activeTab", p.coordinator.ActiveTab())
 
 		// If the Queue tab is active and the user presses space, treat it as
 		// a "play selected" from the queue: remove previous entries up to the
@@ -338,7 +352,13 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						"item.Title",
 						item.Title,
 					)
+					// Check if this is a station - use StartStationPlayback for continuous playback
+					if item.Type == "station" {
+						log.Info("HomeTab PlaySelected: detected station, using startStationPlaybackCmd")
+						return p, p.startStationPlaybackCmd(item.Key)
+					}
 					// Start async fetch and auto-play when tracks are loaded
+					log.Info("HomeTab PlaySelected: using fetchTracksCmd for non-station")
 					p.playbackInitializing = true
 					p.autoPlayOnTracksLoaded = true
 					return p, tea.Batch(p.fetchTracksCmd(item.Key), p.spinner.Tick)
@@ -599,10 +619,13 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 			// Handle Enter key for home items
 			if key.Matches(msg, p.keys.Enter) {
+				log.Info("HomeTab Enter key pressed")
 				if item := p.homeComponent.SelectedItem(); item != nil {
+					log.Info("HomeTab Enter: selected item", "type", item.Type, "key", item.Key, "title", item.Title)
 					switch item.Type {
 					case "album":
 						// Fetch tracks for the album
+						log.Info("HomeTab Enter: fetching tracks for album")
 						if p.libSvc != nil {
 							reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 							defer cancel()
@@ -610,26 +633,9 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 							p.showingTracks = true
 						}
 					case "station":
-						// Play the station - fetch its tracks and play
-						if p.libSvc != nil {
-							reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-							defer cancel()
-							tracks, _, _ := p.libSvc.FetchTracks(reqCtx, item.Key)
-							if len(tracks) > 0 {
-								// Convert domain tracks to app tracks and play
-								var appTracks []app.Track
-								for _, t := range tracks {
-									if at := util.DomainTrackToApp(&t); at != nil {
-										appTracks = append(appTracks, *at)
-									}
-								}
-								p.coordinator.SetQueue(appTracks)
-								p.coordinator.SetQueueIndex(0)
-								if len(appTracks) > 0 {
-									cmd = p.playAppTrack(&appTracks[0])
-								}
-							}
-						}
+						// Play the station with continuous playback support (async)
+						log.Info("HomeTab Enter: using startStationPlaybackCmd for station")
+						return p, p.startStationPlaybackCmd(item.Key)
 					}
 				}
 			}
@@ -721,7 +727,7 @@ func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
 	if at == nil {
 		return nil
 	}
-	log.Debug("playAppTrack.called", "title", at.Title)
+	log.Info("playAppTrack.called", "title", at.Title, "playQueueItemID", at.PlayQueueItemID)
 	// Update UI coordinator state preemptively for immediate UI feedback — playback.started will reconcile state later
 	p.coordinator.SetCurrentTrack(at)
 	p.coordinator.SetPlaybackState(app.PlaybackPlaying)
@@ -834,10 +840,66 @@ func (p *LibraryPage) handleQueueKeyMsg(msg tea.KeyMsg) tea.Cmd {
 }
 
 // playNext advances to the next track in the queue or tracklist.
+// If in station playback mode, it also triggers a playQueue refresh to get new tracks.
 func (p *LibraryPage) playNext() tea.Cmd {
+	log.Info("playNext: called", "orchestrator", p.orchestrator != nil)
 	if p.orchestrator == nil {
 		return nil
 	}
+
+	// If we're in station playback mode, refresh the playQueue to get new tracks
+	// Only refresh when we're approaching the end of the queue (within 5 tracks)
+	var refreshCmd tea.Cmd
+	isStation := p.coordinator.IsStationPlayback()
+	hasLibSvc := p.libSvc != nil
+	log.Info("playNext: checking station mode", "isStationPlayback", isStation, "hasLibSvc", hasLibSvc)
+
+	if isStation && hasLibSvc {
+		activeQueue := p.coordinator.ActivePlayQueue()
+		if activeQueue != nil && activeQueue.PlayQueueID > 0 {
+			queue := p.coordinator.Queue()
+			currentIdx := p.coordinator.QueueIndex()
+			nextIdx := currentIdx + 1
+			tracksRemaining := len(queue) - nextIdx - 1 // tracks after the one we're about to play
+
+			// Only refresh when we're within 5 tracks of the end
+			const refreshThreshold = 5
+			shouldRefresh := tracksRemaining <= refreshThreshold
+
+			var selectedItemID int
+			if nextIdx < len(queue) {
+				selectedItemID = queue[nextIdx].PlayQueueItemID
+			}
+
+			log.Info("playNext: station mode status",
+				"playQueueID", activeQueue.PlayQueueID,
+				"stationKey", activeQueue.StationKey,
+				"nextIdx", nextIdx,
+				"queueLen", len(queue),
+				"tracksRemaining", tracksRemaining,
+				"shouldRefresh", shouldRefresh,
+				"selectedItemID", selectedItemID)
+
+			if shouldRefresh {
+				log.Info("playNext: triggering playQueue refresh (approaching end of queue)")
+				refreshCmd = p.refreshPlayQueueCmd(activeQueue.PlayQueueID, selectedItemID)
+			}
+		} else {
+			log.Warn("playNext: station mode but activeQueue invalid",
+				"activeQueue", activeQueue,
+				"playQueueID", func() int {
+					if activeQueue != nil {
+						return activeQueue.PlayQueueID
+					}
+					return 0
+				}())
+		}
+	} else {
+		log.Debug("playNext: not in station mode or no libSvc",
+			"isStationPlayback", isStation,
+			"hasLibSvc", hasLibSvc)
+	}
+
 	// PlaybackController for navigation logic doesn't need the service
 	pc := service.NewPlaybackController(nil)
 	err := p.orchestrator.PlayNext(
@@ -851,7 +913,8 @@ func (p *LibraryPage) playNext() tea.Cmd {
 	if err != nil {
 		log.Error("PlayNext failed", "err", err)
 	}
-	return nil
+
+	return refreshCmd
 }
 
 // playPrev goes to the previous track.

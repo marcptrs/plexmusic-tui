@@ -59,6 +59,12 @@ type Coordinatorer interface {
 	SetQueue([]Track)
 	QueueIndex() int
 	SetQueueIndex(idx int)
+	// Station/PlayQueue continuous playback
+	ActivePlayQueue() *domain.ActivePlayQueue
+	SetActivePlayQueue(*domain.ActivePlayQueue)
+	ClearActivePlayQueue()
+	IsStationPlayback() bool
+	AppendToQueue([]Track)
 
 	// UI & navigation
 	ActiveTab() TabType

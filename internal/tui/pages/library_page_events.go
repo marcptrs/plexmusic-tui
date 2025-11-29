@@ -183,6 +183,7 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 		)
 		// kick off playback of the first track.
 		if p.autoPlayOnTracksLoaded {
+			log.Info("tracks.loaded: autoPlayOnTracksLoaded triggered - this is the WRONG path for stations!")
 			p.autoPlayOnTracksLoaded = false
 			// Build queue and queue items
 			q := make([]app.Track, len(appTracks))
@@ -194,6 +195,13 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			p.coordinator.SetActiveTab(app.QueueTab)
 			// Play first track asynchronously
 			if len(q) > 0 {
+				log.Info(
+					"tracks.loaded: playing first track",
+					"title",
+					q[0].Title,
+					"playQueueItemID",
+					q[0].PlayQueueItemID,
+				)
 				// Include postCmd (fetch cover art) alongside subscription/setup
 				if postCmd != nil {
 					return p, tea.Batch(
@@ -290,6 +298,8 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 	var postCmd tea.Cmd
 	switch msg.Type {
 	case "playback.load_failed":
+		// Mark that the last load failed to prevent double-skip from playback.finished
+		p.lastLoadFailed = true
 		if msg.Error != nil {
 			p.coordinator.SetNotification(fmt.Sprintf("Load failed: %v", msg.Error), "error", 10*time.Second)
 			log.Debug("LibraryPage: set load_failed notification", "err", msg.Error)
@@ -298,12 +308,17 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 			log.Debug("LibraryPage: set load_failed notification", "no err")
 		}
 	case "playback.play_failed":
+		p.lastLoadFailed = true
 		if msg.Error != nil {
 			p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", msg.Error), "error", 10*time.Second)
 		} else {
 			p.coordinator.SetNotification("Play failed", "error", 10*time.Second)
 		}
 	case "playback.started":
+		// Clear the load failed flag since playback started successfully
+		p.lastLoadFailed = false
+		// Record when this track started to help detect stale advance messages
+		p.lastTrackStarted = time.Now()
 		p.coordinator.SetPlaybackState(app.PlaybackPlaying)
 		if msg.Track != nil {
 			track := util.DomainTrackToApp(msg.Track)
@@ -321,19 +336,28 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		p.coordinator.SetPlaybackState(app.PlaybackPaused)
 	case "playback.stopped":
 		p.coordinator.SetPlaybackState(app.PlaybackStopped)
+		// Clear the active playQueue when playback is explicitly stopped
+		p.coordinator.ClearActivePlayQueue()
 	case "playback.volume_changed":
 		// Playback service publishes floats — we don't keep it in coordinator as a primitive.
 	case "playback.finished":
 		// Auto-advance to the next queued track.
 		// We check IsPlaying to ensure we don't auto-advance if the user explicitly stopped playback,
 		// although playback.finished usually implies the stream ran to completion.
-		if p.coordinator.IsPlaying() {
-			// Use a small delay to allow the previous track cleanup to complete
+		// Also skip if the last load failed - this prevents double-skip when a failed decode
+		// causes both load_failed and finished events to fire in quick succession.
+		if p.coordinator.IsPlaying() && !p.lastLoadFailed {
+			// Schedule advance with timestamp so we can detect stale messages
+			scheduledAt := time.Now()
 			return p, tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
-				return domain.PlaybackEvent{Type: "playback.advance_next"}
+				return playbackAdvanceMsg{scheduledAt: scheduledAt}
 			})
 		}
+		// Reset the flag after checking so it doesn't affect future tracks
+		p.lastLoadFailed = false
 	case "playback.advance_next":
+		// Legacy event type - redirect to playNext
+		// This may still be used by external callers
 		return p, p.playNext()
 	case "playback.position":
 		// Periodic position updates from the service.

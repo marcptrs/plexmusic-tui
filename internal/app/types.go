@@ -94,16 +94,17 @@ type Hub struct {
 
 // Track represents a music track (app-facing type)
 type Track struct {
-	Title          string
-	Artist         string
-	Album          string
-	Duration       int
-	TrackNumber    int
-	PlaylistItemID int
-	Key            string
-	RatingKey      string
-	Thumb          string
-	Media          []struct {
+	Title           string
+	Artist          string
+	Album           string
+	Duration        int
+	TrackNumber     int
+	PlaylistItemID  int
+	PlayQueueItemID int // ID in playQueue (for station continuous playback)
+	Key             string
+	RatingKey       string
+	Thumb           string
+	Media           []struct {
 		Part []struct {
 			Key string
 		}

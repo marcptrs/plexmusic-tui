@@ -321,11 +321,8 @@ func (o *Orchestrator) PlayNext(
 		return nil
 	}
 
-	if isQueue {
-		o.coordinator.SetQueueIndex(newQueueIdx)
-	} else {
-		o.coordinator.SetSelectedTrack(newSelected)
-	}
+	// Try to start playback BEFORE updating queue index
+	// This prevents double-skip when playback fails
 	if next != nil {
 		if at := util.DomainTrackToApp(next); at != nil {
 			o.coordinator.SetCurrentTrack(at)
@@ -358,6 +355,13 @@ func (o *Orchestrator) PlayNext(
 			}
 			return fmt.Errorf("playback service unavailable")
 		}
+	}
+
+	// Only update queue/track index AFTER playback has successfully started
+	if isQueue {
+		o.coordinator.SetQueueIndex(newQueueIdx)
+	} else {
+		o.coordinator.SetSelectedTrack(newSelected)
 	}
 	return nil
 }

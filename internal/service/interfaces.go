@@ -45,6 +45,14 @@ type LibraryServicer interface {
 	FetchOnThisDay(ctx context.Context) ([]domain.Album, int, error)
 	// FetchMoodStation returns tracks for a named mood station (e.g., "90s Alternative")
 	FetchMoodStation(ctx context.Context, station string, limit int) ([]domain.Track, int, error)
+	// StartStationPlayback creates a playQueue for a station and returns tracks + playQueue info.
+	// The returned ActivePlayQueue should be stored to enable continuous playback.
+	StartStationPlayback(ctx context.Context, stationKey string) ([]domain.Track, *domain.ActivePlayQueue, error)
+	// RefreshPlayQueue updates and fetches tracks from an active playQueue (for station continuous playback).
+	// selectedItemID is the playQueueItemID of the current track - tells Plex what's playing to get more tracks.
+	// Pass 0 to just fetch current state without updating.
+	// Returns all tracks currently in the playQueue and the new version number.
+	RefreshPlayQueue(ctx context.Context, playQueueID int, selectedItemID int) ([]domain.Track, int, error)
 	Close() error
 }
 

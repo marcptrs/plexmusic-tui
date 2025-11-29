@@ -22,6 +22,7 @@ import (
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	components "plexmusic-tui/internal/tui/components"
+	"plexmusic-tui/internal/tui/util"
 )
 
 const retroLogo = `
@@ -113,6 +114,12 @@ type LibraryPage struct {
 	// autoPlayOnTracksLoaded signals that after tracks are fetched, we should
 	// automatically begin playback of the first track (useful for async fetches).
 	autoPlayOnTracksLoaded bool
+	// lastLoadFailed tracks if the most recent track load failed, to prevent
+	// playback.finished from triggering another auto-advance (double skip)
+	lastLoadFailed bool
+	// lastTrackStarted tracks when a track last started playing, used to
+	// prevent stale playback.advance_next events from causing double-skip
+	lastTrackStarted time.Time
 }
 
 // sonicDetectResultMsg is an internal message indicating the result of a
@@ -345,6 +352,117 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.coordinator.SetTracksTotal(msg.Tracks)
 		return p, nil
 
+	case PlayQueueRefreshMsg:
+		// Handle playQueue refresh result for station continuous playback
+		if msg.Err != nil {
+			log.Error("PlayQueue refresh failed", "err", msg.Err)
+			return p, nil
+		}
+
+		// The server returns a window of tracks around the "center" (currently playing track)
+		// We need to find any NEW tracks that aren't already in our queue and append them
+		currentQueue := p.coordinator.Queue()
+		serverTracks := msg.Tracks
+
+		log.Debug("PlayQueue refresh received",
+			"currentQueueLen", len(currentQueue),
+			"serverTrackCount", len(serverTracks))
+
+		// Build a set of existing playQueueItemIDs for fast lookup
+		existingIDs := make(map[int]bool)
+		for _, t := range currentQueue {
+			if t.PlayQueueItemID > 0 {
+				existingIDs[t.PlayQueueItemID] = true
+			}
+		}
+
+		// Find tracks from server response that we don't have yet
+		var newTracks []domain.Track
+		for _, t := range serverTracks {
+			if t.PlayQueueItemID > 0 && !existingIDs[t.PlayQueueItemID] {
+				newTracks = append(newTracks, t)
+			}
+		}
+
+		if len(newTracks) > 0 {
+			log.Info("PlayQueue refreshed: found new tracks to append",
+				"currentQueueLen", len(currentQueue),
+				"serverTrackCount", len(serverTracks),
+				"newTracksCount", len(newTracks))
+
+			// Convert domain tracks to app tracks and append
+			var appTracks []app.Track
+			for _, t := range newTracks {
+				if at := util.DomainTrackToApp(&t); at != nil {
+					appTracks = append(appTracks, *at)
+				}
+			}
+			p.coordinator.AppendToQueue(appTracks)
+			p.queueComponent.UpdateListFromCoordinator()
+
+			// Update the playQueue version
+			if activeQueue := p.coordinator.ActivePlayQueue(); activeQueue != nil {
+				activeQueue.Version = msg.Version
+			}
+		} else {
+			log.Debug("PlayQueue refresh: no new tracks found")
+		}
+		return p, nil
+
+	case StationPlaybackStartedMsg:
+		// Handle station playback initialization result
+		log.Debug("StationPlaybackStartedMsg received",
+			"stationKey", msg.StationKey,
+			"trackCount", len(msg.Tracks),
+			"hasActiveQueue", msg.ActiveQueue != nil)
+		p.playbackInitializing = false
+		if msg.Err != nil {
+			log.Error("Station playback start failed", "stationKey", msg.StationKey, "err", msg.Err)
+			return p, nil
+		}
+
+		if len(msg.Tracks) == 0 {
+			log.Warn("Station playback: no tracks returned", "stationKey", msg.StationKey)
+			return p, nil
+		}
+
+		// Convert domain tracks to app tracks
+		var appTracks []app.Track
+		for i, t := range msg.Tracks {
+			if at := util.DomainTrackToApp(&t); at != nil {
+				if i == 0 {
+					log.Debug("StationPlaybackStartedMsg: first domain track", "title", t.Title, "playQueueItemID", t.PlayQueueItemID)
+					log.Debug("StationPlaybackStartedMsg: first app track", "title", at.Title, "playQueueItemID", at.PlayQueueItemID)
+				}
+				appTracks = append(appTracks, *at)
+			}
+		}
+
+		// Set up the queue
+		p.coordinator.SetQueue(appTracks)
+		p.coordinator.SetQueueIndex(0)
+		p.queueComponent.UpdateListFromCoordinator()
+
+		// Set the active playQueue for continuous playback
+		if msg.ActiveQueue != nil {
+			log.Info("Station playback started",
+				"stationKey", msg.StationKey,
+				"playQueueID", msg.ActiveQueue.PlayQueueID,
+				"trackCount", len(appTracks))
+			p.coordinator.SetActivePlayQueue(msg.ActiveQueue)
+		} else {
+			log.Warn("Station playback started without activeQueue",
+				"stationKey", msg.StationKey,
+				"trackCount", len(appTracks))
+			p.coordinator.ClearActivePlayQueue()
+		}
+
+		// Start playing the first track
+		if len(appTracks) > 0 {
+			return p, p.playAppTrack(&appTracks[0])
+		}
+		return p, nil
+
 	case CoverArtLoadedMsg:
 		// Dump before/after views to assist in debugging VSCode terminal rendering
 		p.dumpPageView("before_art_load")
@@ -364,6 +482,22 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.coordinator.SetPlaybackState(app.PlaybackStopped)
 		}
 		return p, nil
+
+	case playbackAdvanceMsg:
+		// Check if this advance message is stale (a new track has started since it was scheduled)
+		if !p.lastTrackStarted.IsZero() && msg.scheduledAt.Before(p.lastTrackStarted) {
+			log.Debug("playbackAdvanceMsg: ignoring stale advance",
+				"scheduledAt", msg.scheduledAt,
+				"lastTrackStarted", p.lastTrackStarted)
+			return p, nil
+		}
+		// Also skip if a load failed (this check is redundant with lastLoadFailed but adds safety)
+		if p.lastLoadFailed {
+			log.Debug("playbackAdvanceMsg: ignoring due to lastLoadFailed")
+			p.lastLoadFailed = false
+			return p, nil
+		}
+		return p, p.playNext()
 
 	case tea.KeyMsg:
 		return p.handleKeyMsg(msg)
@@ -688,6 +822,74 @@ func (p *LibraryPage) fetchTracksCmd(key string) tea.Cmd {
 		defer cancel()
 		_, _, _ = p.libSvc.FetchTracks(ctx, key)
 		return nil
+	}
+}
+
+// playbackAdvanceMsg is sent after a delay to trigger auto-advance to the next track.
+// It includes the timestamp when it was scheduled so stale messages can be ignored.
+type playbackAdvanceMsg struct {
+	scheduledAt time.Time
+}
+
+// PlayQueueRefreshMsg is sent when a playQueue has been refreshed with new tracks
+type PlayQueueRefreshMsg struct {
+	Tracks  []domain.Track
+	Version int
+	Err     error
+}
+
+// StationPlaybackStartedMsg is sent when a station's playQueue has been created
+type StationPlaybackStartedMsg struct {
+	Tracks      []domain.Track
+	ActiveQueue *domain.ActivePlayQueue
+	StationKey  string
+	Err         error
+}
+
+// startStationPlaybackCmd returns a command to start station playback with continuous refresh support.
+func (p *LibraryPage) startStationPlaybackCmd(stationKey string) tea.Cmd {
+	log.Info("startStationPlaybackCmd called", "stationKey", stationKey)
+	if p.libSvc == nil {
+		return nil
+	}
+	p.playbackInitializing = true
+	return tea.Batch(
+		p.spinner.Tick,
+		func() tea.Msg {
+			ctx, cancel := context.WithTimeout(p.ctx, 15*time.Second)
+			defer cancel()
+			tracks, activeQueue, err := p.libSvc.StartStationPlayback(ctx, stationKey)
+			log.Info(
+				"StartStationPlayback completed",
+				"trackCount",
+				len(tracks),
+				"hasActiveQueue",
+				activeQueue != nil,
+				"err",
+				err,
+			)
+			return StationPlaybackStartedMsg{
+				Tracks:      tracks,
+				ActiveQueue: activeQueue,
+				StationKey:  stationKey,
+				Err:         err,
+			}
+		},
+	)
+}
+
+// refreshPlayQueueCmd returns a command to refresh the playQueue for station continuous playback.
+// selectedItemID should be the playQueueItemID of the track now playing (to tell Plex what's playing).
+// This fetches the current state of the playQueue from Plex and returns new tracks to append.
+func (p *LibraryPage) refreshPlayQueueCmd(playQueueID int, selectedItemID int) tea.Cmd {
+	if p.libSvc == nil || playQueueID <= 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+		tracks, version, err := p.libSvc.RefreshPlayQueue(ctx, playQueueID, selectedItemID)
+		return PlayQueueRefreshMsg{Tracks: tracks, Version: version, Err: err}
 	}
 }
 

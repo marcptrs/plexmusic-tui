@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
+	log "github.com/charmbracelet/log/v2"
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/effects"
 
@@ -61,6 +62,8 @@ type Coordinator struct {
 	tracksTotal    int
 	queue          []domain.Track
 	queueIndex     int
+	// Active playQueue for continuous station playback
+	activePlayQueue *domain.ActivePlayQueue
 
 	// UI state
 	showQueueModal bool
@@ -618,15 +621,16 @@ func (c *Coordinator) Queue() []Track {
 	out := make([]Track, len(c.queue))
 	for i, t := range c.queue {
 		out[i] = Track{
-			Title:          t.Title,
-			Artist:         t.Artist,
-			Album:          t.Album,
-			Duration:       t.Duration,
-			TrackNumber:    t.TrackNumber,
-			PlaylistItemID: t.PlaylistItemID,
-			Key:            t.Key,
-			RatingKey:      t.RatingKey,
-			Thumb:          t.Thumb,
+			Title:           t.Title,
+			Artist:          t.Artist,
+			Album:           t.Album,
+			Duration:        t.Duration,
+			TrackNumber:     t.TrackNumber,
+			PlaylistItemID:  t.PlaylistItemID,
+			PlayQueueItemID: t.PlayQueueItemID,
+			Key:             t.Key,
+			RatingKey:       t.RatingKey,
+			Thumb:           t.Thumb,
 		}
 		if len(t.Media) > 0 {
 			out[i].Media = make([]struct {
@@ -653,15 +657,16 @@ func (c *Coordinator) SetQueue(queue []Track) {
 	out := make([]domain.Track, len(queue))
 	for i, t := range queue {
 		out[i] = domain.Track{
-			Title:          t.Title,
-			Artist:         t.Artist,
-			Album:          t.Album,
-			Duration:       t.Duration,
-			TrackNumber:    t.TrackNumber,
-			PlaylistItemID: t.PlaylistItemID,
-			Key:            t.Key,
-			RatingKey:      t.RatingKey,
-			Thumb:          t.Thumb,
+			Title:           t.Title,
+			Artist:          t.Artist,
+			Album:           t.Album,
+			Duration:        t.Duration,
+			TrackNumber:     t.TrackNumber,
+			PlaylistItemID:  t.PlaylistItemID,
+			PlayQueueItemID: t.PlayQueueItemID,
+			Key:             t.Key,
+			RatingKey:       t.RatingKey,
+			Thumb:           t.Thumb,
 		}
 		if len(t.Media) > 0 {
 			out[i].Media = make([]struct {
@@ -686,6 +691,65 @@ func (c *Coordinator) SetQueue(queue []Track) {
 
 func (c *Coordinator) QueueIndex() int       { return c.queueIndex }
 func (c *Coordinator) SetQueueIndex(idx int) { c.queueIndex = idx }
+
+// ActivePlayQueue returns the current active playQueue for station playback
+func (c *Coordinator) ActivePlayQueue() *domain.ActivePlayQueue { return c.activePlayQueue }
+
+// SetActivePlayQueue sets the active playQueue for continuous station playback
+func (c *Coordinator) SetActivePlayQueue(pq *domain.ActivePlayQueue) {
+	if pq != nil {
+		log.Info("Coordinator.SetActivePlayQueue", "playQueueID", pq.PlayQueueID, "stationKey", pq.StationKey)
+	} else {
+		log.Info("Coordinator.SetActivePlayQueue: nil")
+	}
+	c.activePlayQueue = pq
+}
+
+// ClearActivePlayQueue clears the active playQueue (e.g., when stopping station playback)
+func (c *Coordinator) ClearActivePlayQueue() {
+	log.Info("Coordinator.ClearActivePlayQueue")
+	c.activePlayQueue = nil
+}
+
+// IsStationPlayback returns true if currently playing from a station with an active playQueue
+func (c *Coordinator) IsStationPlayback() bool { return c.activePlayQueue != nil }
+
+// AppendToQueue adds tracks to the end of the queue
+func (c *Coordinator) AppendToQueue(tracks []Track) {
+	for _, t := range tracks {
+		dt := domain.Track{
+			Title:           t.Title,
+			Artist:          t.Artist,
+			Album:           t.Album,
+			Duration:        t.Duration,
+			TrackNumber:     t.TrackNumber,
+			PlaylistItemID:  t.PlaylistItemID,
+			PlayQueueItemID: t.PlayQueueItemID,
+			Key:             t.Key,
+			RatingKey:       t.RatingKey,
+			Thumb:           t.Thumb,
+		}
+		// Copy Media array (contains Part[].Key needed for streaming)
+		if len(t.Media) > 0 {
+			dt.Media = make([]struct {
+				Part []struct {
+					Key string `json:"key"`
+				} `json:"Part"`
+			}, len(t.Media))
+			for i, m := range t.Media {
+				if len(m.Part) > 0 {
+					dt.Media[i].Part = make([]struct {
+						Key string `json:"key"`
+					}, len(m.Part))
+					for j, part := range m.Part {
+						dt.Media[i].Part[j].Key = part.Key
+					}
+				}
+			}
+		}
+		c.queue = append(c.queue, dt)
+	}
+}
 
 // UI & navigation
 func (c *Coordinator) ActiveTab() TabType                  { return c.activeTab }

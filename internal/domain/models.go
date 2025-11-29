@@ -196,16 +196,17 @@ type Hub struct {
 
 // Track represents a music track
 type Track struct {
-	Title          string `json:"title"`
-	Artist         string `json:"grandparentTitle"`
-	Album          string `json:"parentTitle"`
-	Duration       int    `json:"duration"`
-	TrackNumber    int    `json:"index"`          // Track number on original album
-	PlaylistItemID int    `json:"playlistItemID"` // ID in playlist
-	Key            string `json:"key"`
-	RatingKey      string `json:"ratingKey"`
-	Thumb          string `json:"thumb"` // Track/album cover art URL
-	Media          []struct {
+	Title           string `json:"title"`
+	Artist          string `json:"grandparentTitle"`
+	Album           string `json:"parentTitle"`
+	Duration        int    `json:"duration"`
+	TrackNumber     int    `json:"index"`           // Track number on original album
+	PlaylistItemID  int    `json:"playlistItemID"`  // ID in playlist
+	PlayQueueItemID int    `json:"playQueueItemID"` // ID in playQueue (for station continuous playback)
+	Key             string `json:"key"`
+	RatingKey       string `json:"ratingKey"`
+	Thumb           string `json:"thumb"` // Track/album cover art URL
+	Media           []struct {
 		Part []struct {
 			Key string `json:"key"`
 		} `json:"Part"`
@@ -242,7 +243,19 @@ type PlexPlaylistContainer struct {
 type PlexTrackContainer struct {
 	Size      int     `json:"size"`
 	TotalSize int     `json:"totalSize"`
-	Metadata  []Track `json:"Metadata"  xml:"Metadata"`
+	Metadata  []Track `json:"Metadata"                xml:"Metadata"`
+	// PlayQueue fields (populated when creating a playQueue for stations)
+	PlayQueueID             int `json:"playQueueID"`
+	PlayQueueSelectedItemID int `json:"playQueueSelectedItemID"`
+	PlayQueueVersion        int `json:"playQueueVersion"`
+}
+
+// ActivePlayQueue tracks the state of an active Plex playQueue for continuous playback
+// (e.g., radio stations that dynamically add tracks as playback progresses).
+type ActivePlayQueue struct {
+	PlayQueueID int    // The Plex playQueue ID
+	StationKey  string // The original station key (e.g., /library/metadata/12345)
+	Version     int    // Current version for change detection
 }
 
 // PlaybackInfo holds information about current playback state

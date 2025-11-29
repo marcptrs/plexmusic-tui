@@ -47,14 +47,16 @@ func DomainTrackToApp(dt *domain.Track) *app.Track {
 		return nil
 	}
 	at := &app.Track{
-		Title:       dt.Title,
-		Artist:      dt.Artist,
-		Album:       dt.Album,
-		Duration:    dt.Duration,
-		TrackNumber: dt.TrackNumber,
-		Key:         dt.Key,
-		RatingKey:   dt.RatingKey,
-		Thumb:       dt.Thumb,
+		Title:           dt.Title,
+		Artist:          dt.Artist,
+		Album:           dt.Album,
+		Duration:        dt.Duration,
+		TrackNumber:     dt.TrackNumber,
+		PlaylistItemID:  dt.PlaylistItemID,
+		PlayQueueItemID: dt.PlayQueueItemID,
+		Key:             dt.Key,
+		RatingKey:       dt.RatingKey,
+		Thumb:           dt.Thumb,
 	}
 
 	if len(dt.Media) > 0 {
