@@ -77,6 +77,17 @@ func (r *Renderer) SetProtocol(p domain.Protocol) {
 	r.protocol = p
 }
 
+// ClearHashCache clears the in-memory image hash cache.
+// This should be called when album art changes to prevent stale cache hits
+// due to Go's memory reuse (a new image may get the same pointer address
+// as a previous image, causing incorrect hash lookups).
+func (r *Renderer) ClearHashCache() {
+	r.mu.Lock()
+	r.pngCache = make(map[uintptr][]byte)
+	r.hashCache = make(map[uintptr]string)
+	r.mu.Unlock()
+}
+
 // DetectImageProtocol detects the best image protocol supported by the terminal
 func DetectImageProtocol() domain.Protocol {
 	// Detect the protocol by reading terminal environment variables.

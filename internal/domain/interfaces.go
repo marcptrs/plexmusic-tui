@@ -27,4 +27,5 @@ type ImageRenderer interface {
 	Render(img image.Image, width, height int) string
 	SetDebug(enabled bool)
 	SetProtocol(p Protocol)
+	ClearHashCache()
 }

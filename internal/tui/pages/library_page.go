@@ -464,8 +464,33 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, nil
 
 	case CoverArtLoadedMsg:
+		// Only update the album art if the loaded path matches the current track's thumb
+		// This prevents stale art from a previous track overwriting the current track's art
+		currentTrack := p.coordinator.CurrentTrack()
+		log.Debug("CoverArtLoadedMsg: received",
+			"loadedPath", msg.Path,
+			"currentTrackTitle", func() string {
+				if currentTrack != nil {
+					return currentTrack.Title
+				}
+				return "<nil>"
+			}(),
+			"currentTrackThumb", func() string {
+				if currentTrack != nil {
+					return currentTrack.Thumb
+				}
+				return "<nil>"
+			}(),
+			"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
+		if currentTrack != nil && currentTrack.Thumb != msg.Path {
+			log.Debug("CoverArtLoadedMsg: ignoring stale art",
+				"loadedPath", msg.Path,
+				"currentThumb", currentTrack.Thumb)
+			return p, nil
+		}
 		// Dump before/after views to assist in debugging VSCode terminal rendering
 		p.dumpPageView("before_art_load")
+		log.Debug("CoverArtLoadedMsg: setting album art", "path", msg.Path)
 		p.coordinator.SetPlaybackAlbumArt(msg.Image, msg.Path)
 		p.dumpPageView("after_art_load")
 		return p, nil
@@ -962,8 +987,10 @@ type CoverArtLoadedMsg struct {
 }
 
 func (p *LibraryPage) fetchCoverArtCmd(path string) tea.Cmd {
+	log.Debug("fetchCoverArtCmd: starting fetch", "path", path)
 	return func() tea.Msg {
 		if p.libSvc == nil {
+			log.Debug("fetchCoverArtCmd: no libSvc", "path", path)
 			return nil
 		}
 		img, err := p.libSvc.FetchImage(p.ctx, path)
@@ -971,6 +998,7 @@ func (p *LibraryPage) fetchCoverArtCmd(path string) tea.Cmd {
 			log.Error("failed to fetch cover art", "path", path, "err", err)
 			return nil
 		}
+		log.Debug("fetchCoverArtCmd: fetch complete", "path", path)
 		return CoverArtLoadedMsg{Image: img, Path: path}
 	}
 }

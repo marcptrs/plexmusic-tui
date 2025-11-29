@@ -593,14 +593,11 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			newSel := p.trackComponent.Index()
 			p.coordinator.SetSelectedTrack(newSel)
 
-			// If selection changed, fetch cover art for the selected track
+			// If selection changed, update the last selected index
 			if newSel != oldSel {
 				p.lastSelectedTrackIndex = newSel
-				if item, ok := p.trackComponent.SelectedItem().(util.TrackItem); ok {
-					if item.Track.Thumb != "" && p.coordinator.PlaybackAlbumArtThumb() != item.Track.Thumb {
-						cmd = tea.Batch(cmd, p.fetchCoverArtCmd(item.Track.Thumb))
-					}
-				}
+				// Note: We don't fetch cover art here as it would interfere with
+				// the currently playing track's art. Art is fetched on playback.started.
 			}
 
 			// Enter on track list does nothing (dedicated to menu operation elsewhere).
@@ -656,10 +653,8 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					p.lastSelectedAlbumIndex = newIdx
 					log.Info("LibraryTab: fetching tracks for album", "key", item.Album.Key)
 					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Album.Key))
-					// Fetch cover art for the selected album if different than current
-					if item.Album.Thumb != "" && p.coordinator.PlaybackAlbumArtThumb() != item.Album.Thumb {
-						cmd = tea.Batch(cmd, p.fetchCoverArtCmd(item.Album.Thumb))
-					}
+					// Note: We don't fetch cover art here as it would interfere with
+					// the currently playing track's art. Art is fetched on playback.started.
 				}
 			}
 		}

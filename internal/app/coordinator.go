@@ -858,6 +858,10 @@ func (c *Coordinator) PlaybackAlbumArt() image.Image { return c.playbackAlbumArt
 func (c *Coordinator) SetPlaybackAlbumArt(img image.Image, thumbURL string) {
 	c.playbackAlbumArt = img
 	c.playbackAlbumArtThumb = thumbURL
+	// Clear image renderer hash cache to prevent stale cache hits from pointer reuse
+	if c.playbackImgRenderer != nil {
+		c.playbackImgRenderer.ClearHashCache()
+	}
 }
 func (c *Coordinator) PlaybackAlbumArtThumb() string { return c.playbackAlbumArtThumb }
 

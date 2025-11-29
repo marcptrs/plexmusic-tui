@@ -323,9 +323,18 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		if msg.Track != nil {
 			track := util.DomainTrackToApp(msg.Track)
 			p.coordinator.SetCurrentTrack(track)
+			log.Debug("playback.started: track set",
+				"title", track.Title,
+				"thumb", track.Thumb,
+				"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
 			// Fetch the album art for the track now that playback started
 			if track.Thumb != "" && p.coordinator.PlaybackAlbumArtThumb() != track.Thumb {
+				log.Debug("playback.started: fetching new cover art", "path", track.Thumb)
 				postCmd = p.fetchCoverArtCmd(track.Thumb)
+			} else {
+				log.Debug("playback.started: skipping art fetch (same or empty)",
+					"thumb", track.Thumb,
+					"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
 			}
 		}
 		// Update queue UI to reflect the new playing track
