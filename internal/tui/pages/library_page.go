@@ -230,16 +230,24 @@ func (p *LibraryPage) Init() tea.Cmd {
 	}
 	// Detect Plex Pass and sonic analysis availability and cache in coordinator
 	if p.coordinator != nil {
-		go func() {
-			ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
-			defer cancel()
-			if ok, _ := p.libSvc.HasPlexPass(ctx); ok {
-				p.coordinator.SetPlexPass(true)
-			}
-			if ok, _ := p.libSvc.HasSonicAnalysis(ctx); ok {
-				p.coordinator.SetSonicAvailable(true)
-			}
-		}()
+		// Capture values locally to avoid data races when tests or other
+		// callers modify the page fields concurrently. Copy the pointers
+		// to local variables and pass them into the goroutine so it doesn't
+		// reference the page struct directly.
+		libSvc := p.libSvc
+		coord := p.coordinator
+		if libSvc != nil {
+			go func(ls service.LibraryServicer, c app.Coordinatorer) {
+				ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
+				defer cancel()
+				if ok, _ := ls.HasPlexPass(ctx); ok {
+					c.SetPlexPass(true)
+				}
+				if ok, _ := ls.HasSonicAnalysis(ctx); ok {
+					c.SetSonicAvailable(true)
+				}
+			}(libSvc, coord)
+		}
 	}
 
 	// Create (or reuse) playback service and subscribe to events.

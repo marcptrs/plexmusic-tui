@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -113,6 +114,9 @@ type Coordinator struct {
 	libraryHubs  []domain.Hub
 	// Indicates the server has sonic analysis available for at least some items
 	sonicAvailable bool
+
+	// Mutex for concurrency-safe access to Coordinator fields.
+	mu sync.RWMutex
 }
 
 // NewCoordinatorWithServices creates a new coordinator with service dependencies
@@ -825,16 +829,47 @@ func (c *Coordinator) NotificationActive() bool {
 }
 
 // Playback/stream state
-func (c *Coordinator) PlaybackState() PlaybackState     { return c.playbackState }
-func (c *Coordinator) SetPlaybackState(s PlaybackState) { c.playbackState = s }
-func (c *Coordinator) CurrentTrack() *Track             { return c.currentTrack }
-func (c *Coordinator) SetCurrentTrack(t *Track)         { c.currentTrack = t }
-func (c *Coordinator) HasCurrentTrack() bool            { return c.currentTrack != nil }
+func (c *Coordinator) PlaybackState() PlaybackState {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.playbackState
+}
 
-func (c *Coordinator) IsPlaying() bool { return c.playbackState == PlaybackPlaying }
-func (c *Coordinator) IsPaused() bool  { return c.playbackState == PlaybackPaused }
+func (c *Coordinator) SetPlaybackState(s PlaybackState) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.playbackState = s
+}
 
-func (c *Coordinator) IsStopped() bool { return c.playbackState == PlaybackStopped }
+func (c *Coordinator) CurrentTrack() *Track {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.currentTrack
+}
+
+func (c *Coordinator) SetCurrentTrack(t *Track) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.currentTrack = t
+}
+
+func (c *Coordinator) HasCurrentTrack() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.currentTrack != nil
+}
+
+func (c *Coordinator) IsPlaying() bool {
+	return c.PlaybackState() == PlaybackPlaying
+}
+
+func (c *Coordinator) IsPaused() bool {
+	return c.PlaybackState() == PlaybackPaused
+}
+
+func (c *Coordinator) IsStopped() bool {
+	return c.PlaybackState() == PlaybackStopped
+}
 
 // Stream/position info
 func (c *Coordinator) StreamPosition() int                 { return c.streamPosition }
