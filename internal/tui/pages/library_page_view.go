@@ -88,8 +88,9 @@ func (p *LibraryPage) View() string {
 		leftWidth = usableWidth - rightWidth
 	}
 
-	// Calculate heights
-	contentHeight := p.height - 8
+	// Calculate heights - account for status line (1) and help view (2) = 3 lines total
+	// With background styling, we don't need as much vertical spacing as with borders
+	contentHeight := p.height - 3
 	if contentHeight < 6 {
 		contentHeight = 6
 	}
@@ -180,7 +181,7 @@ func (p *LibraryPage) View() string {
 	// Calculate the art size and info view so they can be used regardless of
 	// drawer state (we render art and info separately when the drawer is on
 	// the right side or when art is configured on the right).
-	// The pane has a border (2 lines), so available height is contentHeight - 2.
+	// Account for pane styling overhead to maintain consistent layout proportions.
 	availableHeight := contentHeight - 2
 	if availableHeight < 12 {
 		// Ensure enough space for minimum art (6) and info (6) if possible,
@@ -237,12 +238,10 @@ func (p *LibraryPage) View() string {
 	if pos == "right" && (p.showingTracks || p.drawerOpen) {
 		// When art is on the right, render the left list content (keeps layout stable).
 		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).
-			Height(leftContentHeight).
 			Render(leftContent)
 	} else {
 		// Stacked artwork + info - reuse artView and infoView computed above
 		leftPane = styles.PaneStyle(leftWidth, leftContentHeight).
-			Height(leftContentHeight).
 			Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
 	}
 
@@ -254,13 +253,11 @@ func (p *LibraryPage) View() string {
 		// right contains the cover art + info.
 		if p.drawerOpen || p.showingTracks {
 			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).
-				Height(leftContentHeight).
 				Render(leftContent)
 		} else {
-			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).Height(leftContentHeight).Render(rightPaneContent)
+			leftColumn = styles.PaneStyle(leftWidth, leftContentHeight).Render(rightPaneContent)
 		}
 		rightColumn = styles.PaneStyle(rightWidth, contentHeight).
-			Height(contentHeight).
 			Render(lipgloss.JoinVertical(lipgloss.Center, artView, infoView))
 	} else {
 		// Default: cover art left, home/queue right
@@ -268,9 +265,9 @@ func (p *LibraryPage) View() string {
 		// When a drawer is open or the tracklist is active (and art is left),
 		// render the active content in the right pane; otherwise show home/queue.
 		if p.drawerOpen || p.showingTracks {
-			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(leftContent)
+			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Render(leftContent)
 		} else {
-			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Height(contentHeight).Render(rightPaneContent)
+			rightColumn = styles.PaneStyle(rightWidth, contentHeight).Render(rightPaneContent)
 		}
 	}
 

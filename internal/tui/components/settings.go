@@ -22,11 +22,12 @@ type SettingsComponent struct {
 
 // NewSettingsComponent creates a new SettingsComponent.
 func NewSettingsComponent(coord app.Coordinatorer) *SettingsComponent {
-	delegate := list.NewDefaultDelegate()
+	delegate := styles.NewCustomDelegate()
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = "Settings"
 	l.SetShowHelp(false)
 	l.SetShowTitle(false) // We render our own title
+	l.SetShowStatusBar(false)
 
 	s := &SettingsComponent{
 		coordinator: coord,

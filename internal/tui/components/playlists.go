@@ -5,6 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"plexmusic-tui/internal/app"
+	"plexmusic-tui/internal/tui/styles"
 )
 
 type PlaylistsComponent struct {
@@ -14,10 +15,11 @@ type PlaylistsComponent struct {
 }
 
 func NewPlaylistsComponent(coord app.Coordinatorer) *PlaylistsComponent {
-	delegate := list.NewDefaultDelegate()
+	delegate := styles.NewCustomDelegate()
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = "Playlists"
 	l.SetShowHelp(false)
+	l.SetShowStatusBar(false)
 
 	return &PlaylistsComponent{
 		coordinator: coord,

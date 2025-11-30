@@ -11,8 +11,13 @@ var (
 	ColorWarning   = lipgloss.Color("11")  // Yellow
 	ColorInfo      = lipgloss.Color("12")  // Light blue
 	ColorMuted     = lipgloss.Color("240") // Gray
-	ColorBorder    = lipgloss.Color("238") // Dark gray
+	ColorBorder    = lipgloss.Color("238") // Dark gray (deprecated, kept for compatibility)
 	ColorSelected  = lipgloss.Color("170") // Purple
+
+	// Background colors for panes
+	ColorPaneBackground        = lipgloss.Color("235") // Very dark gray for normal panes
+	ColorPaneFocusedBackground = lipgloss.Color("237") // Slightly lighter dark gray for focused panes
+	ColorInputBackground       = lipgloss.Color("236") // Dark gray for inputs
 )
 
 // Common styles
@@ -40,17 +45,15 @@ var (
 			Foreground(lipgloss.Color("15")).
 			Padding(0, 1)
 
-	// FocusedBorderStyle for focused panes
+	// FocusedBorderStyle for focused panes (now using background instead of border)
 	FocusedBorderStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(ColorPrimary).
-				Padding(1, 2)
+				Background(ColorPaneFocusedBackground).
+				Padding(0, 1)
 
-	// NormalBorderStyle for unfocused panes
+	// NormalBorderStyle for unfocused panes (now using background instead of border)
 	NormalBorderStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(ColorBorder).
-				Padding(1, 2)
+				Background(ColorPaneBackground).
+				Padding(0, 1)
 
 	// ErrorStyle for error messages
 	ErrorStyle = lipgloss.NewStyle().
@@ -101,17 +104,15 @@ var (
 			Bold(true).
 			Padding(0, 0)
 
-	// InputStyle for text inputs
+	// InputStyle for text inputs (now using background instead of border)
 	InputStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorBorder).
-			Padding(0, 1)
+			Background(ColorInputBackground).
+			Padding(1, 2)
 
-	// FocusedInputStyle for focused text inputs
+	// FocusedInputStyle for focused text inputs (now using background instead of border)
 	FocusedInputStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(ColorPrimary).
-				Padding(0, 1)
+				Background(ColorPaneFocusedBackground).
+				Padding(1, 2)
 )
 
 // Backwards-compatible aliases & new helper styles to mirror legacy UI naming.
@@ -166,15 +167,23 @@ var (
 			Bold(true)
 )
 
-// PaneStyle returns a framed pane with rounded borders and the theme's border color.
-// This keeps behavior consistent with the previous pane styling helper and centralizes
-// border color and style, so all panes share a unified look.
+// PaneStyle returns a pane with background color instead of borders.
+// This creates visual separation between panes using color instead of border lines.
+// Using minimal horizontal padding to create subtle visual spacing.
+// The style fills the full width and height with the background color.
 func PaneStyle(width, height int) lipgloss.Style {
+	// To ensure the background fills the full height, we need to set both
+	// Width and Height, and ensure content alignment fills the space.
+	// Using MaxWidth/MaxHeight forces the style to expand to fill the space.
 	return lipgloss.NewStyle().
 		Width(width).
+		MaxWidth(width).
 		Height(height).
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(ColorBorder)
+		MaxHeight(height).
+		Background(ColorPaneBackground).
+		Padding(0, 1).
+		AlignVertical(lipgloss.Top).
+		AlignHorizontal(lipgloss.Left)
 }
 
 // Primary/Secondary/Tertiary text styles to match the names used by `ui`.

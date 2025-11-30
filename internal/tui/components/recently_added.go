@@ -5,6 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"plexmusic-tui/internal/app"
+	"plexmusic-tui/internal/tui/styles"
 )
 
 type RecentlyAddedComponent struct {
@@ -14,11 +15,12 @@ type RecentlyAddedComponent struct {
 }
 
 func NewRecentlyAddedComponent(coord app.Coordinatorer) *RecentlyAddedComponent {
-	delegate := list.NewDefaultDelegate()
+	delegate := styles.NewCustomDelegate()
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = "" // Title is rendered by the page, not the component
 	l.SetShowHelp(false)
 	l.SetShowTitle(false)
+	l.SetShowStatusBar(false)
 
 	return &RecentlyAddedComponent{
 		coordinator: coord,

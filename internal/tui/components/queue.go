@@ -30,10 +30,11 @@ type QueueComponent struct {
 type PlayResultMsg struct{ Err error }
 
 func NewQueueComponent(coord app.Coordinatorer, orch *tui.Orchestrator) *QueueComponent {
-	delegate := list.NewDefaultDelegate()
+	delegate := styles.NewCustomDelegate()
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = "Queue"
 	l.SetShowHelp(false)
+	l.SetShowStatusBar(false)
 
 	return &QueueComponent{
 		coordinator:  coord,
@@ -337,11 +338,10 @@ func (c *QueueComponent) RenderWithModal(base string, width, height int) string 
 	// Render the list
 	listView := c.View()
 
-	// Wrap in a border
+	// Wrap with background color instead of border
 	modal := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.ColorPrimary).
-		Padding(1, 2).
+		Background(styles.ColorPaneFocusedBackground).
+		Padding(0, 1).
 		Width(modalWidth).
 		Height(modalHeight).
 		Render(listView)
