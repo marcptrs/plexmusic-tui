@@ -352,10 +352,13 @@ func (p *LibraryPage) View() string {
 		statusLine = fmt.Sprintf("%s • %s", statusLine, sonicStatus)
 	}
 
-	// Render a transient top notification line if set on the coordinator.
+	// Build a transient notification message; we'll render it as a floating
+	// toast overlay instead of reserving a top layout line.
 	notifStr := ""
+	notifSeverity := ""
 	if p.coordinator != nil && p.coordinator.NotificationActive() {
 		msg, sev, _ := p.coordinator.Notification()
+		notifSeverity = sev
 		switch sev {
 		case "error":
 			notifStr = styles.ErrorStyle.Render(fmt.Sprintf(" ⚠ %s", msg))
@@ -363,6 +366,7 @@ func (p *LibraryPage) View() string {
 			notifStr = styles.SuccessStyle.Render(fmt.Sprintf(" ✓ %s", msg))
 		default:
 			notifStr = styles.InfoStyle.Render(fmt.Sprintf(" %s", msg))
+			notifSeverity = sev
 		}
 	}
 
@@ -389,25 +393,53 @@ func (p *LibraryPage) View() string {
 		layout, // The panes
 	)
 
-	if notifStr != "" {
-		mainLayout = lipgloss.JoinVertical(lipgloss.Left,
-			notifStr,
-			statusLine,
-			layout,
-		)
-	}
-
 	// Place the main layout in the available space
 	finalView := lipgloss.JoinVertical(lipgloss.Left,
 		mainLayout,
 		helpView,
 	)
 
+	// If a transient notification is active, overlay it on top-right of the
+	// final view using our util helper. We attempt to render a small boxed
+	// toast to avoid using up the reserved top row in the layout.
+	if notifStr != "" {
+		// Constrain the toast width to ~1/3 of the viewport or the message width
+		toastMaxWidth := p.width / 3
+		if toastMaxWidth < 20 {
+			toastMaxWidth = 20
+		}
+		// Compose the toast box using the ToastBoxStyle with an inner
+		// severity-specific text style. We wrap the notification text in a
+		// small label like "Info:" or icons to increase contrast.
+		var inner string
+		inner = notifStr
+		switch notifSeverity {
+		case "error":
+			inner = styles.ToastErrorStyle.Render(inner)
+		case "success":
+			inner = styles.ToastSuccessStyle.Render(inner)
+		default:
+			inner = styles.ToastInfoStyle.Render(inner)
+		}
+		// Trim surrounding whitespace/newlines so we don't leave padded
+		// spaces that would be rendered with the background color.
+		toast := strings.TrimSpace(inner)
+
+		// Overlay the toast on the same line as the status line (top offset 0)
+		// and keep it right-aligned with minimal right padding so it does
+		// not interfere with the border. This places the toast inline with
+		// server info instead of reserving an extra top area.
+		finalView = util.OverlayTopRight(finalView, toast, p.width, 0, 2)
+	}
+
+	// Place the final view at the top-left so content starts at the first
+	// terminal row and we don't leave an empty line at the top due to
+	// vertical centering.
 	return lipgloss.Place(
 		p.width,
 		p.height,
-		lipgloss.Center,
-		lipgloss.Center,
+		lipgloss.Left,
+		lipgloss.Top,
 		finalView,
 	)
 }

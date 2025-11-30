@@ -172,6 +172,52 @@ func TestLibraryPage_DefaultLayout_ShowsNowPlayingAndQueue(t *testing.T) {
 	}
 }
 
+func TestLibraryPage_View_ToastOverlay(t *testing.T) {
+	coord := app.NewCoordinator()
+	server := app.PlexServer{
+		Name:        "Local Server",
+		Host:        "127.0.0.1",
+		Port:        "32400",
+		AccessToken: "token",
+		Scheme:      "http",
+	}
+	coord.SetServers([]app.PlexServer{server})
+	coord.SetSelectedServer(0)
+	coord.SetToken("test-token")
+
+	page := NewLibraryPageWithAuth(coord, nil)
+	page.coordinator.SetActiveTab(app.HomeTab)
+	page.width = 80
+	page.height = 24
+
+	// Set a transient notification and render
+	coord.SetNotification("Test overlay toast", "info", 5*time.Second)
+	view := page.View()
+
+	if !strings.Contains(view, "Test overlay toast") {
+		t.Fatalf("expected to find overlay toast text in view, got: %q", view)
+	}
+
+	// The toast should now render inline with the status line (first line).
+	lines := strings.Split(view, "\n")
+	if len(lines) == 0 {
+		t.Fatalf("unexpected empty view")
+	}
+	// First line must contain the server status
+	if !strings.Contains(lines[0], "Server:") {
+		t.Fatalf("expected server status on first line; got: %q", lines[0])
+	}
+	// And it should also contain the toast text when rendered inline
+	if !strings.Contains(lines[0], "Test overlay toast") {
+		t.Fatalf("expected toast to appear inline on first line; got: %q", lines[0])
+	}
+	// Verify the toast appears toward the right side of the first line
+	idx := strings.Index(lines[0], "Test overlay toast")
+	if idx >= 0 && idx < (page.width/3) {
+		t.Fatalf("toast placed too far left; idx=%d width=%d line=%q", idx, page.width, lines[0])
+	}
+}
+
 func TestLibraryPage_ViewHome_RendersSonicSections(t *testing.T) {
 	coord := app.NewCoordinator()
 	server := app.PlexServer{

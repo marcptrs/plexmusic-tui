@@ -139,6 +139,31 @@ var (
 	ScrimStyle = lipgloss.NewStyle().
 			Foreground(ColorMuted).
 			Background(lipgloss.Color("0"))
+
+	// ToastBoxStyle is a compact, foreground-only style for transient toast notifications.
+	// Use foreground-only colors (no background) to avoid painting full-width bands
+	// in terminal emulators that handle background painting specially.
+	ToastBoxStyle = lipgloss.NewStyle().
+			Foreground(ColorPrimary).
+			Padding(0, 0).
+			Bold(true)
+
+	// Severity-specific toast styles — conservative, foreground-only "pills".
+	ToastSuccessStyle = lipgloss.NewStyle().
+				Foreground(ColorSuccess).
+				Padding(0, 0).
+				Bold(true)
+
+	ToastErrorStyle = lipgloss.NewStyle().
+			Foreground(ColorError).
+			Padding(0, 0).
+			Bold(true)
+
+	// Info toasts are subtle and use foreground-only coloring.
+	ToastInfoStyle = lipgloss.NewStyle().
+			Foreground(ColorInfo).
+			Padding(0, 0).
+			Bold(true)
 )
 
 // PaneStyle returns a framed pane with rounded borders and the theme's border color.

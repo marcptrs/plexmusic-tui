@@ -516,6 +516,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			return sonicDetectResultMsg{ok: ok}
 		}
+
 	case key.Matches(msg, p.keys.Search):
 		// Toggle Search tab and focus/blur the search input accordingly
 		if p.coordinator.ActiveTab() == app.SearchTab {
