@@ -896,6 +896,11 @@ func (c *Coordinator) SetPlaybackAlbumArt(img image.Image, thumbURL string) {
 	// Clear image renderer hash cache to prevent stale cache hits from pointer reuse
 	if c.playbackImgRenderer != nil {
 		c.playbackImgRenderer.ClearHashCache()
+		// Precompute few common cache sizes in background to avoid blocking
+		// the UI for the first render.
+		c.playbackImgRenderer.Precompute(img, 36, 18)
+		c.playbackImgRenderer.Precompute(img, 48, 24)
+		c.playbackImgRenderer.Precompute(img, 80, 40)
 	}
 }
 func (c *Coordinator) PlaybackAlbumArtThumb() string { return c.playbackAlbumArtThumb }

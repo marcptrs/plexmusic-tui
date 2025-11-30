@@ -46,6 +46,10 @@ func padOrCropLinesComp(s string, width, height int) string {
 type NowPlayingComponent struct {
 	coordinator app.Coordinatorer
 	pbSvc       service.PlaybackServicer // Use interface instead of concrete type for flexibility
+	// precompute tracking to avoid repeated Precompute calls when nothing changed
+	lastPrecomputeThumb string
+	lastPrecomputeW     int
+	lastPrecomputeH     int
 }
 
 // NewNowPlayingComponent creates a new NowPlayingComponent.
@@ -86,6 +90,17 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 		if artH < 3 {
 			artH = 3
 		}
+		// Ask the renderer to precompute the exact size to prevent the
+		// first-render blocking PNG encode. Debounce using the thumb URL and
+		// requested size so we don't precompute repeatedly for the same content.
+		thumb := np.coordinator.PlaybackAlbumArtThumb()
+		if thumb != np.lastPrecomputeThumb || artW != np.lastPrecomputeW || artH != np.lastPrecomputeH {
+			np.coordinator.PlaybackImgRenderer().Precompute(art, artW, artH)
+			np.lastPrecomputeThumb = thumb
+			np.lastPrecomputeW = artW
+			np.lastPrecomputeH = artH
+		}
+
 		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
 		artView = strings.TrimRight(artView, "\r\n ")
 		artView = padOrCropLinesComp(artView, artW, artH)
@@ -343,6 +358,16 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		if artH < 10 {
 			artH = 10
 		}
+		// Precompute for the large/full-screen size as a background op to avoid
+		// blocking the first render.
+		thumb := np.coordinator.PlaybackAlbumArtThumb()
+		if thumb != np.lastPrecomputeThumb || artW != np.lastPrecomputeW || artH != np.lastPrecomputeH {
+			np.coordinator.PlaybackImgRenderer().Precompute(art, artW, artH)
+			np.lastPrecomputeThumb = thumb
+			np.lastPrecomputeW = artW
+			np.lastPrecomputeH = artH
+		}
+
 		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
 		artView = strings.TrimRight(artView, "\r\n ")
 		artView = padOrCropLinesComp(artView, artW, artH)

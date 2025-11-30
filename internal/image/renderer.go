@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"os"
 	"reflect"
@@ -27,8 +28,11 @@ import (
 type Renderer struct {
 	protocol domain.Protocol
 	cache    cache.Cache // Hybrid cache (memory + disk)
-	// Cache derived from image content
-	pngCache  map[uintptr][]byte
+	// Cache derived from resized image content and render protocol
+	// Cache keyed by contentHash + protocol + bucketed resize dimensions
+	pngCache map[string][]byte
+	// Pointer map: cache content hash by image pointer to avoid recomputing
+	// hash for the same image instance across multiple render calls.
 	hashCache map[uintptr]string
 	mu        sync.RWMutex
 	debug     bool
@@ -50,7 +54,7 @@ func NewRenderer() *Renderer {
 	return &Renderer{
 		protocol:  protocol,
 		cache:     cache.NewHybridCache(100, cacheDir, 7*24*time.Hour), // 7 day TTL
-		pngCache:  make(map[uintptr][]byte),
+		pngCache:  make(map[string][]byte),
 		hashCache: make(map[uintptr]string),
 	}
 }
@@ -61,7 +65,7 @@ func NewRendererWithProtocol(p domain.Protocol) *Renderer {
 	return &Renderer{
 		protocol:  p,
 		cache:     cache.NewHybridCache(100, cacheDir, 7*24*time.Hour), // 7 day TTL
-		pngCache:  make(map[uintptr][]byte),
+		pngCache:  make(map[string][]byte),
 		hashCache: make(map[uintptr]string),
 	}
 }
@@ -83,9 +87,105 @@ func (r *Renderer) SetProtocol(p domain.Protocol) {
 // as a previous image, causing incorrect hash lookups).
 func (r *Renderer) ClearHashCache() {
 	r.mu.Lock()
-	r.pngCache = make(map[uintptr][]byte)
+	r.pngCache = make(map[string][]byte)
 	r.hashCache = make(map[uintptr]string)
 	r.mu.Unlock()
+}
+
+// Precompute resizes and encoded PNGs for common sizes to avoid blocking on
+// the first render call. This runs work in a background goroutine and returns
+// immediately. The caller should not rely on the precompute having completed.
+func (r *Renderer) Precompute(img image.Image, width, height int) {
+	// Perform background precompute for the current renderer protocol and
+	// supplied width/height.
+	go func() {
+		var pixelPerCell int
+		switch r.protocol {
+		case domain.ProtocolKitty:
+			pixelPerCell = pixelPerCellKitty
+		case domain.ProtocolITerm2:
+			pixelPerCell = pixelPerCellITerm2
+		default:
+			// Unicode blocks don't need PNG encodes; just return.
+			return
+		}
+
+		// compute content hash
+		pixelBytes := func(img image.Image) []byte {
+			switch v := img.(type) {
+			case *image.RGBA:
+				return v.Pix
+			case *image.NRGBA:
+				return v.Pix
+			default:
+				b := img.Bounds()
+				rgba := image.NewRGBA(b)
+				draw.Draw(rgba, b, img, b.Min, draw.Src)
+				return rgba.Pix
+			}
+		}(img)
+		var contentHash string
+		if len(pixelBytes) > 0 {
+			sum := sha256.Sum256(pixelBytes)
+			contentHash = fmt.Sprintf("%x", sum[:8])
+		}
+		if contentHash == "" {
+			contentHash = "empty"
+		}
+
+		// Precompute the PNG encode/resize in the cache
+		_, _, _, _ = r.getOrEncodePng(contentHash, img, r.protocol, width, height, pixelPerCell)
+	}()
+}
+
+// getPngCacheKey builds a cache key for a pre-encoded resized PNG. Includes
+// the content hash (image content), the protocol, the bucketed widths/heights
+// and the pixelPerCell which affects the resize.
+func (r *Renderer) getPngCacheKey(
+	contentHash string,
+	protocol domain.Protocol,
+	width, height, pixelPerCell int,
+) string {
+	return fmt.Sprintf("%s_%s_%d_%d_%d", contentHash, protocol.String(), width, height, pixelPerCell)
+}
+
+// getOrEncodePng returns encoded PNG bytes for a resized image sized to
+// width/height in characters using the specified pixelPerCell. It will fetch
+// from the in-memory pngCache if present, otherwise it resizes and encodes
+// and stores it. This makes renderers avoid repeated PNG encodes for the
+// same image content and resize dimensions.
+func (r *Renderer) getOrEncodePng(
+	contentHash string,
+	img image.Image,
+	protocol domain.Protocol,
+	width, height, pixelPerCell int,
+) ([]byte, int, int, error) {
+	key := r.getPngCacheKey(contentHash, protocol, width, height, pixelPerCell)
+	pixelW := width * pixelPerCell
+	pixelH := height * pixelPerCell
+	r.mu.RLock()
+	if v, ok := r.pngCache[key]; ok {
+		r.mu.RUnlock()
+		return v, pixelW, pixelH, nil
+	}
+	r.mu.RUnlock()
+
+	// Resize and encode
+	resized := imaging.Fit(img, pixelW, pixelH, imaging.Lanczos)
+	// Center into exact canvas to avoid fractional scaling artifacts
+	canvas := imaging.New(pixelW, pixelH, color.Transparent)
+	resized = imaging.PasteCenter(canvas, resized)
+
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, resized); err != nil {
+		return nil, 0, 0, err
+	}
+	b := buf.Bytes()
+
+	r.mu.Lock()
+	r.pngCache[key] = b
+	r.mu.Unlock()
+	return b, pixelW, pixelH, nil
 }
 
 // DetectImageProtocol detects the best image protocol supported by the terminal
@@ -133,41 +233,67 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		return ""
 	}
 
-	// Build a stable content hash (PNG encoding) and reuse cached encodings
-	// via the image pointer when possible to avoid re-encoding on every call.
+	// Build a stable content hash (PNG encoding) from the image data.
+	// We always encode the image's full PNG bytes and key our cache by a
+	// short prefix (first 8 bytes) of the SHA256 to avoid pointer/address
+	// dependent caching which was causing stale cache hits when Go reused
+	// memory for new image allocations.
 	var contentHash string
-	var addr uintptr
+	var pngBytes []byte
+	// Compute a stable hash based on raw pixel bytes to avoid expensive PNG
+	// encoding for each Render call. This uses the first 8 bytes of a
+	// SHA256 of the raw RGBA pixel slice to build the cache key.
+	pixelBytes := func(img image.Image) []byte {
+		switch v := img.(type) {
+		case *image.RGBA:
+			return v.Pix
+		case *image.NRGBA:
+			return v.Pix
+		default:
+			// Convert to RGBA and return bytes
+			b := img.Bounds()
+			rgba := image.NewRGBA(b)
+			draw.Draw(rgba, b, img, b.Min, draw.Src)
+			return rgba.Pix
+		}
+	}(img)
+	if len(pixelBytes) > 0 {
+		sum := sha256.Sum256(pixelBytes)
+		contentHash = fmt.Sprintf("%x", sum[:8])
+	}
+	// If we didn't get pngBytes from encoding (shouldn't happen), compute
+	// a no-op empty hash to avoid using nil cache keys.
+	if contentHash == "" {
+		contentHash = "empty"
+	}
+	// Store cached png bytes keyed by content hash to avoid re-encoding
+	// If we haven't cached PNG for this content yet, lazily encode and cache
+	r.mu.RLock()
+	_, pngOk := r.pngCache[contentHash]
+	r.mu.RUnlock()
+	if !pngOk {
+		var buf bytes.Buffer
+		if err := png.Encode(&buf, img); err == nil {
+			pngBytes = buf.Bytes()
+			r.mu.Lock()
+			r.pngCache[contentHash] = pngBytes
+			r.mu.Unlock()
+		}
+	}
+	// Pointer-based hash cache helps us avoid re-hashing image instances
 	v := reflect.ValueOf(img)
-	// If img is an interface, get its underlying value
 	if v.Kind() == reflect.Interface {
 		v = v.Elem()
 	}
 	if v.IsValid() && v.Kind() == reflect.Ptr {
-		addr = v.Pointer()
-	}
-	if addr != 0 {
+		addr := v.Pointer()
 		r.mu.RLock()
-		ch, ok := r.hashCache[addr]
+		existing, addrOk := r.hashCache[addr]
 		r.mu.RUnlock()
-		if ok {
-			contentHash = ch
-		} else {
-			var buf bytes.Buffer
-			if err := png.Encode(&buf, img); err == nil {
-				sum := sha256.Sum256(buf.Bytes())
-				contentHash = fmt.Sprintf("%x", sum[:8])
-				r.mu.Lock()
-				r.hashCache[addr] = contentHash
-				r.pngCache[addr] = buf.Bytes()
-				r.mu.Unlock()
-			}
-		}
-	} else {
-		// Fallback for non-pointer image types - encode directly
-		var buf bytes.Buffer
-		if err := png.Encode(&buf, img); err == nil {
-			sum := sha256.Sum256(buf.Bytes())
-			contentHash = fmt.Sprintf("%x", sum[:8])
+		if !addrOk || existing != contentHash {
+			r.mu.Lock()
+			r.hashCache[addr] = contentHash
+			r.mu.Unlock()
 		}
 	}
 
@@ -196,9 +322,9 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 	var result string
 	switch r.protocol {
 	case domain.ProtocolKitty:
-		result = r.renderImageKitty(img, width, height)
+		result = r.renderImageKitty(img, width, height, contentHash)
 	case domain.ProtocolITerm2:
-		result = r.renderImageITerm2(img, width, height)
+		result = r.renderImageITerm2(img, width, height, contentHash)
 	case domain.ProtocolSixel:
 		result = r.renderImageSixel(img, width, height)
 	default:
@@ -267,25 +393,22 @@ func (r *Renderer) RenderPlaceholder(width, height int, message string) string {
 
 // renderImageKitty renders an image using the Kitty graphics protocol
 // Uses a two-step process: transmit to memory, then place using virtual placements
-func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
+func (r *Renderer) renderImageKitty(img image.Image, width, height int, contentHash string) string {
 	// Pixel size per character for Kitty rendering. Using constants makes it
 	// explicit and easier to tune for seam/anti-alias artifacts.
 	pixelPerCell := pixelPerCellKitty
-	pixelWidth := width * pixelPerCell
-	pixelHeight := height * pixelPerCell
-
-	// Fit image to pixel bounds and paste into an exact-size canvas to avoid
-	// fractional-scaling seams (maps PNG pixels -> terminal cell grid).
-	resized := imaging.Fit(img, pixelWidth, pixelHeight, imaging.Lanczos)
-	canvas := imaging.New(pixelWidth, pixelHeight, color.Transparent)
-	resized = imaging.PasteCenter(canvas, resized)
-
-	// Encode image to PNG
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, resized); err != nil {
-		return "" // Fall back to empty on error
+	// Use cached resized PNG if available, otherwise encode and cache.
+	imageData, pixelW, pixelH, err := r.getOrEncodePng(
+		contentHash,
+		img,
+		domain.ProtocolKitty,
+		width,
+		height,
+		pixelPerCell,
+	)
+	if err != nil {
+		return ""
 	}
-	imageData := buf.Bytes()
 
 	// Generate numeric ID from PNG content hash
 	hash := sha256.Sum256(imageData)
@@ -304,13 +427,13 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 			"charH",
 			height,
 			"pixelW",
-			pixelWidth,
+			pixelW,
 			"pixelH",
-			pixelHeight,
+			pixelH,
 			"resizedW",
-			resized.Bounds().Dx(),
+			pixelW,
 			"resizedH",
-			resized.Bounds().Dy(),
+			pixelH,
 		)
 	}
 
@@ -379,15 +502,13 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int) string {
 }
 
 // renderImageITerm2 renders an image using iTerm2's inline image protocol
-func (r *Renderer) renderImageITerm2(img image.Image, width, height int) string {
+func (r *Renderer) renderImageITerm2(img image.Image, width, height int, contentHash string) string {
 	// Pixel size per character for iTerm2 rendering.
 	pixelPerCell := pixelPerCellITerm2
-	pixelWidth := width * pixelPerCell
-	pixelHeight := height * pixelPerCell
 
-	// Use Fit + exact canvas to avoid fractional scaling seams just like
-	// Kitty rendering.
-	resized := imaging.Fit(img, pixelWidth, pixelHeight, imaging.Lanczos)
+	// Use cached resized PNG when available. getOrEncodePng returns encoded
+	// PNG as well as the resized pixel dimensions for logging.
+	enc, pixelW, pixelH, err := r.getOrEncodePng(contentHash, img, domain.ProtocolITerm2, width, height, pixelPerCell)
 	if r.debug {
 		log.Debug(
 			"ITerm2Render",
@@ -396,32 +517,21 @@ func (r *Renderer) renderImageITerm2(img image.Image, width, height int) string 
 			"charH",
 			height,
 			"pixelW",
-			pixelWidth,
+			pixelW,
 			"pixelH",
-			pixelHeight,
-			"resizedW",
-			resized.Bounds().Dx(),
-			"resizedH",
-			resized.Bounds().Dy(),
+			pixelH,
 		)
 	}
-	canvas := imaging.New(pixelWidth, pixelHeight, color.Transparent)
-	resized = imaging.PasteCenter(canvas, resized)
-
-	// Encode to PNG
-	var buf bytes.Buffer
-	if err := png.Encode(&buf, resized); err != nil {
+	if err != nil {
 		return ""
 	}
-
-	// Base64 encode PNG
-	encoded := base64.StdEncoding.EncodeToString(buf.Bytes())
+	// Base64 encode PNG bytes (already encoded)
+	encoded := base64.StdEncoding.EncodeToString(enc)
 
 	// iTerm2 inline image format
 	// \x1b]1337;File=inline=1;width=Npx;height=Npx:<base64 data>\a
-	bounds := resized.Bounds()
 	return fmt.Sprintf("\x1b]1337;File=inline=1;width=%dpx;height=%dpx:%s\a\n",
-		bounds.Dx(), bounds.Dy(), encoded)
+		pixelW, pixelH, encoded)
 }
 
 // renderImageSixel renders an image using the Sixel protocol

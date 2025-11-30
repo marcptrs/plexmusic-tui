@@ -28,4 +28,8 @@ type ImageRenderer interface {
 	SetDebug(enabled bool)
 	SetProtocol(p Protocol)
 	ClearHashCache()
+	// Precompute resizes and encodings for common sizes to avoid blocking renders
+	// when the UI requests an image for the first time. Implementations should
+	// run the work in the background and return immediately.
+	Precompute(img image.Image, width, height int)
 }
