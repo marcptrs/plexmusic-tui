@@ -157,6 +157,10 @@ type Coordinatorer interface {
 	SetDumpView(bool)
 	DumpView() bool
 
+	// Recently played artists
+	RecentlyPlayedArtists() []Artist
+	AddRecentlyPlayedArtist(Artist)
+
 	// Queue manipulation
 	MoveQueueItem(from, to int)
 	RemoveQueueItem(index int)

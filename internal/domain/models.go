@@ -182,6 +182,15 @@ type Playlist struct {
 }
 
 // Hub represents a Plex hub (group of content like stations, mixes, etc.)
+// Artist represents an artist
+type Artist struct {
+	Title     string `json:"title"`
+	Key       string `json:"key"`
+	RatingKey string `json:"ratingKey"`
+	Thumb     string `json:"thumb"`
+	ViewCount int    `json:"viewCount"`
+}
+
 type Hub struct {
 	HubIdentifier string     `json:"hubIdentifier"`
 	Title         string     `json:"title"`
@@ -192,6 +201,7 @@ type Hub struct {
 	Playlists     []Playlist `json:"Metadata"` // Playlists/stations in the hub
 	Albums        []Album    // For album-based hubs (like On This Day)
 	Tracks        []Track    // For track-based hubs
+	Artists       []Artist   // For artist-based hubs (like Recently Played)
 }
 
 // Track represents a music track
@@ -222,6 +232,29 @@ type Track struct {
 type Mood struct {
 	Title string `json:"title"`
 	Key   string `json:"key"`
+}
+
+// HistoryEntry represents a single item from Plex session history
+type HistoryEntry struct {
+	HistoryKey       string `xml:"historyKey"       json:"historyKey"`
+	Key              string `xml:"key"              json:"key"`
+	RatingKey        string `xml:"ratingKey"        json:"ratingKey"`
+	Title            string `xml:"title"            json:"title"`
+	Type             string `xml:"type"             json:"type"`             // "track", "movie", "episode"
+	ParentTitle      string `xml:"parentTitle"      json:"parentTitle"`      // Album or Show
+	GrandparentTitle string `xml:"grandparentTitle" json:"grandparentTitle"` // Artist or Series
+	GrandparentKey   string `xml:"grandparentKey"   json:"grandparentKey"`   // Artist key
+	ViewedAt         int64  `xml:"viewedAt"         json:"viewedAt"`         // Unix timestamp
+	AccountID        int    `xml:"accountID"        json:"accountID"`
+	LibrarySectionID string `xml:"librarySectionID" json:"librarySectionID"`
+}
+
+// PlexHistoryContainer represents the session history response from Plex
+type PlexHistoryContainer struct {
+	Size     int            `xml:"size,attr" json:"size"`
+	Metadata []HistoryEntry `xml:"Metadata"  json:"Metadata"`
+	Video    []HistoryEntry `xml:"Video"     json:"Video"`
+	Track    []HistoryEntry `xml:"Track"     json:"Track"`
 }
 
 // PlexMediaContainer represents a media container response from Plex

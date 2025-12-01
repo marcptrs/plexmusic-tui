@@ -42,7 +42,18 @@ func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 		},
 	}
 
-	coord.SetAlbums(albums)
+	// Set up hubs with recently added albums
+	hubs := []app.Hub{
+		{
+			HubIdentifier: "music.recent.added.3",
+			Title:         "Recently Added in Music",
+			Context:       "hub.music.recent.added",
+			Type:          "album",
+			Size:          1,
+			Albums:        albums,
+		},
+	}
+	coord.SetLibraryHubs(hubs)
 	coord.SetSelectedAlbum(0)
 	coord.SetActiveTab(app.HomeTab)
 
@@ -431,9 +442,19 @@ func TestLibraryPage_DrawerOnRight_KeepsNowPlayingVisible(t *testing.T) {
 	coord.SetSelectedServer(0)
 	coord.SetToken("test-token")
 
-	// Ensure we have items to show in drawer
+	// Ensure we have items to show in drawer - set up hubs with recently added albums
 	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
-	coord.SetAlbums(albums)
+	hubs := []app.Hub{
+		{
+			HubIdentifier: "music.recent.added.3",
+			Title:         "Recently Added in Music",
+			Context:       "hub.music.recent.added",
+			Type:          "album",
+			Size:          1,
+			Albums:        albums,
+		},
+	}
+	coord.SetLibraryHubs(hubs)
 	coord.SetActiveTab(app.HomeTab)
 
 	page := NewLibraryPageWithAuth(coord, nil)
@@ -2800,6 +2821,10 @@ func (m *mockLibSvcShort) RefreshPlayQueue(
 	selectedItemID int,
 ) ([]domain.Track, int, error) {
 	return nil, 0, nil
+}
+
+func (m *mockLibSvcShort) FetchSessionHistory(ctx context.Context, limit int) ([]domain.HistoryEntry, error) {
+	return nil, nil
 }
 
 func (m *mockLibSvcShort) Close() error { return nil }

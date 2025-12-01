@@ -53,6 +53,9 @@ type LibraryServicer interface {
 	// Pass 0 to just fetch current state without updating.
 	// Returns all tracks currently in the playQueue and the new version number.
 	RefreshPlayQueue(ctx context.Context, playQueueID int, selectedItemID int) ([]domain.Track, int, error)
+	// FetchSessionHistory returns the playback history from Plex
+	// Limit determines how many history entries to return (0 = all)
+	FetchSessionHistory(ctx context.Context, limit int) ([]domain.HistoryEntry, error)
 	Close() error
 }
 

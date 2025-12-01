@@ -82,9 +82,9 @@ type LibraryPage struct {
 	// drawerOpen indicates whether an overlay drawer (for library/search/settings) is open
 	drawerOpen bool
 
-	// Stats loading state
-	loadingStats bool
-	spinner      spinner.Model
+	// Loading state
+	hubsLoading bool
+	spinner     spinner.Model
 
 	// Now Playing component
 	nowPlaying   *components.NowPlayingComponent
@@ -151,7 +151,6 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		authSvc:       authSvc,
 		showingTracks: false,
 		drawerOpen:    false,
-		loadingStats:  false,
 		spinner:       s,
 		// Track last selected indices so we can fetch tracks lazily when selection changes
 		// without issuing repeated fetches.
@@ -279,12 +278,14 @@ func (p *LibraryPage) Init() tea.Cmd {
 	p.coordinator.SetSelectedPlaylist(0)
 	p.coordinator.SetSelectedTrack(0)
 
-	// Kick off fetching of libraries, recently added and playlists, and begin subscriptions.
+	// Set loading states
+	p.hubsLoading = true
+
+	// Kick off fetching of libraries, playlists, and hubs (which includes recently added and recently played)
 	return tea.Batch(
 		p.subscribeToLibraryEvents(),
 		p.subscribeToPlaybackEvents(),
 		p.fetchLibraries(),
-		p.fetchRecentlyAdded(),
 		p.fetchPlaylists(),
 		p.fetchLibraryHubs(),
 	)
@@ -346,18 +347,20 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, nil
 
 	case spinner.TickMsg:
-		if p.loadingStats || p.playbackInitializing {
+		if p.playbackInitializing || p.hubsLoading {
 			var cmd tea.Cmd
 			p.spinner, cmd = p.spinner.Update(msg)
-			log.Debug("spinner: tick", "loadingStats", p.loadingStats, "playbackInitializing", p.playbackInitializing)
 			return p, cmd
 		}
 
 	case LibraryStatsMsg:
-		p.loadingStats = false
 		p.coordinator.SetArtistsTotal(msg.Artists)
 		p.coordinator.SetAlbumsTotal(msg.Albums)
 		p.coordinator.SetTracksTotal(msg.Tracks)
+		return p, nil
+
+	case LibraryHubsLoadedMsg:
+		p.hubsLoading = false
 		return p, nil
 
 	case PlayQueueRefreshMsg:
@@ -717,6 +720,11 @@ func (p *LibraryPage) fetchLibraryHubs() tea.Cmd {
 				for j, a := range h.Albums {
 					albums[j] = app.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
 				}
+				// Convert artists
+				artists := make([]app.Artist, len(h.Artists))
+				for j, a := range h.Artists {
+					artists[j] = app.Artist{Name: a.Title, Key: a.Key}
+				}
 				appHubs = append(appHubs, app.Hub{
 					HubIdentifier: h.HubIdentifier,
 					Title:         h.Title,
@@ -725,6 +733,7 @@ func (p *LibraryPage) fetchLibraryHubs() tea.Cmd {
 					Size:          h.Size,
 					Playlists:     playlists,
 					Albums:        albums,
+					Artists:       artists,
 				})
 			}
 			p.coordinator.SetLibraryHubs(appHubs)
@@ -739,7 +748,86 @@ func (p *LibraryPage) fetchLibraryHubs() tea.Cmd {
 			if len(mixes) > 0 {
 				p.coordinator.SetMixesForYou(mixes)
 			}
+
+			// Extract recently played artists from the "Recently Played Music" hub
+			for _, h := range appHubs {
+				if strings.Contains(strings.ToLower(h.Context), "recent.played") && len(h.Artists) > 0 {
+					// Add artists to coordinator in reverse order so most recent is first
+					for i := len(h.Artists) - 1; i >= 0; i-- {
+						p.coordinator.AddRecentlyPlayedArtist(h.Artists[i])
+					}
+					log.Debug("Extracted recently played artists from hub", "count", len(h.Artists))
+					break
+				}
+			}
 		}
+		return LibraryHubsLoadedMsg{}
+	}
+}
+
+// fetchSessionHistory triggers fetching session history and extracts recently played artists
+func (p *LibraryPage) fetchSessionHistory() tea.Cmd {
+	if p.libSvc == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
+
+		// Fetch last 50 history entries (enough to get recently played artists)
+		history, err := p.libSvc.FetchSessionHistory(ctx, 50)
+		if err != nil {
+			log.Debug("fetchSessionHistory failed", "err", err)
+			return nil
+		}
+
+		log.Debug("fetchSessionHistory success", "count", len(history))
+
+		// Extract unique artists from track history (in order of most recently played)
+		seen := make(map[string]bool)
+		var artists []app.Artist
+
+		for _, entry := range history {
+			// Only process music tracks
+			if entry.Type != "track" {
+				continue
+			}
+
+			// Use GrandparentTitle for artist name
+			artistName := entry.GrandparentTitle
+			if artistName == "" {
+				continue
+			}
+
+			// Skip if we've already seen this artist
+			if seen[artistName] {
+				continue
+			}
+
+			seen[artistName] = true
+			artists = append(artists, app.Artist{
+				Name: artistName,
+				Key:  entry.GrandparentKey,
+			})
+
+			// Limit to 10 artists
+			if len(artists) >= 10 {
+				break
+			}
+		}
+
+		// Store in coordinator by adding each artist (maintains order)
+		if p.coordinator != nil {
+			// Clear existing list and add all artists in order
+			// We need to replace the entire list, not add one at a time
+			// Since we don't have a SetRecentlyPlayedArtists method, we'll add them in reverse order
+			// so the most recent ends up first
+			for i := len(artists) - 1; i >= 0; i-- {
+				p.coordinator.AddRecentlyPlayedArtist(artists[i])
+			}
+			log.Debug("Stored recently played artists", "count", len(artists))
+		}
+
 		return nil
 	}
 }
@@ -936,51 +1024,45 @@ func (p *LibraryPage) fetchLibraryStats() tea.Cmd {
 	// If not, we might need to wait for libraries.loaded.
 	// For now, let's assume we query the first music library if available.
 
-	// Set loading state immediately so UI updates
-	p.loadingStats = true
+	return func() tea.Msg {
+		// This is a bit tricky because we need the library key.
+		// We can access coordinator state here safely as it's read-only or thread-safe enough for this.
+		// But better to pass the key if we knew it.
+		// Let's try to get libraries from coordinator.
+		libs := p.coordinator.Libraries()
+		if len(libs) == 0 {
+			log.Warn("fetchLibraryStats: No libraries available in coordinator")
+			return nil
+		}
+		// Use the first library for now (or selected if we had that concept fully wired)
+		// The coordinator sets selectedLibrary to 0 by default.
+		idx := p.coordinator.SelectedLibrary()
+		if idx < 0 || idx >= len(libs) {
+			idx = 0
+		}
+		key := libs[idx].Key
+		log.Debug("fetchLibraryStats: starting", "libraryKey", key)
 
-	return tea.Batch(
-		p.spinner.Tick,
-		func() tea.Msg {
-			// This is a bit tricky because we need the library key.
-			// We can access coordinator state here safely as it's read-only or thread-safe enough for this.
-			// But better to pass the key if we knew it.
-			// Let's try to get libraries from coordinator.
-			libs := p.coordinator.Libraries()
-			if len(libs) == 0 {
-				log.Warn("fetchLibraryStats: No libraries available in coordinator")
-				return nil
-			}
-			// Use the first library for now (or selected if we had that concept fully wired)
-			// The coordinator sets selectedLibrary to 0 by default.
-			idx := p.coordinator.SelectedLibrary()
-			if idx < 0 || idx >= len(libs) {
-				idx = 0
-			}
-			key := libs[idx].Key
-			log.Debug("fetchLibraryStats: starting", "libraryKey", key)
+		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+		defer cancel()
 
-			ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-			defer cancel()
-
-			artists, albums, tracks, err := p.libSvc.FetchSectionCounts(ctx, key)
-			if err != nil {
-				log.Error("Failed to fetch library stats", "err", err)
-				// Return zero stats to clear loading state
-				return LibraryStatsMsg{Artists: 0, Albums: 0, Tracks: 0}
-			}
-			log.Debug(
-				"fetchLibraryStats: success",
-				"artists",
-				artists,
-				"albums",
-				albums,
-				"tracks",
-				tracks,
-			)
-			return LibraryStatsMsg{Artists: artists, Albums: albums, Tracks: tracks}
-		},
-	)
+		artists, albums, tracks, err := p.libSvc.FetchSectionCounts(ctx, key)
+		if err != nil {
+			log.Error("Failed to fetch library stats", "err", err)
+			// Return zero stats to clear loading state
+			return LibraryStatsMsg{Artists: 0, Albums: 0, Tracks: 0}
+		}
+		log.Debug(
+			"fetchLibraryStats: success",
+			"artists",
+			artists,
+			"albums",
+			albums,
+			"tracks",
+			tracks,
+		)
+		return LibraryStatsMsg{Artists: artists, Albums: albums, Tracks: tracks}
+	}
 }
 
 type LibraryStatsMsg struct {
@@ -988,6 +1070,8 @@ type LibraryStatsMsg struct {
 	Albums  int
 	Tracks  int
 }
+
+type LibraryHubsLoadedMsg struct{}
 
 type CoverArtLoadedMsg struct {
 	Image image.Image

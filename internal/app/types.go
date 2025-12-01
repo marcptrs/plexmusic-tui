@@ -72,6 +72,12 @@ type Album struct {
 	Thumb  string
 }
 
+// Artist represents an artist (app-facing type)
+type Artist struct {
+	Name string
+	Key  string
+}
+
 // Playlist represents a playlist (app-facing type)
 type Playlist struct {
 	Title        string
@@ -90,6 +96,7 @@ type Hub struct {
 	Size          int
 	Playlists     []Playlist
 	Albums        []Album
+	Artists       []Artist
 }
 
 // Track represents a music track (app-facing type)

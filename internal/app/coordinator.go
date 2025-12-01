@@ -114,6 +114,8 @@ type Coordinator struct {
 	libraryHubs  []domain.Hub
 	// Indicates the server has sonic analysis available for at least some items
 	sonicAvailable bool
+	// Recently played artists (limited to 10 most recent)
+	recentlyPlayedArtists []Artist
 
 	// Mutex for concurrency-safe access to Coordinator fields.
 	mu sync.RWMutex
@@ -495,6 +497,11 @@ func (c *Coordinator) LibraryHubs() []Hub {
 		for j, a := range h.Albums {
 			albums[j] = Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
 		}
+		// Convert artists
+		artists := make([]Artist, len(h.Artists))
+		for j, a := range h.Artists {
+			artists[j] = Artist{Name: a.Title, Key: a.Key}
+		}
 		out[i] = Hub{
 			HubIdentifier: h.HubIdentifier,
 			Title:         h.Title,
@@ -503,6 +510,7 @@ func (c *Coordinator) LibraryHubs() []Hub {
 			Size:          h.Size,
 			Playlists:     playlists,
 			Albums:        albums,
+			Artists:       artists,
 		}
 	}
 	return out
@@ -527,6 +535,11 @@ func (c *Coordinator) SetLibraryHubs(hubs []Hub) {
 		for j, a := range h.Albums {
 			albums[j] = domain.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
 		}
+		// Convert artists
+		artists := make([]domain.Artist, len(h.Artists))
+		for j, a := range h.Artists {
+			artists[j] = domain.Artist{Title: a.Name, Key: a.Key}
+		}
 		out[i] = domain.Hub{
 			HubIdentifier: h.HubIdentifier,
 			Title:         h.Title,
@@ -535,6 +548,7 @@ func (c *Coordinator) SetLibraryHubs(hubs []Hub) {
 			Size:          h.Size,
 			Playlists:     playlists,
 			Albums:        albums,
+			Artists:       artists,
 		}
 	}
 	c.libraryHubs = out
@@ -996,6 +1010,46 @@ func (c *Coordinator) RemoveQueueItem(index int) {
 		c.SetCurrentTrack(nil)
 	} else if c.queueIndex > index {
 		c.queueIndex--
+	}
+}
+
+// RecentlyPlayedArtists returns the list of recently played artists (up to 10)
+func (c *Coordinator) RecentlyPlayedArtists() []Artist {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	// Return a copy to prevent external modifications
+	out := make([]Artist, len(c.recentlyPlayedArtists))
+	copy(out, c.recentlyPlayedArtists)
+	return out
+}
+
+// AddRecentlyPlayedArtist adds an artist to the recently played list
+// If the artist is already in the list, it moves it to the front
+// The list is limited to 10 most recent artists
+func (c *Coordinator) AddRecentlyPlayedArtist(artist Artist) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Skip empty artists
+	if artist.Name == "" {
+		return
+	}
+
+	// Check if artist already exists, remove it if found
+	for i, a := range c.recentlyPlayedArtists {
+		if a.Name == artist.Name {
+			// Remove from current position
+			c.recentlyPlayedArtists = append(c.recentlyPlayedArtists[:i], c.recentlyPlayedArtists[i+1:]...)
+			break
+		}
+	}
+
+	// Add to front
+	c.recentlyPlayedArtists = append([]Artist{artist}, c.recentlyPlayedArtists...)
+
+	// Limit to 10 artists
+	if len(c.recentlyPlayedArtists) > 10 {
+		c.recentlyPlayedArtists = c.recentlyPlayedArtists[:10]
 	}
 }
 

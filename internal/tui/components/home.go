@@ -16,7 +16,7 @@ type HomeItem struct {
 	Title    string
 	Subtitle string
 	Key      string
-	Type     string // "station", "album", "playlist"
+	Type     string // "station", "album", "playlist", "artist"
 }
 
 // HomeComponent displays a scrollable home view with hubs and recently added
@@ -123,8 +123,36 @@ func (c *HomeComponent) Items() []HomeItem {
 func (c *HomeComponent) RefreshFromCoordinator() {
 	c.items = []HomeItem{}
 
-	// Add station/radio items from hubs
+	// Add recently played artists FIRST (matching Plex dashboard order)
+	recentArtists := c.coordinator.RecentlyPlayedArtists()
+	for _, artist := range recentArtists {
+		c.items = append(c.items, HomeItem{
+			Title:    artist.Name,
+			Subtitle: "Recently Played Artist",
+			Key:      artist.Key,
+			Type:     "artist",
+		})
+	}
+
+	// Get hubs once for all sections below
 	hubs := c.coordinator.LibraryHubs()
+
+	// Add recently added albums SECOND - from hubs
+	for _, hub := range hubs {
+		if strings.Contains(strings.ToLower(hub.Context), "recent.added") && len(hub.Albums) > 0 {
+			for _, a := range hub.Albums {
+				c.items = append(c.items, HomeItem{
+					Title:    a.Title,
+					Subtitle: fmt.Sprintf("%s (%d) • Recently Added", a.Artist, a.Year),
+					Key:      a.Key,
+					Type:     "album",
+				})
+			}
+			break
+		}
+	}
+
+	// Add station/radio items from hubs
 	for _, hub := range hubs {
 		if strings.Contains(strings.ToLower(hub.Context), "station") && len(hub.Playlists) > 0 {
 			for _, pl := range hub.Playlists {
@@ -164,22 +192,6 @@ func (c *HomeComponent) RefreshFromCoordinator() {
 		}
 	}
 
-	// Add recently added albums
-	albums := c.coordinator.Albums()
-	limit := 10
-	if len(albums) < limit {
-		limit = len(albums)
-	}
-	for i := 0; i < limit; i++ {
-		a := albums[i]
-		c.items = append(c.items, HomeItem{
-			Title:    a.Title,
-			Subtitle: fmt.Sprintf("%s (%d) • Recently Added", a.Artist, a.Year),
-			Key:      a.Key,
-			Type:     "album",
-		})
-	}
-
 	c.updateContent()
 }
 
@@ -199,6 +211,8 @@ func (c *HomeComponent) updateContent() {
 			section = "Stations"
 		case strings.Contains(item.Subtitle, "Recently Added"):
 			section = "Recently Added"
+		case item.Type == "artist":
+			section = "Recently Played Artists"
 		default:
 			// Extract hub title from subtitle (format: "Artist • Hub Title")
 			parts := strings.Split(item.Subtitle, " • ")
@@ -227,7 +241,7 @@ func (c *HomeComponent) updateContent() {
 			style = styles.SelectedItemStyle
 		}
 
-		if item.Type == "station" {
+		if item.Type == "station" || item.Type == "artist" {
 			b.WriteString(fmt.Sprintf("%s%s\n", prefix, style.Render(item.Title)))
 		} else {
 			// For albums, show title and artist
@@ -257,6 +271,8 @@ func (c *HomeComponent) ensureVisible() {
 			section = "Stations"
 		case strings.Contains(item.Subtitle, "Recently Added"):
 			section = "Recently Added"
+		case item.Type == "artist":
+			section = "Recently Played Artists"
 		default:
 			parts := strings.Split(item.Subtitle, " • ")
 			if len(parts) > 1 {

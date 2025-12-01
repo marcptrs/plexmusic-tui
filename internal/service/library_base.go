@@ -1458,6 +1458,13 @@ func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string
 						continue
 					}
 				}
+				if itemType.Type == "artist" {
+					var ar domain.Artist
+					if err := json.Unmarshal(rawItem, &ar); err == nil {
+						hub.Artists = append(hub.Artists, ar)
+						continue
+					}
+				}
 				// If it has a title and key but no recognized type, treat as a playlist/station
 				if itemType.Title != "" && itemType.Key != "" && itemType.Type == "" {
 					var pl domain.Playlist
@@ -1867,4 +1874,60 @@ func (s *LibraryService) StartStationPlayback(
 	}
 
 	return container.Metadata, activeQueue, nil
+}
+
+// FetchSessionHistory retrieves playback history from Plex
+// limit: number of history entries to return (0 = all)
+func (s *LibraryService) FetchSessionHistory(ctx context.Context, limit int) ([]domain.HistoryEntry, error) {
+	endpoint := fmt.Sprintf("%s/status/sessions/history/all", s.baseURL)
+	log.Debug("FetchSessionHistory", "endpoint", endpoint, "limit", limit)
+
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	s.addPlexHeaders(req)
+
+	// Add limit parameter if specified
+	if limit > 0 {
+		q := req.URL.Query()
+		q.Set("limit", fmt.Sprintf("%d", limit))
+		req.URL.RawQuery = q.Encode()
+	}
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		log.Error("FetchSessionHistory: HTTP request failed", "endpoint", endpoint, "error", err)
+		return nil, fmt.Errorf("failed to fetch session history: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Try to decode as JSON first (newer Plex servers)
+	var container domain.PlexHistoryContainer
+	if err := json.Unmarshal(body, &container); err != nil {
+		// Fall back to XML parsing (older Plex servers or explicit XML requests)
+		// Note: XML parsing would require encoding/xml package
+		log.Debug("FetchSessionHistory: JSON decode failed, trying XML", "error", err)
+		return nil, fmt.Errorf("failed to decode history response: %w", err)
+	}
+
+	// Collect all history entries (from Track, Video, and Metadata arrays)
+	var allEntries []domain.HistoryEntry
+	allEntries = append(allEntries, container.Track...)
+	allEntries = append(allEntries, container.Video...)
+	allEntries = append(allEntries, container.Metadata...)
+
+	log.Debug("FetchSessionHistory: success", "totalEntries", len(allEntries))
+	return allEntries, nil
 }

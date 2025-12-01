@@ -123,9 +123,13 @@ func (p *LibraryPage) View() string {
 			leftContent = p.renderTracks(leftWidth)
 		} else {
 			// Use scrollable home component for home tab
-			p.homeComponent.SetSize(leftWidth, listHeight)
-			p.homeComponent.RefreshFromCoordinator()
-			leftContent = p.homeComponent.View()
+			if p.hubsLoading {
+				leftContent = p.renderLoadingHubs(leftWidth, listHeight)
+			} else {
+				p.homeComponent.SetSize(leftWidth, listHeight)
+				p.homeComponent.RefreshFromCoordinator()
+				leftContent = p.homeComponent.View()
+			}
 		}
 	case app.LibraryTab:
 		if p.showingTracks {
@@ -171,9 +175,13 @@ func (p *LibraryPage) View() string {
 	var rightPaneContent string
 	if len(p.coordinator.Queue()) == 0 {
 		// Show home content when queue is empty
-		p.homeComponent.SetSize(rightWidth, listHeight)
-		p.homeComponent.RefreshFromCoordinator()
-		rightPaneContent = p.homeComponent.View()
+		if p.hubsLoading {
+			rightPaneContent = p.renderLoadingHubs(rightWidth, listHeight)
+		} else {
+			p.homeComponent.SetSize(rightWidth, listHeight)
+			p.homeComponent.RefreshFromCoordinator()
+			rightPaneContent = p.homeComponent.View()
+		}
 	} else {
 		rightPaneContent = p.renderQueue(rightWidth)
 	}
@@ -302,17 +310,6 @@ func (p *LibraryPage) View() string {
 	if server != nil && server.Name != "" {
 		serverName = server.Name
 	}
-	albumsCount := 0
-	artistsCount := 0
-	playlistsCount := 0
-	tracksCount := 0
-	if p.coordinator != nil {
-		albumsCount = p.coordinator.AlbumsTotal()
-		artistsCount = p.coordinator.ArtistsTotal()
-		playlistsCount = p.coordinator.PlaylistsTotal()
-		tracksCount = p.coordinator.TracksTotal()
-	}
-
 	var statusLine string
 	// Compose sonic capability indicator to help users understand whether
 	// server supports sonic analysis and whether any analyzed tracks were detected
@@ -327,22 +324,12 @@ func (p *LibraryPage) View() string {
 		}
 	}
 
-	if p.loadingStats {
-		statusLine = styles.BlurredStyle.Render(
-			fmt.Sprintf("Server: %s • %s Loading stats...", serverName, p.spinner.View()),
-		)
-	} else if p.playbackInitializing {
+	if p.playbackInitializing {
 		statusLine = styles.BlurredStyle.Render(
 			fmt.Sprintf("Server: %s • %s Starting playback...", serverName, p.spinner.View()),
 		)
 	} else {
-		statusLine = styles.BlurredStyle.Render(
-			fmt.Sprintf("Server: %s • Artists: %s • Albums: %s • Playlists: %s • Tracks: %s",
-				serverName,
-				util.FormatNumber(artistsCount),
-				util.FormatNumber(albumsCount),
-				util.FormatNumber(playlistsCount),
-				util.FormatNumber(tracksCount)))
+		statusLine = styles.BlurredStyle.Render(fmt.Sprintf("Server: %s", serverName))
 	}
 	// Append sonic status if available
 	if sonicStatus != "" {
@@ -548,6 +535,23 @@ func (p *LibraryPage) renderQueue(width int) string {
 func (p *LibraryPage) renderTracks(width int) string {
 	p.trackComponent.SetWidth(width)
 	return p.trackComponent.View()
+}
+
+// renderLoadingHubs renders a centered loading spinner while hubs are being fetched
+func (p *LibraryPage) renderLoadingHubs(width, height int) string {
+	spinnerStr := p.spinner.View()
+	loadingText := "Loading..."
+
+	// Combine spinner and text
+	content := fmt.Sprintf("%s %s", spinnerStr, loadingText)
+
+	// Center horizontally and vertically
+	style := lipgloss.NewStyle().
+		Width(width).
+		Height(height).
+		Align(lipgloss.Center, lipgloss.Center)
+
+	return style.Render(content)
 }
 
 // renderWithModal composes the base view layout with the queue modal overlay.

@@ -52,16 +52,13 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 		p.coordinator.SetLibraries(appLibs)
 		if len(appLibs) > 0 {
 			p.coordinator.SetSelectedLibrary(0)
-			// Trigger stats fetch now that we have libraries
-			p.loadingStats = true
+			// Stats will be fetched on-demand when settings tab is viewed
 			return p, tea.Batch(
 				p.subscribeToLibraryEvents(),
 				p.subscribeToPlaybackEvents(),
-				p.fetchLibraryStats(),
-				p.spinner.Tick,
 			)
 		} else {
-			log.Warn("LibraryPage: No libraries found, stats fetch skipped")
+			log.Warn("LibraryPage: No libraries found")
 		}
 	case "recently_added.loaded":
 		// Convert domain.Album to app.Album and update the coordinator
