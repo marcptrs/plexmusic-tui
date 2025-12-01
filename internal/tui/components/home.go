@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/tui/styles"
@@ -228,26 +229,42 @@ func (c *HomeComponent) updateContent() {
 			if currentSection != "" {
 				b.WriteString("\n")
 			}
-			b.WriteString(styles.TitleStyle.Render(section))
+			b.WriteString(styles.SectionTitleStyle.Render(section))
 			b.WriteString("\n")
 			currentSection = section
 		}
 
 		// Render item
 		prefix := "  "
+		// background for line
+		bg := styles.ColorPaneBackground
+		// use delegated title+artist rendering for home items
 		style := styles.PrimaryTextStyle()
 		if i == c.selectedIdx {
 			prefix = "> "
 			style = styles.SelectedItemStyle
+			bg = styles.ColorSelected
 		}
+		// style prefix with same background so it's not unstyled terminal background
+		prefixStyled := lipgloss.NewStyle().Background(bg).Render(prefix)
 
 		if item.Type == "station" || item.Type == "artist" {
-			b.WriteString(fmt.Sprintf("%s%s\n", prefix, style.Render(item.Title)))
+			line := lipgloss.JoinHorizontal(lipgloss.Left, prefixStyled, style.Render(item.Title))
+			// Ensure line uses the full background (avoids black/uncolored gaps)
+			line = lipgloss.NewStyle().Background(bg).Render(line)
+			b.WriteString(line)
+			b.WriteString("\n")
 		} else {
 			// For albums, show title and artist
 			parts := strings.Split(item.Subtitle, " • ")
 			artistInfo := parts[0]
-			b.WriteString(fmt.Sprintf("%s%s\n", prefix, style.Render(fmt.Sprintf("%s — %s", item.Title, artistInfo))))
+			// Centralized rendering: produce a styled title+artist string via styles helper
+			title := styles.RenderTitleArtist(item.Title, artistInfo, i == c.selectedIdx, false)
+			line := lipgloss.JoinHorizontal(lipgloss.Left, prefixStyled, title)
+			// Ensure background fills entire line
+			line = lipgloss.NewStyle().Background(bg).Render(line)
+			b.WriteString(line)
+			b.WriteString("\n")
 		}
 		itemIdx++
 	}

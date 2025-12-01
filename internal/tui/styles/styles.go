@@ -1,18 +1,25 @@
 package styles
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // Color palette
 var (
-	ColorPrimary   = lipgloss.Color("39")  // Blue
-	ColorSecondary = lipgloss.Color("170") // Purple
-	ColorSuccess   = lipgloss.Color("10")  // Green
-	ColorError     = lipgloss.Color("9")   // Red
-	ColorWarning   = lipgloss.Color("11")  // Yellow
-	ColorInfo      = lipgloss.Color("12")  // Light blue
-	ColorMuted     = lipgloss.Color("240") // Gray
-	ColorBorder    = lipgloss.Color("238") // Dark gray (deprecated, kept for compatibility)
-	ColorSelected  = lipgloss.Color("170") // Purple
+	ColorPrimary      = lipgloss.Color("39")  // Blue
+	ColorSecondary    = lipgloss.Color("170") // Purple
+	ColorSecondaryDim = lipgloss.Color("139") // Dimmer purple variant for subtle album tint
+	// White/bright text used for selected rows and emphasis
+	ColorSelectedText = lipgloss.Color("15")
+	ColorSuccess      = lipgloss.Color("10")  // Green
+	ColorError        = lipgloss.Color("9")   // Red
+	ColorWarning      = lipgloss.Color("11")  // Yellow
+	ColorInfo         = lipgloss.Color("12")  // Light blue
+	ColorMuted        = lipgloss.Color("246") // Slightly lighter gray for better contrast
+	ColorBorder       = lipgloss.Color("238") // Dark gray (deprecated, kept for compatibility)
+	ColorSelected     = lipgloss.Color("170") // Purple
 
 	// Background colors for panes
 	ColorPaneBackground        = lipgloss.Color("235") // Very dark gray for normal panes
@@ -26,8 +33,16 @@ var (
 	TitleStyle = lipgloss.NewStyle().
 			Foreground(ColorPrimary).
 			Bold(true).
-			Padding(0, 1)
+			Padding(0, 1).
+			Background(ColorPaneBackground)
 
+	// SectionTitleStyle is used for in-page section headers (e.g., "Recently Added").
+	// Use a slightly different hue to make sections easier to find at a glance.
+	SectionTitleStyle = lipgloss.NewStyle().
+				Foreground(ColorInfo).
+				Bold(true).
+				Padding(0, 1).
+				Background(ColorPaneBackground)
 	// SubtitleStyle for subtitles
 	SubtitleStyle = lipgloss.NewStyle().
 			Foreground(ColorMuted).
@@ -69,9 +84,10 @@ var (
 	InfoStyle = lipgloss.NewStyle().
 			Foreground(ColorInfo)
 
-	// MutedStyle for muted text
+		// MutedStyle for muted text
 	MutedStyle = lipgloss.NewStyle().
-			Foreground(ColorMuted)
+			Foreground(ColorMuted).
+			Background(ColorPaneBackground)
 
 	// ButtonStyle for buttons
 	ButtonStyle = lipgloss.NewStyle().
@@ -190,17 +206,20 @@ func PaneStyle(width, height int) lipgloss.Style {
 func PrimaryTextStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
 		Foreground(ColorPrimary).
+		Background(ColorPaneBackground).
 		Bold(true)
 }
 
 func SecondaryTextStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(ColorSecondary)
+		Foreground(ColorSecondary).
+		Background(ColorPaneBackground)
 }
 
 func TertiaryTextStyle() lipgloss.Style {
 	return lipgloss.NewStyle().
-		Foreground(ColorMuted)
+		Foreground(ColorMuted).
+		Background(ColorPaneBackground)
 }
 
 // Convenience textual helpers to match the old ui package contract.
@@ -230,4 +249,59 @@ func ApplyHeight(style lipgloss.Style, height int) lipgloss.Style {
 // ApplySize applies width and height to a style
 func ApplySize(style lipgloss.Style, width, height int) lipgloss.Style {
 	return style.Width(width).Height(height)
+}
+
+// RenderTitleArtist composes and styles a title and artist pair centrally.
+// If selected is true, the selected styles are used; if playing is true and
+// not selected, the title uses SuccessStyle.
+func RenderTitleArtist(title, artist string, selected bool, playing bool) string {
+	// Build title
+	var titleStr string
+	if selected {
+		titleStr = SelectedItemStyle.Render(title)
+	} else if playing {
+		titleStr = SuccessStyle.Render(title)
+	} else {
+		titleStr = PrimaryTextStyle().Render(title)
+	}
+
+	if artist == "" {
+		return titleStr
+	}
+	// Build artist + album (artist string contains artist as-is in Home list)
+	// We'll split on " - " to separate parts; if none exist, treat artist as whole.
+	parts := strings.SplitN(artist, " - ", 2)
+	artistPart := parts[0]
+	albumPart := ""
+	if len(parts) > 1 {
+		albumPart = parts[1]
+	}
+	if selected {
+		// For selected rows use high-contrast text over the selected background
+		artistStr := lipgloss.NewStyle().Foreground(ColorSelectedText).Background(ColorSelected).Render(artistPart)
+		albumStr := ""
+		if albumPart != "" {
+			// Make album name visible on selected rows: use white text for clarity.
+			albumStr = lipgloss.NewStyle().Foreground(ColorSelectedText).Background(ColorSelected).Render(albumPart)
+		}
+		sep := lipgloss.NewStyle().Foreground(ColorSelectedText).Background(ColorSelected).Render(" - ")
+		sp := lipgloss.NewStyle().Background(ColorSelected).Render(" ")
+		if albumPart == "" {
+			return lipgloss.JoinHorizontal(lipgloss.Left, titleStr, sp, artistStr)
+		}
+		return lipgloss.JoinHorizontal(lipgloss.Left, titleStr, sp, artistStr, sep, albumStr)
+	}
+
+	// Non-selected row
+	artistStr := lipgloss.NewStyle().Foreground(ColorSecondary).Background(ColorPaneBackground).Render(artistPart)
+	albumStr := ""
+	if albumPart != "" {
+		albumStr = lipgloss.NewStyle().Foreground(ColorSecondaryDim).Background(ColorPaneBackground).Render(albumPart)
+	}
+	sep := lipgloss.NewStyle().Foreground(ColorSecondary).Background(ColorPaneBackground).Render(" - ")
+	sp := lipgloss.NewStyle().Background(ColorPaneBackground).Render(" ")
+	if albumPart == "" {
+		return lipgloss.JoinHorizontal(lipgloss.Left, titleStr, sp, artistStr)
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Left, titleStr, sp, artistStr, sep, albumStr)
 }

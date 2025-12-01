@@ -126,7 +126,13 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 	idx := np.coordinator.QueueIndex()
 	if idx+1 < len(queue) {
 		next := queue[idx+1]
-		nextTrackView = styles.MutedStyle.Render(fmt.Sprintf("Next: %s • %s", next.Title, next.Artist))
+		// Use centralized renderer for title + artist to keep styling consistent
+		nextTitle := styles.RenderTitleArtist(next.Title, next.Artist, false, false)
+		// Prefix "Next:" in muted style, then append title+artist rendered string.
+		nextTrackView = lipgloss.JoinHorizontal(lipgloss.Left,
+			styles.MutedStyle.Render("Next: "),
+			nextTitle,
+		)
 	}
 
 	rightColumn := lipgloss.JoinVertical(lipgloss.Left,
@@ -134,7 +140,7 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 		artist,
 		album,
 		"",
-		styles.BlurredStyle.Render(progressBar),
+		progressBar,
 		styles.BlurredStyle.Render(volume),
 		"",
 		nextTrackView,
@@ -183,7 +189,7 @@ func (np *NowPlayingComponent) RenderInfo(width, height int) string {
 		artist,
 		album,
 		"",
-		styles.BlurredStyle.Render(progressBar),
+		progressBar,
 		styles.BlurredStyle.Render(volume),
 		"",
 		nextTrackView,
@@ -234,7 +240,11 @@ func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDurat
 	}
 
 	posStr := util.FormatTrackDuration(posMs)
-	lenStr := util.FormatTrackDuration(lenMs)
+	remainingMs := lenMs - posMs
+	if remainingMs < 0 {
+		remainingMs = 0
+	}
+	remainingStr := "-" + util.FormatTrackDuration(remainingMs)
 
 	// Build a progress bar roughly sized to available width
 	availableWidth := totalWidth
@@ -242,7 +252,7 @@ func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDurat
 		availableWidth = totalWidth - artWidth - 4 // padding
 	}
 
-	barWidth := availableWidth - 16 // approximate timestamp width
+	barWidth := availableWidth - 20 // approximate timestamp width (pos + remaining)
 	if barWidth < 8 {
 		barWidth = 8
 	}
@@ -269,11 +279,14 @@ func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDurat
 
 	barFill := strings.Repeat("█", filled)
 	barEmpty := strings.Repeat(" ", barWidth-filled)
-	return fmt.Sprintf("[%s%s] %s / %s",
+
+	return lipgloss.JoinHorizontal(lipgloss.Left,
+		styles.SecondaryTextStyle().Render(posStr),
+		styles.BlurredStyle.Render(" ["),
 		styles.FocusedStyle.Render(barFill),
 		styles.BlurredStyle.Render(barEmpty),
-		posStr,
-		lenStr,
+		styles.BlurredStyle.Render("] "),
+		styles.SecondaryTextStyle().Render(remainingStr),
 	)
 }
 
@@ -397,9 +410,13 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		lenMs = tr.Duration
 	}
 	posStr := util.FormatTrackDuration(posMs)
-	lenStr := util.FormatTrackDuration(lenMs)
+	remainingMs := lenMs - posMs
+	if remainingMs < 0 {
+		remainingMs = 0
+	}
+	remainingStr := "-" + util.FormatTrackDuration(remainingMs)
 
-	barWidth := width - 10
+	barWidth := width - 20
 	if barWidth < 12 {
 		barWidth = 12
 	}
@@ -423,12 +440,14 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 	}
 	barFill := strings.Repeat("█", filled)
 	barEmpty := strings.Repeat(" ", barWidth-filled)
-	progressBar := fmt.Sprintf(
-		"[%s%s] %s / %s",
+
+	progressBar := lipgloss.JoinHorizontal(lipgloss.Left,
+		styles.SecondaryTextStyle().Render(posStr),
+		styles.BlurredStyle.Render(" ["),
 		styles.FocusedStyle.Render(barFill),
 		styles.BlurredStyle.Render(barEmpty),
-		posStr,
-		lenStr,
+		styles.BlurredStyle.Render("] "),
+		styles.SecondaryTextStyle().Render(remainingStr),
 	)
 
 	info := lipgloss.JoinVertical(
@@ -439,18 +458,16 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		artist,
 		album,
 		"",
-		styles.BlurredStyle.Render(progressBar),
+		progressBar,
 		"",
-		styles.BlurredStyle.Render(
-			fmt.Sprintf(
-				"Volume: %s",
-				styles.BlurredStyle.Render(fmt.Sprintf("%.2f", func() float64 {
-					if vol := np.coordinator.Volume(); vol != nil {
-						return vol.Volume
-					}
-					return 1.0
-				}())),
-			),
+		lipgloss.JoinHorizontal(lipgloss.Left,
+			"Volume: ",
+			styles.BlurredStyle.Render(fmt.Sprintf("%.2f", func() float64 {
+				if vol := np.coordinator.Volume(); vol != nil {
+					return vol.Volume
+				}
+				return 1.0
+			}())),
 		),
 		"",
 		"",

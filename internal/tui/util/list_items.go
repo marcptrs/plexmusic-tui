@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"plexmusic-tui/internal/domain"
-	styles "plexmusic-tui/internal/tui/styles"
 )
 
 // AlbumItem adapts domain.Album to list.Item
@@ -33,14 +32,13 @@ type TrackItem struct {
 }
 
 func (i TrackItem) Title() string {
-	if i.Playing {
-		return styles.SuccessStyle.Render(i.Track.Title)
-	}
+	// Return raw title string; delegate will apply styles centrally.
 	return i.Track.Title
 }
 
 func (i TrackItem) Description() string {
-	return fmt.Sprintf("%s — %s", i.Track.Artist, i.Track.Album)
+	// Return raw unstyled description; delegate will apply artist/album styles.
+	return fmt.Sprintf("%s - %s", i.Track.Artist, i.Track.Album)
 }
 func (i TrackItem) FilterValue() string { return i.Track.Title + " " + i.Track.Artist }
 
@@ -52,13 +50,20 @@ type QueueItem struct {
 }
 
 func (i QueueItem) Title() string {
-	if i.Playing {
-		return styles.SuccessStyle.Render(i.Track.Title)
-	}
 	return i.Track.Title
 }
 
 func (i QueueItem) Description() string {
-	return fmt.Sprintf("%s — %s", i.Track.Artist, i.Track.Album)
+	return fmt.Sprintf("%s - %s", i.Track.Artist, i.Track.Album)
+}
+
+// Expose playing state so delegate can render appropriately
+func (i TrackItem) IsPlaying() bool {
+	return i.Playing
+}
+
+// Expose playing state for queue items
+func (i QueueItem) IsPlaying() bool {
+	return i.Playing
 }
 func (i QueueItem) FilterValue() string { return i.Track.Title + " " + i.Track.Artist }

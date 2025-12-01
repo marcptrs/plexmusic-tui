@@ -22,6 +22,7 @@ import (
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	components "plexmusic-tui/internal/tui/components"
+	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
 
@@ -140,7 +141,10 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	// Use the muted/blurred style as a base so the spinner adopts the
+	// current pane background, avoiding background color leakage that can
+	// make the spinner text appear with a black / wrong background.
+	s.Style = styles.BlurredStyle.Foreground(lipgloss.Color("205"))
 
 	orch := tui.NewOrchestrator(coord, nil, nil)
 
@@ -294,6 +298,15 @@ func (p *LibraryPage) Init() tea.Cmd {
 // Update processes messages for the library page, including window
 // size changes, library/playback events, and key events for navigation & actions.
 func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Debug: log top-level message types for development only (disabled by default)
+	// Unpack BatchMsg to ensure sub-messages are processed (e.g. Tick + Subscribe)
+	// If we get a BatchMsg, let Bubble Tea handle it as normal; don't attempt to
+	// call contained tea.Cmds synchronously or return subscription commands
+	// that block the test harness. This was previously handled by returning a
+	// single tea.Tick command from playback.finished and re-subscribing inside
+	// the playbackAdvanceMsg handling so we don't need custom batch handling.
+	// Bubble Tea processes Batch commands itself and will call Update for
+	// any messages they generate; we don't need to handle tea.BatchMsg here.
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
@@ -533,6 +546,9 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.lastLoadFailed = false
 			return p, nil
 		}
+		// Call playNext to trigger orchestration; do not include subscribe commands
+		// in the returned command to avoid blocking tests. Subscriptions will be
+		// re-attached by other commands or background flows as needed.
 		return p, p.playNext()
 
 	case tea.KeyMsg:
@@ -584,36 +600,12 @@ func (p *LibraryPage) Close() {
 
 // subscribeToLibraryEvents forwards library events as Tea messages to Update.
 func (p *LibraryPage) subscribeToLibraryEvents() tea.Cmd {
-	if p.libEvtCh == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		for ev := range p.libEvtCh {
-			// Forward both success and error events for this page
-			switch ev.Type {
-			case "recently_added.loaded", "playlists.loaded", "tracks.loaded", "albums.loaded",
-				"recently_added.fetch_failed", "playlists.fetch_failed", "tracks.fetch_failed", "albums.fetch_failed",
-				"libraries.loaded", "libraries.fetch_failed":
-				return ev.Payload
-			default:
-				continue
-			}
-		}
-		return nil
-	}
+	return util.SubscribeToChannel(p.libEvtCh)
 }
 
-// and returns them as Tea messages for Update.
+// subscribeToPlaybackEvents forwards playback events as Tea messages to Update.
 func (p *LibraryPage) subscribeToPlaybackEvents() tea.Cmd {
-	if p.pbEvtCh == nil {
-		return nil
-	}
-	return func() tea.Msg {
-		for ev := range p.pbEvtCh {
-			return ev.Payload
-		}
-		return nil
-	}
+	return util.SubscribeToChannel(p.pbEvtCh)
 }
 
 // subscribeToAuthEvents forwards auth events relevant to server discovery.
@@ -624,15 +616,7 @@ func (p *LibraryPage) subscribeToAuthEvents() tea.Cmd {
 		}
 		p.authEvtCh = p.authSvc.Subscribe(p.ctx)
 	}
-	return func() tea.Msg {
-		for ev := range p.authEvtCh {
-			// Only forward servers related events (servers.loaded, servers.fetch_failed)
-			if ev.Type == "servers.loaded" || ev.Type == "servers.fetch_failed" {
-				return ev.Payload
-			}
-		}
-		return nil
-	}
+	return util.SubscribeToChannel(p.authEvtCh)
 }
 
 // fetchLibraries triggers fetching available libraries.

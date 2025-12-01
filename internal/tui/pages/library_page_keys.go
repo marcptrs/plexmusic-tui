@@ -397,9 +397,9 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return p, nil
 
 	case key.Matches(msg, p.keys.Next):
-		return p, p.playNext()
+		return p, tea.Batch(p.playNext(), p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	case key.Matches(msg, p.keys.Prev):
-		return p, p.playPrev()
+		return p, tea.Batch(p.playPrev(), p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	case key.Matches(msg, p.keys.SeekForward):
 		if p.coordinator.PlaybackService() != nil && p.orchestrator != nil {
 			svc := p.coordinator.PlaybackService()

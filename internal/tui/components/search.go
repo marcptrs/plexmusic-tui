@@ -110,7 +110,8 @@ func (s *SearchComponent) PerformSearch() {
 		for _, a := range s.coordinator.Albums() {
 			if strings.Contains(strings.ToLower(a.Title), q) ||
 				strings.Contains(strings.ToLower(a.Artist), q) {
-				str := fmt.Sprintf("%s — %s", a.Title, a.Artist)
+				// Use centralized renderer for title+artist.
+				str := styles.RenderTitleArtist(a.Title, a.Artist, false, false)
 				if !seen[str] {
 					s.results = append(s.results, str)
 					seen[str] = true
@@ -121,7 +122,7 @@ func (s *SearchComponent) PerformSearch() {
 		// Search playlists
 		for _, pl := range s.coordinator.Playlists() {
 			if strings.Contains(strings.ToLower(pl.Title), q) {
-				str := fmt.Sprintf("%s (playlist)", pl.Title)
+				str := styles.PrimaryTextStyle().Render(fmt.Sprintf("%s (playlist)", pl.Title))
 				if !seen[str] {
 					s.results = append(s.results, str)
 					seen[str] = true
@@ -134,7 +135,11 @@ func (s *SearchComponent) PerformSearch() {
 			if strings.Contains(strings.ToLower(t.Title), q) ||
 				strings.Contains(strings.ToLower(t.Artist), q) ||
 				strings.Contains(strings.ToLower(t.Album), q) {
-				str := fmt.Sprintf("%s — %s (track)", t.Title, t.Artist)
+				// Use centralized helper for title/artist, mark as track in the suffix.
+				str := lipgloss.JoinHorizontal(lipgloss.Left,
+					styles.RenderTitleArtist(t.Title, t.Artist, false, false),
+					styles.BlurredStyle.Render(" (track)"),
+				)
 				if !seen[str] {
 					s.results = append(s.results, str)
 					seen[str] = true

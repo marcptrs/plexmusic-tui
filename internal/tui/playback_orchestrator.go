@@ -293,6 +293,8 @@ func (o *Orchestrator) PlayNext(
 		return err
 	}
 
+	// Debugging log removed - trust orchestrator behavior; add tests focused on PlayNext
+
 	// If a queue is in use and the controller signalled completion (newQueueIdx == -1),
 	// stop playback and clear the queue selection instead of wrapping. This avoids
 	// infinite looping of queued tracks — when the queue completes, stop and clear

@@ -325,15 +325,26 @@ func (p *LibraryPage) View() string {
 	}
 
 	if p.playbackInitializing {
-		statusLine = styles.BlurredStyle.Render(
-			fmt.Sprintf("Server: %s • %s Starting playback...", serverName, p.spinner.View()),
+		statusLine = lipgloss.JoinHorizontal(lipgloss.Left,
+			styles.BlurredStyle.Render("Server: "),
+			styles.BlurredStyle.Render(serverName),
+			styles.BlurredStyle.Render(" • "),
+			p.spinner.View(),
+			styles.BlurredStyle.Render(" Starting playback..."),
 		)
 	} else {
-		statusLine = styles.BlurredStyle.Render(fmt.Sprintf("Server: %s", serverName))
+		statusLine = styles.BlurredStyle.Render(lipgloss.JoinHorizontal(lipgloss.Left,
+			"Server: ",
+			serverName,
+		))
 	}
 	// Append sonic status if available
 	if sonicStatus != "" {
-		statusLine = fmt.Sprintf("%s • %s", statusLine, sonicStatus)
+		statusLine = lipgloss.JoinHorizontal(lipgloss.Left,
+			statusLine,
+			" • ",
+			sonicStatus,
+		)
 	}
 
 	// Build a transient notification message; we'll render it as a floating
@@ -469,9 +480,11 @@ func (p *LibraryPage) renderRecentlyAdded(width int) string {
 	for _, hub := range hubs {
 		// Only render station hubs (radio stations)
 		if strings.Contains(strings.ToLower(hub.Context), "station") && len(hub.Playlists) > 0 {
-			b.WriteString(styles.TitleStyle.Render("Stations"))
+			b.WriteString(styles.SectionTitleStyle.Render("Stations"))
 			for _, pl := range hub.Playlists {
-				b.WriteString("\n  " + styles.PrimaryTextStyle().Render(pl.Title))
+				prefix := "  "
+				prefixStyled := lipgloss.NewStyle().Background(styles.ColorPaneBackground).Render(prefix)
+				b.WriteString("\n" + prefixStyled + styles.PrimaryTextStyle().Render(pl.Title))
 			}
 			b.WriteString("\n\n")
 			break // Only show one stations hub
@@ -479,7 +492,7 @@ func (p *LibraryPage) renderRecentlyAdded(width int) string {
 	}
 
 	// Recently Added list
-	b.WriteString(styles.TitleStyle.Render("Recently Added"))
+	b.WriteString(styles.SectionTitleStyle.Render("Recently Added"))
 	b.WriteString("\n")
 	// On the home screen, always limit to 5 albums for a cleaner view
 	items := p.recentlyAddedComponent.Items()
@@ -493,25 +506,13 @@ func (p *LibraryPage) renderRecentlyAdded(width int) string {
 		item := items[i]
 		if albumItem, ok := item.(util.AlbumItem); ok {
 			prefix := "  "
-			style := styles.PrimaryTextStyle()
 			if i == selectedIdx {
 				prefix = "> "
-				style = styles.SelectedItemStyle
 			}
-			b.WriteString(
-				fmt.Sprintf(
-					"%s%s\n",
-					prefix,
-					style.Render(
-						fmt.Sprintf(
-							"%s — %s (%d)",
-							albumItem.Album.Title,
-							albumItem.Album.Artist,
-							albumItem.Album.Year,
-						),
-					),
-				),
-			)
+			// Use centralized title+artist renderer for consistent background and colors
+			artistInfo := fmt.Sprintf("%s (%d)", albumItem.Album.Artist, albumItem.Album.Year)
+			title := styles.RenderTitleArtist(albumItem.Album.Title, artistInfo, i == selectedIdx, false)
+			b.WriteString(fmt.Sprintf("%s%s\n", prefix, title))
 		}
 	}
 	if len(items) > homeLimit {
@@ -542,8 +543,11 @@ func (p *LibraryPage) renderLoadingHubs(width, height int) string {
 	spinnerStr := p.spinner.View()
 	loadingText := "Loading..."
 
-	// Combine spinner and text
-	content := fmt.Sprintf("%s %s", spinnerStr, loadingText)
+	content := lipgloss.JoinHorizontal(lipgloss.Left,
+		spinnerStr,
+		" ",
+		styles.BlurredStyle.Render(loadingText),
+	)
 
 	// Center horizontally and vertically
 	style := lipgloss.NewStyle().

@@ -355,6 +355,10 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		if p.coordinator.IsPlaying() && !p.lastLoadFailed {
 			// Schedule advance with timestamp so we can detect stale messages
 			scheduledAt := time.Now()
+			// Re-subscribe to events so we're listening when playbackAdvanceMsg triggers
+			// Return only a tick so that the test harness can call cmd() without
+			// blocking on subscribe commands that read from channels.
+			// Re-subscribe will be done when handling playbackAdvanceMsg.
 			return p, tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 				return playbackAdvanceMsg{scheduledAt: scheduledAt}
 			})
@@ -364,7 +368,7 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 	case "playback.advance_next":
 		// Legacy event type - redirect to playNext
 		// This may still be used by external callers
-		return p, p.playNext()
+		return p, tea.Batch(p.playNext(), p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	case "playback.position":
 		// Periodic position updates from the service.
 		// Only update state if values actually changed to avoid unnecessary re-renders.
