@@ -686,6 +686,19 @@ func (s *LibraryService) FetchStream(
 	ctx context.Context,
 	track *domain.Track,
 ) (io.ReadCloser, string, error) {
+	// If Media info is missing, try to enrich the track details
+	if len(track.Media) == 0 && track.Key != "" {
+		log.Debug("FetchStream: Media info missing, fetching full track details", "key", track.Key)
+		tracks, _, err := s.FetchTracks(ctx, track.Key)
+		if err == nil && len(tracks) > 0 {
+			// Use the enriched track
+			log.Debug("FetchStream: Enriched track details", "media_count", len(tracks[0].Media))
+			track = &tracks[0]
+		} else {
+			log.Warn("FetchStream: Failed to enrich track details", "error", err)
+		}
+	}
+
 	urlStr, err := s.BuildStreamURL(track)
 	if err != nil {
 		return nil, "", err
@@ -709,6 +722,7 @@ func (s *LibraryService) FetchStream(
 
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
+		log.Error("FetchStream failed", "url", urlStr, "status", resp.StatusCode, "track", track.Title)
 		return nil, "", fmt.Errorf("failed to fetch stream: status %d", resp.StatusCode)
 	}
 
@@ -1346,7 +1360,7 @@ func (s *LibraryService) FetchSonicAdventure(ctx context.Context, start, end str
 func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string) ([]domain.Hub, error) {
 	// Fetch hubs for the music section - this includes stations, mixes, on this day, etc.
 	endpoint := fmt.Sprintf("%s/hubs/sections/%s?includeStations=1", s.baseURL, sectionKey)
-	log.Debug("FetchLibraryHubs: fetching hubs", "endpoint", endpoint, "sectionKey", sectionKey)
+	// log.Debug("FetchLibraryHubs: fetching hubs", "endpoint", endpoint, "sectionKey", sectionKey)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -1367,11 +1381,9 @@ func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string
 	}
 
 	// Log the raw response to understand the structure
-	preview := string(body)
-	if len(preview) > 2000 {
-		preview = preview[:2000]
-	}
-	log.Debug("FetchLibraryHubs: response preview", "preview", preview)
+	_ = body // Preview truncation left for potential debugging
+	// preview := string(body[:2000])
+	// log.Debug("FetchLibraryHubs: response preview", "preview", preview)
 
 	// Parse the hub response
 	var hubResponse struct {
@@ -1483,7 +1495,7 @@ func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string
 		hubs = append(hubs, hub)
 	}
 
-	log.Debug("FetchLibraryHubs: parsed hubs", "count", len(hubs))
+	// log.Debug("FetchLibraryHubs: parsed hubs", "count", len(hubs))
 	return hubs, nil
 }
 

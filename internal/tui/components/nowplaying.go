@@ -6,6 +6,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/lipgloss"
 
 	"plexmusic-tui/internal/app"
@@ -50,6 +51,8 @@ type NowPlayingComponent struct {
 	lastPrecomputeThumb string
 	lastPrecomputeW     int
 	lastPrecomputeH     int
+	// Progress bar component from Bubbles
+	progress progress.Model
 }
 
 // NewNowPlayingComponent creates a new NowPlayingComponent.
@@ -57,9 +60,19 @@ func NewNowPlayingComponent(
 	coordinator app.Coordinatorer,
 	pbSvc service.PlaybackServicer,
 ) *NowPlayingComponent {
+	// Create progress bar with custom styling
+	prog := progress.New(
+		progress.WithoutPercentage(),
+		progress.WithFillCharacters('█', ' '),
+	)
+	// Apply custom colors from styles
+	prog.FullColor = string(styles.ColorPrimary)
+	prog.EmptyColor = string(styles.ColorMuted)
+
 	return &NowPlayingComponent{
 		coordinator: coordinator,
 		pbSvc:       pbSvc,
+		progress:    prog,
 	}
 }
 
@@ -215,28 +228,29 @@ func (np *NowPlayingComponent) renderNothingPlaying(width, height int) string {
 
 // buildProgressBar constructs a progress bar string with position/duration.
 func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDuration int) string {
-	// Use sample pos/length and sample rate (if available) to compute a time-based position.
-	posSamples := np.coordinator.StreamPosition()
-	lengthSamples := np.coordinator.StreamLength()
+	// Use time-based calculated position for smooth display
+	posMs := np.coordinator.CalculatedPositionMs()
 	sr := int(np.coordinator.SampleRate())
+	lengthSamples := np.coordinator.StreamLength()
 
-	var posMs, lenMs int
-	if sr > 0 {
-		posMs = posSamples * 1000 / sr
-		if lengthSamples > 0 {
-			lenMs = lengthSamples * 1000 / sr
-		} else {
-			lenMs = trackDuration
-		}
+	var lenMs int
+	if sr > 0 && lengthSamples > 0 {
+		lenMs = lengthSamples * 1000 / sr
 	} else {
-		// Fallback to track duration
-		posMs = 0
 		lenMs = trackDuration
 	}
 
 	// If lenMs still zero, fallback
 	if lenMs == 0 {
 		lenMs = trackDuration
+	}
+
+	// Clamp position to valid range
+	if posMs < 0 {
+		posMs = 0
+	}
+	if posMs > lenMs {
+		posMs = lenMs
 	}
 
 	posStr := util.FormatTrackDuration(posMs)
@@ -246,17 +260,20 @@ func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDurat
 	}
 	remainingStr := "-" + util.FormatTrackDuration(remainingMs)
 
-	// Build a progress bar roughly sized to available width
+	// Build progress bar using Bubbles progress component
 	availableWidth := totalWidth
 	if artWidth > 0 {
 		availableWidth = totalWidth - artWidth - 4 // padding
 	}
 
-	barWidth := availableWidth - 20 // approximate timestamp width (pos + remaining)
+	// Account for timestamp width: "MM:SS [bar] -MM:SS"
+	barWidth := availableWidth - 20
 	if barWidth < 8 {
 		barWidth = 8
 	}
 
+	// Set progress bar width and calculate percentage
+	np.progress.Width = barWidth
 	var pct float64
 	if lenMs > 0 {
 		pct = float64(posMs) / float64(lenMs)
@@ -265,27 +282,13 @@ func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDurat
 		} else if pct > 1 {
 			pct = 1
 		}
-	} else {
-		pct = 0
 	}
-
-	filled := int(pct * float64(barWidth))
-	if filled < 0 {
-		filled = 0
-	}
-	if filled > barWidth {
-		filled = barWidth
-	}
-
-	barFill := strings.Repeat("█", filled)
-	barEmpty := strings.Repeat(" ", barWidth-filled)
 
 	return lipgloss.JoinHorizontal(lipgloss.Left,
 		styles.SecondaryTextStyle().Render(posStr),
-		styles.BlurredStyle.Render(" ["),
-		styles.FocusedStyle.Render(barFill),
-		styles.BlurredStyle.Render(barEmpty),
-		styles.BlurredStyle.Render("] "),
+		" ",
+		np.progress.ViewAs(pct),
+		" ",
 		styles.SecondaryTextStyle().Render(remainingStr),
 	)
 }
@@ -393,22 +396,28 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		}
 	}
 
-	// Playback info and controls
-	posSamples := np.coordinator.StreamPosition()
-	lengthSamples := np.coordinator.StreamLength()
+	// Use time-based calculated position for smooth display
+	posMs := np.coordinator.CalculatedPositionMs()
 	sr := int(np.coordinator.SampleRate())
-	var posMs, lenMs int
-	if sr > 0 {
-		posMs = posSamples * 1000 / sr
-		if lengthSamples > 0 {
-			lenMs = lengthSamples * 1000 / sr
-		} else {
-			lenMs = tr.Duration
-		}
+	lengthSamples := np.coordinator.StreamLength()
+	var lenMs int
+	if sr > 0 && lengthSamples > 0 {
+		lenMs = lengthSamples * 1000 / sr
 	} else {
-		posMs = 0
 		lenMs = tr.Duration
 	}
+	if lenMs == 0 {
+		lenMs = tr.Duration
+	}
+
+	// Clamp position to valid range
+	if posMs < 0 {
+		posMs = 0
+	}
+	if posMs > lenMs {
+		posMs = lenMs
+	}
+
 	posStr := util.FormatTrackDuration(posMs)
 	remainingMs := lenMs - posMs
 	if remainingMs < 0 {
@@ -420,6 +429,9 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 	if barWidth < 12 {
 		barWidth = 12
 	}
+
+	// Use Bubbles progress bar
+	np.progress.Width = barWidth
 	var pct float64
 	if lenMs > 0 {
 		pct = float64(posMs) / float64(lenMs)
@@ -428,25 +440,13 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		} else if pct > 1 {
 			pct = 1
 		}
-	} else {
-		pct = 0
 	}
-	filled := int(pct * float64(barWidth))
-	if filled < 0 {
-		filled = 0
-	}
-	if filled > barWidth {
-		filled = barWidth
-	}
-	barFill := strings.Repeat("█", filled)
-	barEmpty := strings.Repeat(" ", barWidth-filled)
 
 	progressBar := lipgloss.JoinHorizontal(lipgloss.Left,
 		styles.SecondaryTextStyle().Render(posStr),
-		styles.BlurredStyle.Render(" ["),
-		styles.FocusedStyle.Render(barFill),
-		styles.BlurredStyle.Render(barEmpty),
-		styles.BlurredStyle.Render("] "),
+		" ",
+		np.progress.ViewAs(pct),
+		" ",
 		styles.SecondaryTextStyle().Render(remainingStr),
 	)
 

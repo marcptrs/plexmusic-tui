@@ -222,6 +222,10 @@ func (p *LibraryPage) Init() tea.Cmd {
 	if p.libSvc == nil {
 		p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token, http.NewFactory())
 		p.libEvtCh = p.libSvc.Subscribe(p.ctx)
+		// Store in coordinator so media control wrapper can access it
+		if p.coordinator != nil {
+			p.coordinator.SetLibraryService(p.libSvc)
+		}
 	} else {
 		// Update base URL and token to reflect current selected server.
 		if err := p.libSvc.SetBaseURL(baseURL); err != nil {
@@ -491,30 +495,30 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only update the album art if the loaded path matches the current track's thumb
 		// This prevents stale art from a previous track overwriting the current track's art
 		currentTrack := p.coordinator.CurrentTrack()
-		log.Debug("CoverArtLoadedMsg: received",
-			"loadedPath", msg.Path,
-			"currentTrackTitle", func() string {
-				if currentTrack != nil {
-					return currentTrack.Title
-				}
-				return "<nil>"
-			}(),
-			"currentTrackThumb", func() string {
-				if currentTrack != nil {
-					return currentTrack.Thumb
-				}
-				return "<nil>"
-			}(),
-			"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
+		// log.Debug("CoverArtLoadedMsg: received",
+		// 	"loadedPath", msg.Path,
+		// 	"currentTrackTitle", func() string {
+		// 		if currentTrack != nil {
+		// 			return currentTrack.Title
+		// 		}
+		// 		return "<nil>"
+		// 	}(),
+		// 	"currentTrackThumb", func() string {
+		// 		if currentTrack != nil {
+		// 			return currentTrack.Thumb
+		// 		}
+		// 		return "<nil>"
+		// 	}(),
+		// 	"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
 		if currentTrack != nil && currentTrack.Thumb != msg.Path {
-			log.Debug("CoverArtLoadedMsg: ignoring stale art",
-				"loadedPath", msg.Path,
-				"currentThumb", currentTrack.Thumb)
+			// log.Debug("CoverArtLoadedMsg: ignoring stale art",
+			// 	"loadedPath", msg.Path,
+			// 	"currentThumb", currentTrack.Thumb)
 			return p, nil
 		}
 		// Dump before/after views to assist in debugging VSCode terminal rendering
 		p.dumpPageView("before_art_load")
-		log.Debug("CoverArtLoadedMsg: setting album art", "path", msg.Path)
+		// log.Debug("CoverArtLoadedMsg: setting album art", "path", msg.Path)
 		p.coordinator.SetPlaybackAlbumArt(msg.Image, msg.Path)
 		p.dumpPageView("after_art_load")
 		return p, nil
@@ -550,6 +554,15 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// in the returned command to avoid blocking tests. Subscriptions will be
 		// re-attached by other commands or background flows as needed.
 		return p, p.playNext()
+
+	case progressTickMsg:
+		// Schedule next tick if playback is active
+		if p.coordinator.IsPlaying() {
+			return p, tea.Tick(progressTickInterval, func(t time.Time) tea.Msg {
+				return progressTickMsg{}
+			})
+		}
+		return p, nil
 
 	case tea.KeyMsg:
 		return p.handleKeyMsg(msg)
@@ -936,6 +949,20 @@ type playbackAdvanceMsg struct {
 	scheduledAt time.Time
 }
 
+// progressTickMsg is sent periodically to update the progress bar display
+// when playback is active. This enables smooth time-based position display.
+type progressTickMsg struct{}
+
+// progressTickInterval is how often we update the progress bar display
+const progressTickInterval = 250 * time.Millisecond
+
+// startProgressTick returns a command that starts the progress bar ticker
+func (p *LibraryPage) startProgressTick() tea.Cmd {
+	return tea.Tick(progressTickInterval, func(t time.Time) tea.Msg {
+		return progressTickMsg{}
+	})
+}
+
 // PlayQueueRefreshMsg is sent when a playQueue has been refreshed with new tracks
 type PlayQueueRefreshMsg struct {
 	Tracks  []domain.Track
@@ -1063,18 +1090,19 @@ type CoverArtLoadedMsg struct {
 }
 
 func (p *LibraryPage) fetchCoverArtCmd(path string) tea.Cmd {
-	log.Debug("fetchCoverArtCmd: starting fetch", "path", path)
+	// log.Debug("fetchCoverArtCmd: starting fetch", "path", path)
 	return func() tea.Msg {
 		if p.libSvc == nil {
-			log.Debug("fetchCoverArtCmd: no libSvc", "path", path)
+			// log.Debug("fetchCoverArtCmd: no libSvc", "path", path)
 			return nil
 		}
 		img, err := p.libSvc.FetchImage(p.ctx, path)
 		if err != nil {
+			// Keep error logs
 			log.Error("failed to fetch cover art", "path", path, "err", err)
 			return nil
 		}
-		log.Debug("fetchCoverArtCmd: fetch complete", "path", path)
+		// log.Debug("fetchCoverArtCmd: fetch complete", "path", path)
 		return CoverArtLoadedMsg{Image: img, Path: path}
 	}
 }

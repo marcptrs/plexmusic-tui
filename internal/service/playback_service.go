@@ -129,6 +129,12 @@ func (s *PlaybackService) Play(track *domain.Track) error {
 
 // Pause pauses playback
 func (s *PlaybackService) Pause() error {
+	// Update position before pausing to ensure we have the latest
+	s.player.UpdatePosition()
+	pos := s.player.Position()
+	rate := s.player.SampleRate()
+	log.Debug("PlaybackService.Pause", "position", pos, "sampleRate", rate)
+
 	err := s.player.Pause()
 	if err != nil {
 		return err
@@ -138,8 +144,10 @@ func (s *PlaybackService) Pause() error {
 	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.paused",
 		Payload: domain.PlaybackEvent{
-			Type:  "playback.paused",
-			State: domain.PlaybackPaused,
+			Type:       "playback.paused",
+			State:      domain.PlaybackPaused,
+			Position:   pos,
+			SampleRate: rate,
 		},
 	})
 
@@ -153,12 +161,17 @@ func (s *PlaybackService) Resume() error {
 		return err
 	}
 
+	// Update position immediately after resume
+	s.player.UpdatePosition()
+
 	log.Debug("PlaybackService.Resume success")
 	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.resumed",
 		Payload: domain.PlaybackEvent{
-			Type:  "playback.resumed",
-			State: domain.PlaybackPlaying,
+			Type:       "playback.resumed",
+			State:      domain.PlaybackPlaying,
+			Position:   s.player.Position(),
+			SampleRate: s.player.SampleRate(),
 		},
 	})
 
@@ -193,12 +206,25 @@ func (s *PlaybackService) Seek(pos int) error {
 	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.seeked",
 		Payload: domain.PlaybackEvent{
-			Type:     "playback.seeked",
-			Position: pos,
+			Type:       "playback.seeked",
+			Position:   pos,
+			Duration:   s.player.Length(),
+			SampleRate: s.player.SampleRate(),
+			State:      s.player.State(),
 		},
 	})
 
 	return nil
+}
+
+// SeekToSeconds seeks to a position specified in seconds
+func (s *PlaybackService) SeekToSeconds(seconds float64) error {
+	sampleRate := s.player.SampleRate()
+	if sampleRate == 0 {
+		return nil // No track loaded
+	}
+	pos := int(seconds * float64(sampleRate))
+	return s.Seek(pos)
 }
 
 // SetVolume sets the playback volume
@@ -226,7 +252,7 @@ func (s *PlaybackService) CurrentTrack() *domain.Track {
 
 // Position returns the current playback position
 func (s *PlaybackService) Position() int {
-	return s.player.Position()
+	return s.player.AudiblePosition()
 }
 
 // Length returns the total track length
@@ -235,7 +261,7 @@ func (s *PlaybackService) Length() int {
 }
 
 // GetPosition is a backward-compatible wrapper for PlaylistServicer interface
-func (s *PlaybackService) GetPosition() int { return s.player.Position() }
+func (s *PlaybackService) GetPosition() int { return s.player.AudiblePosition() }
 
 // GetDuration is a backward-compatible wrapper for PlaylistServicer interface
 func (s *PlaybackService) GetDuration() int { return s.player.Length() }
@@ -260,9 +286,10 @@ func (s *PlaybackService) UpdatePosition() {
 		Type: "playback.position",
 		Payload: domain.PlaybackEvent{
 			Type:       "playback.position",
-			Position:   s.player.Position(),
+			Position:   s.player.AudiblePosition(),
 			Duration:   s.player.Length(),
 			SampleRate: s.player.SampleRate(),
+			State:      s.player.State(),
 		},
 	})
 }

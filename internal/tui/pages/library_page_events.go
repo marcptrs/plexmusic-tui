@@ -279,6 +279,10 @@ func (p *LibraryPage) handleAuthEvent(msg domain.AuthEvent) (tea.Model, tea.Cmd)
 			}
 			p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token, http.NewFactory())
 			p.libEvtCh = p.libSvc.Subscribe(p.ctx)
+			// Store in coordinator so media control wrapper can access it
+			if p.coordinator != nil {
+				p.coordinator.SetLibraryService(p.libSvc)
+			}
 
 			// Kick off a library refresh and subscribe to library events
 			return p, tea.Batch(p.subscribeToLibraryEvents(), p.fetchRecentlyAdded(), p.fetchPlaylists())
@@ -317,6 +321,7 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		// Record when this track started to help detect stale advance messages
 		p.lastTrackStarted = time.Now()
 		p.coordinator.SetPlaybackState(app.PlaybackPlaying)
+		p.coordinator.SetStreamPosition(0)
 		if msg.Track != nil {
 			track := util.DomainTrackToApp(msg.Track)
 			p.coordinator.SetCurrentTrack(track)
@@ -326,18 +331,26 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 				"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
 			// Fetch the album art for the track now that playback started
 			if track.Thumb != "" && p.coordinator.PlaybackAlbumArtThumb() != track.Thumb {
-				log.Debug("playback.started: fetching new cover art", "path", track.Thumb)
 				postCmd = p.fetchCoverArtCmd(track.Thumb)
-			} else {
-				log.Debug("playback.started: skipping art fetch (same or empty)",
-					"thumb", track.Thumb,
-					"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
 			}
 		}
 		// Update queue UI to reflect the new playing track
 		p.queueComponent.UpdateListFromCoordinator()
+		// Start progress bar ticker for display updates
+		return p, tea.Batch(
+			postCmd,
+			p.subscribeToPlaybackEvents(),
+			p.subscribeToLibraryEvents(),
+			p.startProgressTick(),
+		)
 	case "playback.resumed":
 		p.coordinator.SetPlaybackState(app.PlaybackPlaying)
+		// Start progress bar ticker for display updates
+		return p, tea.Batch(
+			p.subscribeToPlaybackEvents(),
+			p.subscribeToLibraryEvents(),
+			p.startProgressTick(),
+		)
 	case "playback.paused":
 		p.coordinator.SetPlaybackState(app.PlaybackPaused)
 	case "playback.stopped":
@@ -371,35 +384,20 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		return p, tea.Batch(p.playNext(), p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	case "playback.position":
 		// Periodic position updates from the service.
-		// Only update state if values actually changed to avoid unnecessary re-renders.
-		stateChanged := false
+		// Update stream position directly - TUI displays this value.
 		if msg.Position >= 0 {
-			// Only update if position changed by at least 1 second worth of samples
-			// to reduce re-render frequency while still showing progress.
-			oldPos := p.coordinator.StreamPosition()
-			sr := p.coordinator.SampleRate()
-			if sr == 0 {
-				sr = 44100 // default sample rate
-			}
-			// Threshold: 1 second of samples
-			threshold := int(sr)
-			if abs(msg.Position-oldPos) >= threshold {
-				p.coordinator.SetStreamPosition(msg.Position)
-				stateChanged = true
-			}
+			p.coordinator.SetStreamPosition(msg.Position)
 		}
-		if msg.Duration > 0 && msg.Duration != p.coordinator.StreamLength() {
+		if msg.Duration > 0 {
 			p.coordinator.SetStreamLength(msg.Duration)
-			stateChanged = true
 		}
-		if msg.SampleRate > 0 && beep.SampleRate(msg.SampleRate) != p.coordinator.SampleRate() {
+		if msg.SampleRate > 0 {
 			p.coordinator.SetSampleRate(beep.SampleRate(msg.SampleRate))
-			stateChanged = true
 		}
-		// Only trigger re-render if state actually changed
-		if !stateChanged {
-			// Still need to re-subscribe but skip triggering a view update
-			return p, p.subscribeToPlaybackEvents()
+	case "playback.seeked":
+		// Update position on seek
+		if msg.Position >= 0 {
+			p.coordinator.SetStreamPosition(msg.Position)
 		}
 	}
 	// Re-subscribe to continue receiving playback/library events

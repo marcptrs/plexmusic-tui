@@ -106,6 +106,10 @@ type Coordinatorer interface {
 	PlaybackService() service.PlaybackServicer
 	SetPlaybackService(service.PlaybackServicer)
 
+	// Library service (created after server selection)
+	LibraryService() service.LibraryServicer
+	SetLibraryService(service.LibraryServicer)
+
 	// Playback/stream state (mapped from old coordinator)
 	PlaybackState() PlaybackState
 	SetPlaybackState(PlaybackState)
@@ -131,6 +135,7 @@ type Coordinatorer interface {
 	SetCtrl(c *beep.Ctrl)
 	SpeakerInit() bool
 	SetSpeakerInit(bool)
+	CalculatedPositionMs() int
 
 	// Playback album art
 	PlaybackAlbumArt() image.Image

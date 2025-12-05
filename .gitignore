@@ -41,3 +41,4 @@ go.work.sum
 # Local analysis and planning notes
 thoughts/
 tmp/
+cmd/plexmusic-daemon/build/PlexMusicDaemon.app/Contents/MacOS/PlexMusicDaemon

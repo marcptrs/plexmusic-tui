@@ -29,7 +29,8 @@ func InitializeApp(opts AppOptions) *App {
 	pageFactoryFn := providePageFactory(coordinator, authServicer, manager)
 	appModel := provideAppModel(router, coordinator, authServicer, manager, keyMap, pageFactoryFn)
 	orchestrator := provideOrchestrator(coordinator, playbackService)
-	app := provideApp(appModel, orchestrator, playbackService, manager)
+	mediaControlWrapper := provideMediaControlWrapper(playbackService, orchestrator, coordinator)
+	app := provideApp(appModel, orchestrator, playbackService, manager, mediaControlWrapper)
 	return app
 }
 
@@ -51,5 +52,6 @@ var appSet = wire.NewSet(
 	provideRouter,
 	providePageFactory,
 	provideAppModel,
+	provideMediaControlWrapper,
 	provideApp,
 )

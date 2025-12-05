@@ -200,7 +200,15 @@ func (c *Coordinator) AuthService() service.AuthServicer {
 }
 
 func (c *Coordinator) LibraryService() service.LibraryServicer {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.libraryService
+}
+
+func (c *Coordinator) SetLibraryService(svc service.LibraryServicer) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.libraryService = svc
 }
 
 func (c *Coordinator) PlaybackService() service.PlaybackServicer {
@@ -900,6 +908,13 @@ func (c *Coordinator) Ctrl() *beep.Ctrl                    { return c.ctrl }
 func (c *Coordinator) SetCtrl(c2 *beep.Ctrl)               { c.ctrl = c2 }
 func (c *Coordinator) SpeakerInit() bool                   { return c.speakerInit }
 func (c *Coordinator) SetSpeakerInit(b bool)               { c.speakerInit = b }
+
+func (c *Coordinator) CalculatedPositionMs() int {
+	if c.sampleRate == 0 {
+		return 0
+	}
+	return c.streamPosition * 1000 / int(c.sampleRate)
+}
 
 // Playback album art
 func (c *Coordinator) PlaybackAlbumArt() image.Image { return c.playbackAlbumArt }

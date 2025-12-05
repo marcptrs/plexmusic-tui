@@ -26,16 +26,17 @@ type Player struct {
 	currentTrack *domain.Track
 	// streamer is used by speaker.Play; seekStreamer is non-nil for seekable
 	// streams (files) to support seeking, length, and position.
-	streamer      beep.Streamer
-	seekStreamer  beep.StreamSeekCloser
-	ctrl          *beep.Ctrl
-	volume        *effects.Volume
-	desiredVolume float64 // Volume to apply when volume effect is created
-	speakerInit   bool
-	sampleRate    beep.SampleRate
-	position      int // Current position in samples (0 if unknown for live streams)
-	length        int // Total length in samples (0 for live streams)
-	onCompletion  func()
+	streamer              beep.Streamer
+	seekStreamer          beep.StreamSeekCloser
+	ctrl                  *beep.Ctrl
+	volume                *effects.Volume
+	desiredVolume         float64 // Volume to apply when volume effect is created
+	speakerInit           bool
+	sampleRate            beep.SampleRate
+	initializedSampleRate beep.SampleRate
+	position              int // Current position in samples (0 if unknown for live streams)
+	length                int // Total length in samples (0 for live streams)
+	onCompletion          func()
 }
 
 // NewPlayer creates a new audio player
@@ -59,6 +60,20 @@ func (p *Player) CurrentTrack() *domain.Track {
 // Position returns the current playback position in samples
 func (p *Player) Position() int {
 	return p.position
+}
+
+// AudiblePosition returns the estimated audible position (stream position minus buffer size)
+func (p *Player) AudiblePosition() int {
+	if p.sampleRate == 0 {
+		return 0
+	}
+	// Buffer size is 100ms (hardcoded in Initialize)
+	bufferSamples := int(p.sampleRate) / 10
+	pos := p.position - bufferSamples
+	if pos < 0 {
+		return 0
+	}
+	return pos
 }
 
 // Length returns the total track length in samples
@@ -286,6 +301,7 @@ func (p *Player) Initialize() error {
 	}
 
 	p.speakerInit = true
+	p.initializedSampleRate = p.sampleRate
 	return nil
 }
 
@@ -297,6 +313,16 @@ func (p *Player) Play(track *domain.Track) error {
 
 	if p.volume == nil {
 		return fmt.Errorf("no audio stream loaded")
+	}
+
+	// Check if we need to re-initialize speaker for new sample rate
+	if p.sampleRate != p.initializedSampleRate {
+		log.Info("Re-initializing speaker for new sample rate", "old", p.initializedSampleRate, "new", p.sampleRate)
+		err := speaker.Init(p.sampleRate, p.sampleRate.N(time.Second/10))
+		if err != nil {
+			return fmt.Errorf("failed to re-initialize speaker: %w", err)
+		}
+		p.initializedSampleRate = p.sampleRate
 	}
 
 	p.currentTrack = track

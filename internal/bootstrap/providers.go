@@ -11,9 +11,12 @@ import (
 	"plexmusic-tui/internal/auth"
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
+	"plexmusic-tui/internal/mediacontrol"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	"plexmusic-tui/internal/tui/pages"
+
+	log "github.com/charmbracelet/log/v2"
 )
 
 // AppServices bundles the core application services
@@ -32,13 +35,14 @@ type AppOptions struct {
 
 // App bundles the initialized application components
 type App struct {
-	Model           *tui.AppModel
-	Orchestrator    *tui.Orchestrator
-	PlaybackService *service.PlaybackService
-	ConfigManager   *config.Manager
-	ctx             context.Context
-	cancel          context.CancelFunc
-	eg              *errgroup.Group
+	Model                  *tui.AppModel
+	Orchestrator           *tui.Orchestrator
+	PlaybackService        *service.PlaybackService
+	ConfigManager          *config.Manager
+	MediaControlWrapperRef *MediaControlWrapper
+	ctx                    context.Context
+	cancel                 context.CancelFunc
+	eg                     *errgroup.Group
 }
 
 // Context returns the application's context for background tasks
@@ -201,18 +205,31 @@ func provideApp(
 	orch *tui.Orchestrator,
 	pbSvc *service.PlaybackService,
 	cfgMgr *config.Manager,
+	mcWrapper *MediaControlWrapper,
 ) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 	eg, egCtx := errgroup.WithContext(ctx)
-	return &App{
-		Model:           model,
-		Orchestrator:    orch,
-		PlaybackService: pbSvc,
-		ConfigManager:   cfgMgr,
-		ctx:             egCtx,
-		cancel:          cancel,
-		eg:              eg,
+
+	app := &App{
+		Model:                  model,
+		Orchestrator:           orch,
+		PlaybackService:        pbSvc,
+		ConfigManager:          cfgMgr,
+		MediaControlWrapperRef: mcWrapper,
+		ctx:                    egCtx,
+		cancel:                 cancel,
+		eg:                     eg,
 	}
+
+	// Start media control wrapper if available
+	if mcWrapper != nil {
+		app.eg.Go(func() error {
+			return mcWrapper.Start(app.ctx)
+		})
+		log.Info("Media control integration enabled")
+	}
+
+	return app
 }
 
 // InitializePlaybackPositionUpdater starts the background position updater
@@ -240,5 +257,22 @@ func InitializeVolume(
 	if cfgMgr != nil {
 		savedVolume := cfgMgr.GetVolume()
 		orch.SetVolume(savedVolume)
+	}
+}
+
+// provideMediaControlWrapper creates the media control wrapper with daemon client
+// Only available on macOS (build tag enforces this)
+func provideMediaControlWrapper(
+	playbackService *service.PlaybackService,
+	orchestrator *tui.Orchestrator,
+	coordinator *app.Coordinator,
+) *MediaControlWrapper {
+	daemonClient := mediacontrol.NewDaemonClient()
+
+	return &MediaControlWrapper{
+		daemonClient: daemonClient,
+		pbService:    playbackService,
+		orchestrator: orchestrator,
+		coordinator:  coordinator,
 	}
 }
