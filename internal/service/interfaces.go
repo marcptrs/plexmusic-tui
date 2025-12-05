@@ -85,6 +85,7 @@ type PlaybackServicer interface {
 	PlayDomainTrack(ctx context.Context, lib interface {
 		FetchStream(ctx context.Context, track *domain.Track) (io.ReadCloser, string, error)
 	}, track *domain.Track) error
+	PublishArtwork(artwork image.Image)
 }
 
 // ErrValidation represents a validation error from user input

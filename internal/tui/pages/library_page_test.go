@@ -2236,6 +2236,8 @@ func (m *mockPbSvcOK) Subscribe(ctx context.Context) <-chan pubsub.Event[domain.
 	return m.ch
 }
 
+func (m *mockPbSvcOK) PublishArtwork(artwork image.Image) {}
+
 func TestLibraryPage_PlaySelected_QueuesTracksFromSelection(t *testing.T) {
 	coord := app.NewCoordinator()
 	// Simulate authenticated server so page can build layout; orchestrator will be swapped with a mock below.

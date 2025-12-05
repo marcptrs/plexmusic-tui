@@ -61,7 +61,8 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 	case "playback.started":
 		if event.Track != nil {
 			log.Debug("Sending playback.started to daemon: %s - %s", event.Track.Artist, event.Track.Title)
-			if err := w.daemonClient.SendPlaybackStarted(event.Track); err != nil {
+			artwork := w.coordinator.PlaybackAlbumArt()
+			if err := w.daemonClient.SendPlaybackStarted(event.Track, artwork); err != nil {
 				log.Debug("Failed to send playback.started: %v", err)
 			}
 		}
@@ -95,6 +96,14 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 		log.Debug("Sending playback.seeked to daemon")
 		if err := w.daemonClient.SendPosition(event.Position, event.Duration, event.SampleRate); err != nil {
 			log.Debug("Failed to send playback.seeked: %v", err)
+		}
+
+	case "playback.artwork":
+		if event.Artwork != nil {
+			log.Debug("Sending playback.artwork to daemon")
+			if err := w.daemonClient.SendArtworkImage(event.Artwork); err != nil {
+				log.Debug("Failed to send playback.artwork: %v", err)
+			}
 		}
 	}
 }

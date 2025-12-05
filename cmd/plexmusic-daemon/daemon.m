@@ -162,6 +162,7 @@
     NSString *artist = data[@"artist"];
     NSString *album = data[@"album"];
     NSNumber *duration = data[@"duration"];
+    NSString *artworkBase64 = data[@"artwork"];
 
     [self.nowPlayingInfo removeAllObjects];
 
@@ -178,7 +179,22 @@
         self.nowPlayingInfo[MPMediaItemPropertyPlaybackDuration] = @([duration doubleValue] / 1000.0);
     }
 
-    // Set playback rate to playing
+    if (artworkBase64) {
+        NSData *artworkData = [[NSData alloc] initWithBase64EncodedString:artworkBase64 options:0];
+        if (artworkData) {
+            NSImage *artworkImage = [[NSImage alloc] initWithData:artworkData];
+            if (artworkImage) {
+                MPMediaItemArtwork *artwork = [[MPMediaItemArtwork alloc]
+                    initWithBoundsSize:artworkImage.size
+                    requestHandler:^NSImage * _Nonnull(CGSize size) {
+                        return artworkImage;
+                    }];
+                self.nowPlayingInfo[MPMediaItemPropertyArtwork] = artwork;
+                NSLog(@"[Daemon] Artwork set: %@ (%fx%f)", artworkImage, artworkImage.size.width, artworkImage.size.height);
+            }
+        }
+    }
+
     self.nowPlayingInfo[MPNowPlayingInfoPropertyPlaybackRate] = @1.0;
     self.nowPlayingInfo[MPNowPlayingInfoPropertyElapsedPlaybackTime] = @0.0;
 

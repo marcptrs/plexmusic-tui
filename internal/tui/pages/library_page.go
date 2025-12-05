@@ -521,6 +521,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// log.Debug("CoverArtLoadedMsg: setting album art", "path", msg.Path)
 		p.coordinator.SetPlaybackAlbumArt(msg.Image, msg.Path)
 		p.dumpPageView("after_art_load")
+		// Notify media control daemon of artwork update
+		if p.orchestrator != nil {
+			p.orchestrator.PublishArtwork(msg.Image)
+		}
 		return p, nil
 
 	case playResultMsg:

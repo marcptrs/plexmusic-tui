@@ -3,11 +3,14 @@
 package mediacontrol
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
 	"io"
 	"net"
 	"sync"
@@ -271,16 +274,27 @@ func (c *DaemonClient) sendMessage(msg *daemonMessage) error {
 	return nil
 }
 
-// SendPlaybackStarted sends a playback started event
-func (c *DaemonClient) SendPlaybackStarted(track *domain.Track) error {
+// SendPlaybackStarted sends a playback started event with optional artwork
+func (c *DaemonClient) SendPlaybackStarted(track *domain.Track, artwork image.Image) error {
+	data := map[string]interface{}{
+		"title":    track.Title,
+		"artist":   track.Artist,
+		"album":    track.Album,
+		"duration": track.Duration,
+	}
+
+	if artwork != nil {
+		artworkData, err := encodeImageToJPEG(artwork)
+		if err != nil {
+			log.Debug("DaemonClient: Failed to encode artwork: %v", err)
+		} else {
+			data["artwork"] = base64.StdEncoding.EncodeToString(artworkData)
+		}
+	}
+
 	msg := &daemonMessage{
 		Type: "playback.started",
-		Data: map[string]interface{}{
-			"title":    track.Title,
-			"artist":   track.Artist,
-			"album":    track.Album,
-			"duration": track.Duration,
-		},
+		Data: data,
 	}
 
 	if err := c.sendMessage(msg); err != nil {
@@ -290,6 +304,14 @@ func (c *DaemonClient) SendPlaybackStarted(track *domain.Track) error {
 
 	log.Debug("DaemonClient: Sent playback.started for '%s'", track.Title)
 	return nil
+}
+
+func encodeImageToJPEG(img image.Image) ([]byte, error) {
+	var buf bytes.Buffer
+	if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 // SendPlaybackPaused sends a playback paused event
@@ -365,6 +387,35 @@ func (c *DaemonClient) SendArtwork(pngData []byte) error {
 	}
 
 	log.Debug("DaemonClient: Sent playback.artwork (%d bytes)", len(pngData))
+	return nil
+}
+
+// SendArtworkImage sends album artwork as an image to the daemon
+func (c *DaemonClient) SendArtworkImage(img image.Image) error {
+	if img == nil {
+		return nil
+	}
+
+	artworkData, err := encodeImageToJPEG(img)
+	if err != nil {
+		log.Debug("DaemonClient: Failed to encode artwork image: %v", err)
+		return err
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(artworkData)
+	msg := &daemonMessage{
+		Type: "playback.artwork",
+		Data: map[string]interface{}{
+			"png_base64": encoded, // Field name kept for backward compatibility, but contains JPEG
+		},
+	}
+
+	if err := c.sendMessage(msg); err != nil {
+		log.Debug("DaemonClient: Failed to send playback.artwork: %v", err)
+		return err
+	}
+
+	log.Debug("DaemonClient: Sent playback.artwork image (%d bytes)", len(artworkData))
 	return nil
 }
 

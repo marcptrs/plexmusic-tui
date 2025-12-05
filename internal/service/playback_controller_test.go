@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image"
 	"io"
 	"math"
 	"testing"
@@ -105,6 +106,8 @@ func (m *mockPbSvcPlayErr) Subscribe(ctx context.Context) <-chan pubsub.Event[do
 	return ch
 }
 
+func (m *mockPbSvcPlayErr) PublishArtwork(artwork image.Image) {}
+
 func TestPlaybackController_PlayNext_WithPbSvcError(t *testing.T) {
 	errVal := errors.New("playback error")
 	mockPB := &mockPbSvcPlayErr{err: errVal}
@@ -185,6 +188,8 @@ func (m *mockPbSvcVolume) Subscribe(ctx context.Context) <-chan pubsub.Event[dom
 	close(ch)
 	return ch
 }
+
+func (m *mockPbSvcVolume) PublishArtwork(artwork image.Image) {}
 
 func TestPlaybackController_AdjustVolume_Steps(t *testing.T) {
 	// We'll verify that adjusting by +5 or -5 percent results in an exact

@@ -3,6 +3,7 @@ package tui_test
 import (
 	"context"
 	"errors"
+	"image"
 	"io"
 	"strings"
 	"testing"
@@ -46,6 +47,7 @@ func (m *mockPbSvcErr) Subscribe(ctx context.Context) <-chan pubsub.Event[domain
 	close(ch)
 	return ch
 }
+func (m *mockPbSvcErr) PublishArtwork(artwork image.Image) {}
 
 // Mock library service that returns an error when fetching a stream
 type mockLibFetchErr struct{}

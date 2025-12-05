@@ -1,5 +1,7 @@
 package domain
 
+import "image"
+
 // LibraryEvent represents library-related events
 type LibraryEvent struct {
 	Type      string
@@ -29,5 +31,6 @@ type PlaybackEvent struct {
 	Duration   int
 	SampleRate int
 	Volume     float64
+	Artwork    image.Image // Album artwork image (for playback.artwork events)
 	Error      error
 }

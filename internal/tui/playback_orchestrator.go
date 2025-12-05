@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"image"
 	"io"
 	"time"
 
@@ -454,4 +455,11 @@ func (o *Orchestrator) SampleRate() int {
 		return 44100
 	}
 	return o.pbSvc.SampleRate()
+}
+
+// PublishArtwork publishes an artwork update event to notify listeners (e.g., media control daemon)
+func (o *Orchestrator) PublishArtwork(artwork image.Image) {
+	if o.pbSvc != nil {
+		o.pbSvc.PublishArtwork(artwork)
+	}
 }

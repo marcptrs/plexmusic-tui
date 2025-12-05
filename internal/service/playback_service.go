@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"image"
 	"io"
 
 	"plexmusic-tui/internal/domain"
@@ -308,6 +309,20 @@ func (s *PlaybackService) IsPaused() bool {
 func (s *PlaybackService) Close() error {
 	s.broker.Close()
 	return s.player.Close()
+}
+
+// PublishArtwork publishes an artwork update event
+func (s *PlaybackService) PublishArtwork(artwork image.Image) {
+	if artwork == nil {
+		return
+	}
+	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
+		Type: "playback.artwork",
+		Payload: domain.PlaybackEvent{
+			Type:    "playback.artwork",
+			Artwork: artwork,
+		},
+	})
 }
 
 // PlayDomainTrack orchestrates fetching the stream from the library service,
