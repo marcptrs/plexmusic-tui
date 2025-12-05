@@ -22,7 +22,6 @@ var appSet = wire.NewSet(
 	provideRouter,
 	providePageFactory,
 	provideAppModel,
-	provideMediaControlWrapper,
 	provideApp,
 )
 

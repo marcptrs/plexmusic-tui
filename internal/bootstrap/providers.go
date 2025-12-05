@@ -33,16 +33,21 @@ type AppOptions struct {
 	DumpView      bool
 }
 
+// MediaControlStarter is implemented by both daemon-based and in-process media control
+type MediaControlStarter interface {
+	Start(ctx context.Context) error
+}
+
 // App bundles the initialized application components
 type App struct {
-	Model                  *tui.AppModel
-	Orchestrator           *tui.Orchestrator
-	PlaybackService        *service.PlaybackService
-	ConfigManager          *config.Manager
-	MediaControlWrapperRef *MediaControlWrapper
-	ctx                    context.Context
-	cancel                 context.CancelFunc
-	eg                     *errgroup.Group
+	Model           *tui.AppModel
+	Orchestrator    *tui.Orchestrator
+	PlaybackService *service.PlaybackService
+	ConfigManager   *config.Manager
+	MediaControl    MediaControlStarter
+	ctx             context.Context
+	cancel          context.CancelFunc
+	eg              *errgroup.Group
 }
 
 // Context returns the application's context for background tasks
@@ -205,28 +210,31 @@ func provideApp(
 	orch *tui.Orchestrator,
 	pbSvc *service.PlaybackService,
 	cfgMgr *config.Manager,
-	mcWrapper *MediaControlWrapper,
+	coord *app.Coordinator,
 ) *App {
 	ctx, cancel := context.WithCancel(context.Background())
 	eg, egCtx := errgroup.WithContext(ctx)
 
+	// Use daemon-based media control (required for proper macOS Control Center integration)
+	mediaControl := provideMediaControlWrapper(pbSvc, orch, coord)
+
 	app := &App{
-		Model:                  model,
-		Orchestrator:           orch,
-		PlaybackService:        pbSvc,
-		ConfigManager:          cfgMgr,
-		MediaControlWrapperRef: mcWrapper,
-		ctx:                    egCtx,
-		cancel:                 cancel,
-		eg:                     eg,
+		Model:           model,
+		Orchestrator:    orch,
+		PlaybackService: pbSvc,
+		ConfigManager:   cfgMgr,
+		MediaControl:    mediaControl,
+		ctx:             egCtx,
+		cancel:          cancel,
+		eg:              eg,
 	}
 
-	// Start media control wrapper if available
-	if mcWrapper != nil {
+	// Start media control if available
+	if mediaControl != nil {
 		app.eg.Go(func() error {
-			return mcWrapper.Start(app.ctx)
+			return mediaControl.Start(app.ctx)
 		})
-		log.Info("Media control integration enabled")
+		log.Info("Media control integration enabled (daemon)")
 	}
 
 	return app
@@ -275,4 +283,14 @@ func provideMediaControlWrapper(
 		orchestrator: orchestrator,
 		coordinator:  coordinator,
 	}
+}
+
+// provideInProcessMediaControl creates the in-process media control handler.
+// This is an alternative to the daemon-based approach.
+func provideInProcessMediaControl(
+	playbackService *service.PlaybackService,
+	orchestrator *tui.Orchestrator,
+	coordinator *app.Coordinator,
+) (*InProcessMediaControl, error) {
+	return NewInProcessMediaControl(playbackService, orchestrator, coordinator)
 }

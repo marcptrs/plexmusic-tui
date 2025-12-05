@@ -13,6 +13,9 @@ import (
 	"image/jpeg"
 	"io"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -23,20 +26,23 @@ import (
 
 const (
 	daemonSocketPath = "/tmp/plexmusic-daemon.sock"
+	daemonPidFile    = "/tmp/plexmusic-daemon.pid"
 	reconnectDelay   = 2 * time.Second
 	maxReconnects    = 5
+	daemonStartWait  = 2 * time.Second
 )
 
 // DaemonClient communicates with the plexmusic-daemon over Unix socket
 type DaemonClient struct {
-	conn         net.Conn
-	mu           sync.Mutex
-	connected    bool
-	reconnecting bool
-	ctx          context.Context
-	cancel       context.CancelFunc
-	commandChan  chan DaemonCommand
-	wg           sync.WaitGroup
+	conn          net.Conn
+	mu            sync.Mutex
+	connected     bool
+	reconnecting  bool
+	ctx           context.Context
+	cancel        context.CancelFunc
+	commandChan   chan DaemonCommand
+	wg            sync.WaitGroup
+	daemonStarted bool // true if we started the daemon ourselves
 }
 
 // DaemonCommand represents a command from the daemon
@@ -65,9 +71,21 @@ func NewDaemonClient() *DaemonClient {
 func (c *DaemonClient) Start(ctx context.Context) error {
 	log.Info("DaemonClient: Starting connection to daemon")
 
+	// Clean up any orphaned daemon from a previous crash
+	c.cleanupOrphanedDaemon()
+
+	// Try to connect first - daemon may already be running
 	if err := c.connect(); err != nil {
-		log.Warn("DaemonClient: Initial connection failed", "error", err)
-		// Continue anyway - we'll reconnect in the background
+		log.Info("DaemonClient: Daemon not running, attempting to start it")
+		if launchErr := c.launchDaemon(); launchErr != nil {
+			log.Warn("DaemonClient: Failed to launch daemon", "error", launchErr)
+		} else {
+			// Wait for daemon to start and try connecting again
+			time.Sleep(daemonStartWait)
+			if err := c.connect(); err != nil {
+				log.Warn("DaemonClient: Still can't connect after launching daemon", "error", err)
+			}
+		}
 	}
 
 	// Start message reader goroutine
@@ -77,7 +95,7 @@ func (c *DaemonClient) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop disconnects from the daemon
+// Stop disconnects from the daemon and optionally stops it
 func (c *DaemonClient) Stop() error {
 	log.Info("DaemonClient: Stopping")
 	c.cancel()
@@ -88,11 +106,112 @@ func (c *DaemonClient) Stop() error {
 		c.conn = nil
 		c.connected = false
 	}
+	daemonStarted := c.daemonStarted
 	c.mu.Unlock()
 
 	c.wg.Wait()
 	close(c.commandChan)
+
+	// If we started the daemon, stop it
+	if daemonStarted {
+		c.stopDaemon()
+	}
+
 	return nil
+}
+
+// getDaemonPath returns the path to the daemon app bundle
+func getDaemonPath() string {
+	// Check standard install location
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(homeDir, "Library", "Application Support", "PlexMusic", "PlexMusicDaemon.app")
+}
+
+// cleanupOrphanedDaemon checks if a previous TUI instance crashed and left the daemon running
+func (c *DaemonClient) cleanupOrphanedDaemon() {
+	// Check if PID file exists
+	data, err := os.ReadFile(daemonPidFile)
+	if err != nil {
+		return // No PID file, nothing to clean up
+	}
+
+	// PID file exists - a previous instance started the daemon
+	// Check if that TUI process is still running by checking if the PID file's parent PID is alive
+	log.Info("DaemonClient: Found daemon PID file from previous session, cleaning up")
+
+	// Stop the daemon and remove the PID file
+	c.stopDaemon()
+	os.Remove(daemonPidFile)
+
+	// Give it a moment to fully stop
+	time.Sleep(500 * time.Millisecond)
+
+	_ = data // silence unused warning
+}
+
+// writePidFile writes a marker file indicating we started the daemon
+func writePidFile() error {
+	return os.WriteFile(daemonPidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644)
+}
+
+// removePidFile removes the marker file
+func removePidFile() {
+	os.Remove(daemonPidFile)
+}
+
+// launchDaemon starts the daemon process
+func (c *DaemonClient) launchDaemon() error {
+	daemonPath := getDaemonPath()
+	if daemonPath == "" {
+		return fmt.Errorf("cannot determine daemon path")
+	}
+
+	// Check if daemon exists
+	if _, err := os.Stat(daemonPath); os.IsNotExist(err) {
+		return fmt.Errorf("daemon not installed at %s", daemonPath)
+	}
+
+	log.Info("DaemonClient: Launching daemon", "path", daemonPath)
+
+	// Use 'open' command to launch the app bundle
+	cmd := exec.CommandContext(context.Background(), "open", "-a", daemonPath)
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start daemon: %w", err)
+	}
+
+	// Write PID file so we can detect crashes
+	if err := writePidFile(); err != nil {
+		log.Warn("DaemonClient: Failed to write PID file", "error", err)
+	}
+
+	c.mu.Lock()
+	c.daemonStarted = true
+	c.mu.Unlock()
+
+	log.Info("DaemonClient: Daemon launched successfully")
+	return nil
+}
+
+// stopDaemon terminates the daemon process
+func (c *DaemonClient) stopDaemon() {
+	log.Info("DaemonClient: Stopping daemon process")
+
+	// Remove PID file first
+	removePidFile()
+
+	// Use osascript to quit the app gracefully
+	ctx := context.Background()
+	cmd := exec.CommandContext(ctx, "osascript", "-e", `tell application "PlexMusicDaemon" to quit`)
+	if err := cmd.Run(); err != nil {
+		// If graceful quit fails, try pkill as fallback (but only our daemon)
+		log.Debug("DaemonClient: Graceful quit failed, trying pkill", "error", err)
+		exec.CommandContext(ctx, "pkill", "-f", "PlexMusicDaemon.app/Contents/MacOS/PlexMusicDaemon").Run()
+	}
+
+	log.Info("DaemonClient: Daemon stopped")
 }
 
 // Commands returns a channel that receives commands from the daemon
