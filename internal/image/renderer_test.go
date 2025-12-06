@@ -16,6 +16,8 @@ import (
 	"plexmusic-tui/internal/domain"
 )
 
+// Note: bytes and png imports are used by TestRenderKittyCanvasHasExpectedPNGSize
+
 func coloredImg(w, h int, c color.Color) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 	draw.Draw(img, img.Bounds(), &image.Uniform{C: c}, image.Point{}, draw.Src)
@@ -24,24 +26,17 @@ func coloredImg(w, h int, c color.Color) image.Image {
 
 func TestRenderCacheKeyIncludesContentHash(t *testing.T) {
 	r := NewRendererWithProtocol(domain.ProtocolUnicodeBlocks)
-	img1 := coloredImg(32, 16, color.RGBA{255, 0, 0, 255})
-	img2 := coloredImg(32, 16, color.RGBA{0, 255, 0, 255})
+	img1 := coloredImg(32, 16, color.RGBA{255, 0, 0, 255}).(*image.RGBA)
+	img2 := coloredImg(32, 16, color.RGBA{0, 255, 0, 255}).(*image.RGBA)
 
 	// Render both images; since they differ in content, the output must not be identical
 	_ = r.Render(img1, 16, 8)
 	_ = r.Render(img2, 16, 8)
 
-	// Sanity: confirm that images produce different content hashes
-	var buf1 bytes.Buffer
-	var buf2 bytes.Buffer
-	if err := png.Encode(&buf1, img1); err != nil {
-		t.Fatalf("failed to encode img1: %v", err)
-	}
-	if err := png.Encode(&buf2, img2); err != nil {
-		t.Fatalf("failed to encode img2: %v", err)
-	}
-	h1 := sha256.Sum256(buf1.Bytes())
-	h2 := sha256.Sum256(buf2.Bytes())
+	// The renderer uses raw pixel bytes (not PNG-encoded) for hashing.
+	// Compute the same hash the renderer uses.
+	h1 := sha256.Sum256(img1.Pix)
+	h2 := sha256.Sum256(img2.Pix)
 	if h1 == h2 {
 		t.Fatalf("expected different content hash for images, got same hash")
 	}

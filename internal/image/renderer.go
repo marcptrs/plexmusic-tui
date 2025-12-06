@@ -233,16 +233,13 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		return ""
 	}
 
-	// Build a stable content hash (PNG encoding) from the image data.
-	// We always encode the image's full PNG bytes and key our cache by a
-	// short prefix (first 8 bytes) of the SHA256 to avoid pointer/address
-	// dependent caching which was causing stale cache hits when Go reused
-	// memory for new image allocations.
+	// Build a stable content hash from the raw pixel bytes so cache keys
+	// depend only on decoded image content. Hashing the RGBA bytes avoids
+	// expensive PNG encodes on every render while still preventing
+	// pointer/address dependent caching.
 	var contentHash string
 	var pngBytes []byte
-	// Compute a stable hash based on raw pixel bytes to avoid expensive PNG
-	// encoding for each Render call. This uses the first 8 bytes of a
-	// SHA256 of the raw RGBA pixel slice to build the cache key.
+	// Compute the hash from the RGBA pixel slice (first 8 bytes of a SHA256).
 	pixelBytes := func(img image.Image) []byte {
 		switch v := img.(type) {
 		case *image.RGBA:
@@ -261,8 +258,7 @@ func (r *Renderer) Render(img image.Image, width, height int) string {
 		sum := sha256.Sum256(pixelBytes)
 		contentHash = fmt.Sprintf("%x", sum[:8])
 	}
-	// If we didn't get pngBytes from encoding (shouldn't happen), compute
-	// a no-op empty hash to avoid using nil cache keys.
+	// Fall back to a sentinel hash for empty images.
 	if contentHash == "" {
 		contentHash = "empty"
 	}
