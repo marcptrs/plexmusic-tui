@@ -121,6 +121,7 @@
     [[commandCenter nextTrackCommand] setEnabled:NO];
     [[commandCenter previousTrackCommand] setEnabled:NO];
     [[commandCenter changePlaybackPositionCommand] setEnabled:NO];
+    [super dealloc];
 }
 
 - (void)updateMetadata:(NSString *)title artist:(NSString *)artist album:(NSString *)album duration:(double)duration {
@@ -208,21 +209,23 @@
 @end
 
 // C API Implementation
+// Note: This code is compiled without ARC, so we use manual retain/release
 
 MediaControlHandle MediaControlCreate(void) {
     MediaControlBridge *bridge = [[MediaControlBridge alloc] init];
-    return (__bridge_retained void *)bridge;
+    // Manual retain to transfer ownership to the C handle
+    return (void *)bridge;
 }
 
 void MediaControlDestroy(MediaControlHandle handle) {
     if (handle == NULL) return;
-    MediaControlBridge *bridge = (__bridge_transfer MediaControlBridge *)handle;
-    bridge = nil;
+    MediaControlBridge *bridge = (MediaControlBridge *)handle;
+    [bridge release];
 }
 
 void MediaControlSetCallbacks(MediaControlHandle handle, MediaControlCallbacks callbacks) {
     if (handle == NULL) return;
-    MediaControlBridge *bridge = (__bridge MediaControlBridge *)handle;
+    MediaControlBridge *bridge = (MediaControlBridge *)handle;
     bridge->callbacks = callbacks;
 }
 
@@ -234,7 +237,7 @@ void MediaControlUpdateMetadata(
     double duration
 ) {
     if (handle == NULL) return;
-    MediaControlBridge *bridge = (__bridge MediaControlBridge *)handle;
+    MediaControlBridge *bridge = (MediaControlBridge *)handle;
 
     NSString *nsTitle = title != NULL ? [NSString stringWithUTF8String:title] : nil;
     NSString *nsArtist = artist != NULL ? [NSString stringWithUTF8String:artist] : nil;
@@ -245,13 +248,13 @@ void MediaControlUpdateMetadata(
 
 void MediaControlUpdatePlaybackState(MediaControlHandle handle, int state) {
     if (handle == NULL) return;
-    MediaControlBridge *bridge = (__bridge MediaControlBridge *)handle;
+    MediaControlBridge *bridge = (MediaControlBridge *)handle;
     [bridge updatePlaybackState:state];
 }
 
 void MediaControlUpdatePosition(MediaControlHandle handle, double position, double duration) {
     if (handle == NULL) return;
-    MediaControlBridge *bridge = (__bridge MediaControlBridge *)handle;
+    MediaControlBridge *bridge = (MediaControlBridge *)handle;
     [bridge updatePosition:position duration:duration];
 }
 
@@ -264,7 +267,7 @@ int MediaControlSetArtwork(
         return 0;
     }
 
-    MediaControlBridge *bridge = (__bridge MediaControlBridge *)handle;
+    MediaControlBridge *bridge = (MediaControlBridge *)handle;
     NSData *data = [NSData dataWithBytes:pngData length:(NSUInteger)pngDataLength];
     BOOL success = [bridge setArtwork:data];
     return success ? 1 : 0;
