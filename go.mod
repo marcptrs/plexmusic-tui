@@ -11,9 +11,11 @@ require (
 	github.com/charmbracelet/log/v2 v2.0.0-20250226163916-c379e29ff706
 	github.com/disintegration/imaging v1.6.2
 	github.com/faiface/beep v1.1.0
+	github.com/go-ole/go-ole v1.3.0
 	github.com/go-playground/validator/v10 v10.28.0
 	github.com/go-resty/resty/v2 v2.17.0
 	github.com/google/wire v0.7.0
+	github.com/saltosystems/winrt-go v0.0.0-00010101000000-000000000000
 	github.com/spf13/cobra v1.10.1
 	github.com/spf13/viper v1.21.0
 	golang.org/x/sync v0.18.0
@@ -72,3 +74,6 @@ require (
 	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 )
+
+// Replace with go-musicfox fork that includes media APIs for SMTC support
+replace github.com/saltosystems/winrt-go => github.com/go-musicfox/winrt-go v0.1.4
