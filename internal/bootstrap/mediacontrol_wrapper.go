@@ -282,3 +282,19 @@ func convertAppTracksToDomain(tracks []app.Track) []domain.Track {
 	}
 	return result
 }
+
+// provideMediaControlWrapper creates the media control wrapper with daemon client
+func provideMediaControlWrapper(
+	playbackService *service.PlaybackService,
+	orchestrator *tui.Orchestrator,
+	coordinator *app.Coordinator,
+) *MediaControlWrapper {
+	daemonClient := mediacontrol.NewDaemonClient()
+
+	return &MediaControlWrapper{
+		daemonClient: daemonClient,
+		pbService:    playbackService,
+		orchestrator: orchestrator,
+		coordinator:  coordinator,
+	}
+}

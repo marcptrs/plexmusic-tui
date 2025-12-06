@@ -11,7 +11,6 @@ import (
 	"plexmusic-tui/internal/auth"
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
-	"plexmusic-tui/internal/mediacontrol"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	"plexmusic-tui/internal/tui/pages"
@@ -265,23 +264,6 @@ func InitializeVolume(
 	if cfgMgr != nil {
 		savedVolume := cfgMgr.GetVolume()
 		orch.SetVolume(savedVolume)
-	}
-}
-
-// provideMediaControlWrapper creates the media control wrapper with daemon client
-// Only available on macOS (build tag enforces this)
-func provideMediaControlWrapper(
-	playbackService *service.PlaybackService,
-	orchestrator *tui.Orchestrator,
-	coordinator *app.Coordinator,
-) *MediaControlWrapper {
-	daemonClient := mediacontrol.NewDaemonClient()
-
-	return &MediaControlWrapper{
-		daemonClient: daemonClient,
-		pbService:    playbackService,
-		orchestrator: orchestrator,
-		coordinator:  coordinator,
 	}
 }
 
