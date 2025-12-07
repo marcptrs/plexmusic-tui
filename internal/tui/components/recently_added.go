@@ -21,6 +21,7 @@ func NewRecentlyAddedComponent(coord app.Coordinatorer) *RecentlyAddedComponent 
 	l.SetShowHelp(false)
 	l.SetShowTitle(false)
 	l.SetShowStatusBar(false)
+	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	return &RecentlyAddedComponent{
 		coordinator: coord,

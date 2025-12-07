@@ -28,6 +28,7 @@ func NewSettingsComponent(coord app.Coordinatorer) *SettingsComponent {
 	l.SetShowHelp(false)
 	l.SetShowTitle(false) // We render our own title
 	l.SetShowStatusBar(false)
+	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	s := &SettingsComponent{
 		coordinator: coord,

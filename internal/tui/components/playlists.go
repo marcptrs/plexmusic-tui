@@ -20,6 +20,7 @@ func NewPlaylistsComponent(coord app.Coordinatorer) *PlaylistsComponent {
 	l.Title = "Playlists"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
+	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	return &PlaylistsComponent{
 		coordinator: coord,

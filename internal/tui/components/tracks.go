@@ -20,6 +20,7 @@ func NewTracksComponent(coord app.Coordinatorer) *TracksComponent {
 	l.Title = "Tracks"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
+	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	return &TracksComponent{
 		coordinator: coord,

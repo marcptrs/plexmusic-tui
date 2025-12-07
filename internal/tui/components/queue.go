@@ -35,6 +35,7 @@ func NewQueueComponent(coord app.Coordinatorer, orch *tui.Orchestrator) *QueueCo
 	l.Title = "Queue"
 	l.SetShowHelp(false)
 	l.SetShowStatusBar(false)
+	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	return &QueueComponent{
 		coordinator:  coord,

@@ -66,6 +66,7 @@ func NewServerSelectionPage(
 	l.Title = "Select Plex Server"
 	l.SetShowHelp(true)
 	l.SetShowStatusBar(false)
+	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	keys := tui.ServerSelectionKeyMap{
 		Select: key.NewBinding(
