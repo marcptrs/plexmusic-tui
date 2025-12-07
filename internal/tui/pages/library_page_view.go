@@ -1,7 +1,6 @@
 package pages
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 
@@ -211,29 +210,47 @@ func (p *LibraryPage) View() string {
 		infoHeight = 6
 	}
 
-	// Render art if available, otherwise show the logo as fallback. Then center it within the
-	// left pane's art area so the layout appears balanced.
+	// Render art if available, otherwise show the logo as fallback.
+	// Use lipgloss.Place to center content within the area.
 	artView := ""
 	if p.coordinator.PlaybackAlbumArt() != nil && p.coordinator.PlaybackImgRenderer() != nil {
-		artView = p.coordinator.PlaybackImgRenderer().
+		art := p.coordinator.PlaybackImgRenderer().
 			Render(p.coordinator.PlaybackAlbumArt(), leftWidth, artHeight)
-		artView = strings.TrimRight(artView, "\r\n ")
+		art = strings.TrimRight(art, "\r\n ")
+		artView = lipgloss.Place(leftWidth, artHeight, lipgloss.Center, lipgloss.Center, art)
 	} else {
-		// Show logo when no album art is available
-		logoStr := retroLogoVertical
-		if leftWidth >= 80 {
-			logoStr = retroLogo
-		}
-		artView = styles.PrimaryTextStyle().Render(logoStr)
-	}
-	// Normalize the artView to have exactly artHeight lines, then center it.
-	artView = padOrCropLines(artView, leftWidth, artHeight)
-	// Center the art view horizontally and keep it at the top of the art area
-	artView = lipgloss.Place(leftWidth, artHeight, lipgloss.Center, lipgloss.Top, artView)
+		// Show logo when no album art is available with shimmer effect
+		logo := strings.TrimSpace(retroLogoVertical)
+		lines := strings.Split(logo, "\n")
 
-	// Render info via the component method and ensure it centers in the reserved area
+		// Create a shimmer effect by cycling through colors
+		// Use multiple shades of blue and cyan to create a wave effect
+		colors := []lipgloss.Color{
+			lipgloss.Color("33"), // Dark blue
+			lipgloss.Color("39"), // Blue (primary)
+			lipgloss.Color("45"), // Bright cyan
+			lipgloss.Color("51"), // Cyan
+			lipgloss.Color("87"), // Light cyan
+			lipgloss.Color("51"), // Cyan
+			lipgloss.Color("45"), // Bright cyan
+			lipgloss.Color("39"), // Blue (primary)
+		}
+
+		// Apply shimmer colors to each line based on offset
+		for i, line := range lines {
+			colorIndex := (i + p.logoShimmerOffset) % len(colors)
+			shimmerStyle := lipgloss.NewStyle().
+				Foreground(colors[colorIndex]).
+				Bold(true)
+			lines[i] = shimmerStyle.Render(line)
+		}
+		styledLogo := strings.Join(lines, "\n")
+		// Center the shimmering logo
+		artView = lipgloss.Place(leftWidth, artHeight, lipgloss.Center, lipgloss.Center, styledLogo)
+	}
+
+	// Render info via the component method
 	infoView := p.nowPlaying.RenderInfo(leftWidth, infoHeight)
-	infoView = padOrCropLines(infoView, leftWidth, infoHeight)
 
 	// If either the tracklist is showing, or the drawer is open on the left,
 	// render the left pane as the list content; otherwise render the cover
@@ -437,37 +454,6 @@ func (p *LibraryPage) View() string {
 		lipgloss.Top,
 		finalView,
 	)
-}
-
-// padOrCropLines ensures a string has exactly `height` lines, trimming or
-// padding lines to stabilize block height and prevent layout jumps.
-func padOrCropLines(s string, width, height int) string {
-	if height <= 0 {
-		return ""
-	}
-	// Normalize CRLF endings to LF
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	lines := strings.Split(s, "\n")
-	// Trim trailing empty lines
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	// Pad with blank lines (each a space to maintain width in some renderers)
-	blank := strings.Repeat(" ", width)
-	for len(lines) < height {
-		lines = append(lines, blank)
-	}
-	var b bytes.Buffer
-	for i, l := range lines {
-		b.WriteString(l)
-		if i < len(lines)-1 {
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
 }
 
 // renderRecentlyAdded displays the current recently-added albums list.

@@ -1,7 +1,6 @@
 package components
 
 import (
-	"bytes"
 	"fmt"
 	"math"
 	"strings"
@@ -14,33 +13,6 @@ import (
 	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
-
-// padOrCropLines ensures the provided string is exactly `height` lines.
-func padOrCropLinesComp(s string, width, height int) string {
-	if height <= 0 {
-		return ""
-	}
-	s = strings.ReplaceAll(s, "\r\n", "\n")
-	lines := strings.Split(s, "\n")
-	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) > height {
-		lines = lines[:height]
-	}
-	blank := strings.Repeat(" ", width)
-	for len(lines) < height {
-		lines = append(lines, blank)
-	}
-	var b bytes.Buffer
-	for i, l := range lines {
-		b.WriteString(l)
-		if i < len(lines)-1 {
-			b.WriteString("\n")
-		}
-	}
-	return b.String()
-}
 
 // NowPlayingComponent handles rendering the Now Playing pane with track info,
 // album art, and playback controls.
@@ -116,7 +88,6 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 
 		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
 		artView = strings.TrimRight(artView, "\r\n ")
-		artView = padOrCropLinesComp(artView, artW, artH)
 	} else {
 		// Fallback to the thumbnail URL if image rendering is not available.
 		thumb := np.coordinator.PlaybackAlbumArtThumb()
@@ -386,7 +357,6 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 
 		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
 		artView = strings.TrimRight(artView, "\r\n ")
-		artView = padOrCropLinesComp(artView, artW, artH)
 	} else {
 		thumb := np.coordinator.PlaybackAlbumArtThumb()
 		if thumb != "" {

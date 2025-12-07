@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
@@ -105,7 +107,7 @@ func OverlayTopRight(base string, overlay string, width int, top int, rightPaddi
 		}
 		// Ensure the base line is the full *visible* width (accounting for ANSI sequences)
 		bl := baseLines[ri]
-		visibleBL := utf8.RuneCountInString(ansiPattern.ReplaceAllString(bl, ""))
+		visibleBL := lipgloss.Width(bl)
 		if visibleBL < width {
 			bl = bl + strings.Repeat(" ", width-visibleBL)
 		} else if visibleBL > width {
@@ -113,15 +115,11 @@ func OverlayTopRight(base string, overlay string, width int, top int, rightPaddi
 			bl = truncateANSIToVisible(bl, width)
 		}
 
-		// Compute visible runes for overlay line; we also preserve ANSI
-		// sequences and will truncate the overlay while keeping those intact
-		// if it exceeds available width.
-		visibleStrip := ansiPattern.ReplaceAllString(ol, "")
-		olVisibleLen := utf8.RuneCountInString(visibleStrip)
+		// Compute visible width for overlay line using lipgloss
+		olVisibleLen := lipgloss.Width(ol)
 		if olVisibleLen > width-rightPadding {
 			ol = truncateANSIToVisible(ol, width-rightPadding)
-			visibleStrip = ansiPattern.ReplaceAllString(ol, "")
-			olVisibleLen = utf8.RuneCountInString(visibleStrip)
+			olVisibleLen = lipgloss.Width(ol)
 		}
 		// ol is now truncated and contains ANSI sequences but fits within
 		// width-rightPadding visible runes.

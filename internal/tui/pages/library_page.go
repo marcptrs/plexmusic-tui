@@ -26,15 +26,6 @@ import (
 	"plexmusic-tui/internal/tui/util"
 )
 
-const retroLogo = `
-██████╗ ██╗     ███████╗██╗  ██╗    ███╗   ███╗██╗   ██╗███████╗██╗ ██████╗ 
-██╔══██╗██║     ██╔════╝╚██╗██╔╝    ████╗ ████║██║   ██║██╔════╝██║██╔════╝ 
-██████╔╝██║     █████╗   ╚███╔╝     ██╔████╔██║██║   ██║███████╗██║██║      
-██╔═══╝ ██║     ██╔══╝   ██╔██╗     ██║╚██╔╝██║██║   ██║╚════██║██║██║      
-██║     ███████╗███████╗██╔╝ ██╗    ██║ ╚═╝ ██║╚██████╔╝███████║██║╚██████╗ 
-╚═╝     ╚══════╝╚══════╝╚═╝  ╚═╝    ╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝ ╚═════╝ 
-`
-
 const retroLogoVertical = `
 ██████╗ ██╗     ███████╗██╗  ██╗
 ██╔══██╗██║     ██╔════╝╚██╗██╔╝
@@ -86,6 +77,9 @@ type LibraryPage struct {
 	// Loading state
 	hubsLoading bool
 	spinner     spinner.Model
+
+	// Logo animation state
+	logoShimmerOffset int
 
 	// Now Playing component
 	nowPlaying   *components.NowPlayingComponent
@@ -296,6 +290,7 @@ func (p *LibraryPage) Init() tea.Cmd {
 		p.fetchLibraries(),
 		p.fetchPlaylists(),
 		p.fetchLibraryHubs(),
+		p.startLogoShimmer(), // Start logo shimmer animation
 	)
 }
 
@@ -564,6 +559,17 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if p.coordinator.IsPlaying() {
 			return p, tea.Tick(progressTickInterval, func(t time.Time) tea.Msg {
 				return progressTickMsg{}
+			})
+		}
+		return p, nil
+
+	case logoShimmerMsg:
+		// Update shimmer offset for animation
+		p.logoShimmerOffset = (p.logoShimmerOffset + 1) % 20
+		// Only animate when nothing is playing to avoid unnecessary redraws
+		if !p.coordinator.HasCurrentTrack() {
+			return p, tea.Tick(logoShimmerInterval, func(t time.Time) tea.Msg {
+				return logoShimmerMsg{}
 			})
 		}
 		return p, nil
@@ -964,6 +970,19 @@ const progressTickInterval = 250 * time.Millisecond
 func (p *LibraryPage) startProgressTick() tea.Cmd {
 	return tea.Tick(progressTickInterval, func(t time.Time) tea.Msg {
 		return progressTickMsg{}
+	})
+}
+
+// logoShimmerMsg is sent periodically to animate the logo shimmer effect
+type logoShimmerMsg struct{}
+
+// logoShimmerInterval controls the speed of the shimmer animation
+const logoShimmerInterval = 150 * time.Millisecond
+
+// startLogoShimmer returns a command that starts the logo shimmer animation
+func (p *LibraryPage) startLogoShimmer() tea.Cmd {
+	return tea.Tick(logoShimmerInterval, func(t time.Time) tea.Msg {
+		return logoShimmerMsg{}
 	})
 }
 
