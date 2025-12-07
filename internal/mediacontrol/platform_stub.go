@@ -40,6 +40,10 @@ func (c *stubController) SetArtwork(img image.Image) error {
 	return ErrUnsupportedPlatform
 }
 
+func (c *stubController) SetArtworkFromURL(url string) error {
+	return ErrUnsupportedPlatform
+}
+
 func (c *stubController) SetCommandHandler(handler CommandHandler) error {
 	return ErrUnsupportedPlatform
 }

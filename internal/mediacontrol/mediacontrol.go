@@ -30,6 +30,11 @@ type MediaController interface {
 	// SetArtwork sets the album artwork for the currently playing track
 	SetArtwork(img image.Image) error
 
+	// SetArtworkFromURL sets the album artwork from a URL
+	// This is more efficient on some platforms (e.g., Windows) that can load
+	// images directly from URLs without requiring the caller to download first
+	SetArtworkFromURL(url string) error
+
 	// SetCommandHandler sets the handler for OS media commands
 	SetCommandHandler(handler CommandHandler) error
 

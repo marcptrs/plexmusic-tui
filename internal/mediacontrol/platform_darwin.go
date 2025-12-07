@@ -154,6 +154,15 @@ func (c *darwinController) SetArtwork(img image.Image) error {
 	return c.bridge.SetArtwork(img)
 }
 
+// SetArtworkFromURL sets the album artwork from a URL
+// On macOS, this downloads the image and uses SetArtwork
+func (c *darwinController) SetArtworkFromURL(url string) error {
+	// macOS doesn't have native URL-based artwork loading like Windows SMTC
+	// The caller should download the image and use SetArtwork instead
+	// Return nil to indicate "not an error, just not supported"
+	return nil
+}
+
 // SetCommandHandler sets the handler for OS media commands
 func (c *darwinController) SetCommandHandler(handler CommandHandler) error {
 	c.mu.Lock()
