@@ -35,7 +35,7 @@ func (h *commandHandler) HandlePlay() {
 	log.Info("Windows SMTC: HandlePlay")
 	if h.wrapper.pbService.GetState() == domain.PlaybackPaused {
 		if err := h.wrapper.pbService.Resume(); err != nil {
-			log.Warn("Failed to resume: %v", err)
+			log.Warn("Failed to resume", "error", err)
 		}
 	}
 }
@@ -44,7 +44,7 @@ func (h *commandHandler) HandlePause() {
 	log.Info("Windows SMTC: HandlePause")
 	if h.wrapper.pbService.GetState() == domain.PlaybackPlaying {
 		if err := h.wrapper.pbService.Pause(); err != nil {
-			log.Warn("Failed to pause: %v", err)
+			log.Warn("Failed to pause", "error", err)
 		}
 	}
 }
@@ -54,11 +54,11 @@ func (h *commandHandler) HandleTogglePlayPause() {
 	switch h.wrapper.pbService.GetState() {
 	case domain.PlaybackPlaying:
 		if err := h.wrapper.pbService.Pause(); err != nil {
-			log.Warn("Failed to pause: %v", err)
+			log.Warn("Failed to pause", "error", err)
 		}
 	case domain.PlaybackPaused:
 		if err := h.wrapper.pbService.Resume(); err != nil {
-			log.Warn("Failed to resume: %v", err)
+			log.Warn("Failed to resume", "error", err)
 		}
 	}
 }
@@ -66,7 +66,7 @@ func (h *commandHandler) HandleTogglePlayPause() {
 func (h *commandHandler) HandleStop() {
 	log.Info("Windows SMTC: HandleStop")
 	if err := h.wrapper.pbService.Stop(); err != nil {
-		log.Warn("Failed to stop: %v", err)
+		log.Warn("Failed to stop", "error", err)
 	}
 }
 
@@ -83,7 +83,7 @@ func (h *commandHandler) HandlePrevious() {
 func (h *commandHandler) HandleSeek(position time.Duration) {
 	log.Info("Windows SMTC: HandleSeek", "position", position)
 	if err := h.wrapper.pbService.SeekToSeconds(position.Seconds()); err != nil {
-		log.Warn("Failed to seek: %v", err)
+		log.Warn("Failed to seek", "error", err)
 	}
 }
 
@@ -111,13 +111,13 @@ func (w *MediaControlWrapper) playNext() {
 		w.ctx, dq, queueIdx, dtracks, selected, libSvc,
 	)
 	if err != nil {
-		log.Warn("Failed to determine next track: %v", err)
+		log.Warn("Failed to determine next track", "error", err)
 		return
 	}
 
 	if next != nil {
 		if err := w.pbService.PlayDomainTrack(w.ctx, libSvc, next); err != nil {
-			log.Warn("Failed to play next track: %v", err)
+			log.Warn("Failed to play next track", "error", err)
 			return
 		}
 		if isQueue {
@@ -152,13 +152,13 @@ func (w *MediaControlWrapper) playPrev() {
 		w.ctx, dq, queueIdx, dtracks, selected, libSvc,
 	)
 	if err != nil {
-		log.Warn("Failed to determine previous track: %v", err)
+		log.Warn("Failed to determine previous track", "error", err)
 		return
 	}
 
 	if prev != nil {
 		if err := w.pbService.PlayDomainTrack(w.ctx, libSvc, prev); err != nil {
-			log.Warn("Failed to play previous track: %v", err)
+			log.Warn("Failed to play previous track", "error", err)
 			return
 		}
 		if isQueue {
@@ -177,7 +177,7 @@ func (w *MediaControlWrapper) Start(ctx context.Context) error {
 	// Create the in-process controller
 	controller, err := mediacontrol.New()
 	if err != nil {
-		log.Warn("Failed to create Windows media controller: %v", err)
+		log.Warn("Failed to create Windows media controller", "error", err)
 		return err
 	}
 	w.controller = controller
@@ -190,7 +190,7 @@ func (w *MediaControlWrapper) Start(ctx context.Context) error {
 	// Set up command handler
 	handler := &commandHandler{wrapper: w}
 	if err := w.controller.SetCommandHandler(handler); err != nil {
-		log.Warn("Failed to set command handler: %v", err)
+		log.Warn("Failed to set command handler", "error", err)
 	}
 
 	// Subscribe to playback events
@@ -206,7 +206,7 @@ func (w *MediaControlWrapper) Start(ctx context.Context) error {
 
 		case event := <-playbackEvents:
 			if event.Type != "playback.position" {
-				log.Debug("Windows SMTC received event: %s", event.Type)
+				log.Debug("Windows SMTC received event", "type", event.Type)
 			}
 			w.handlePlaybackEvent(event.Payload)
 		}
@@ -217,7 +217,7 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 	switch event.Type {
 	case "playback.started":
 		if event.Track != nil {
-			log.Debug("Windows SMTC: updating metadata for %s - %s", event.Track.Artist, event.Track.Title)
+			log.Debug("Windows SMTC: updating metadata", "artist", event.Track.Artist, "title", event.Track.Title)
 			w.controller.UpdateMetadata(mediacontrol.Metadata{
 				Title:    event.Track.Title,
 				Artist:   event.Track.Artist,

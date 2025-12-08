@@ -56,7 +56,7 @@ func (h *commandHandler) HandlePlay() {
 	log.Info("In-process: HandlePlay called")
 	if h.ctrl.pbService.GetState() == domain.PlaybackPaused {
 		if err := h.ctrl.pbService.Resume(); err != nil {
-			log.Warn("Failed to resume: %v", err)
+			log.Warn("Failed to resume", "error", err)
 		}
 	}
 }
@@ -65,7 +65,7 @@ func (h *commandHandler) HandlePause() {
 	log.Info("In-process: HandlePause called")
 	if h.ctrl.pbService.GetState() == domain.PlaybackPlaying {
 		if err := h.ctrl.pbService.Pause(); err != nil {
-			log.Warn("Failed to pause: %v", err)
+			log.Warn("Failed to pause", "error", err)
 		}
 	}
 }
@@ -75,11 +75,11 @@ func (h *commandHandler) HandleTogglePlayPause() {
 	switch h.ctrl.pbService.GetState() {
 	case domain.PlaybackPlaying:
 		if err := h.ctrl.pbService.Pause(); err != nil {
-			log.Warn("Failed to pause: %v", err)
+			log.Warn("Failed to pause", "error", err)
 		}
 	case domain.PlaybackPaused:
 		if err := h.ctrl.pbService.Resume(); err != nil {
-			log.Warn("Failed to resume: %v", err)
+			log.Warn("Failed to resume", "error", err)
 		}
 	}
 }
@@ -87,7 +87,7 @@ func (h *commandHandler) HandleTogglePlayPause() {
 func (h *commandHandler) HandleStop() {
 	log.Info("In-process: HandleStop called")
 	if err := h.ctrl.pbService.Stop(); err != nil {
-		log.Warn("Failed to stop: %v", err)
+		log.Warn("Failed to stop", "error", err)
 	}
 }
 
@@ -104,7 +104,7 @@ func (h *commandHandler) HandlePrevious() {
 func (h *commandHandler) HandleSeek(position time.Duration) {
 	log.Info("In-process: HandleSeek called", "position", position)
 	if err := h.ctrl.pbService.SeekToSeconds(position.Seconds()); err != nil {
-		log.Warn("Failed to seek: %v", err)
+		log.Warn("Failed to seek", "error", err)
 	}
 }
 
@@ -132,13 +132,13 @@ func (ctrl *InProcessMediaControl) playNext() {
 		ctrl.ctx, dq, queueIdx, dtracks, selected, libSvc,
 	)
 	if err != nil {
-		log.Warn("Failed to determine next track: %v", err)
+		log.Warn("Failed to determine next track", "error", err)
 		return
 	}
 
 	if next != nil {
 		if err := ctrl.pbService.PlayDomainTrack(ctrl.ctx, libSvc, next); err != nil {
-			log.Warn("Failed to play next track: %v", err)
+			log.Warn("Failed to play next track", "error", err)
 			return
 		}
 		if isQueue {
@@ -173,13 +173,13 @@ func (ctrl *InProcessMediaControl) playPrev() {
 		ctrl.ctx, dq, queueIdx, dtracks, selected, libSvc,
 	)
 	if err != nil {
-		log.Warn("Failed to determine previous track: %v", err)
+		log.Warn("Failed to determine previous track", "error", err)
 		return
 	}
 
 	if prev != nil {
 		if err := ctrl.pbService.PlayDomainTrack(ctrl.ctx, libSvc, prev); err != nil {
-			log.Warn("Failed to play previous track: %v", err)
+			log.Warn("Failed to play previous track", "error", err)
 			return
 		}
 		if isQueue {
@@ -203,7 +203,7 @@ func (ctrl *InProcessMediaControl) Start(ctx context.Context) error {
 	// Set up command handler for remote commands from Control Center
 	handler := &commandHandler{ctrl: ctrl}
 	if err := ctrl.controller.SetCommandHandler(handler); err != nil {
-		log.Warn("Failed to set command handler: %v", err)
+		log.Warn("Failed to set command handler", "error", err)
 	}
 
 	// Subscribe to playback events
@@ -219,7 +219,7 @@ func (ctrl *InProcessMediaControl) Start(ctx context.Context) error {
 
 		case event := <-playbackEvents:
 			if event.Type != "playback.position" {
-				log.Debug("In-process received event: %s", event.Type)
+				log.Debug("In-process received event", "type", event.Type)
 			}
 			ctrl.handlePlaybackEvent(event.Payload)
 		}
@@ -230,7 +230,7 @@ func (ctrl *InProcessMediaControl) handlePlaybackEvent(event domain.PlaybackEven
 	switch event.Type {
 	case "playback.started":
 		if event.Track != nil {
-			log.Debug("In-process: updating metadata for %s - %s", event.Track.Artist, event.Track.Title)
+			log.Debug("In-process: updating metadata", "artist", event.Track.Artist, "title", event.Track.Title)
 			ctrl.controller.UpdateMetadata(mediacontrol.Metadata{
 				Title:    event.Track.Title,
 				Artist:   event.Track.Artist,

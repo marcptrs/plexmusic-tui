@@ -261,9 +261,9 @@ func (c *DaemonClient) reconnect() {
 		case <-c.ctx.Done():
 			return
 		case <-time.After(reconnectDelay):
-			log.Info("DaemonClient: Reconnect attempt %d/%d", attempt+1, maxReconnects)
+			log.Info("DaemonClient: Reconnect attempt", "attempt", attempt+1, "max", maxReconnects)
 			if err := c.connect(); err != nil {
-				log.Warn("DaemonClient: Reconnect failed: %v", err)
+				log.Warn("DaemonClient: Reconnect failed", "error", err)
 				continue
 			}
 			log.Info("DaemonClient: Reconnected successfully")
@@ -271,7 +271,7 @@ func (c *DaemonClient) reconnect() {
 		}
 	}
 
-	log.Error("DaemonClient: Failed to reconnect after %d attempts", maxReconnects)
+	log.Error("DaemonClient: Failed to reconnect", "attempts", maxReconnects)
 }
 
 // messageLoop reads messages from the daemon
@@ -304,7 +304,7 @@ func (c *DaemonClient) messageLoop() {
 					continue
 				}
 
-				log.Warn("DaemonClient: Read error: %v", err)
+				log.Warn("DaemonClient: Read error", "error", err)
 				c.mu.Lock()
 				c.connected = false
 				if c.conn != nil {
@@ -347,7 +347,7 @@ func (c *DaemonClient) readMessage(conn net.Conn) (*daemonMessage, error) {
 
 // handleMessage processes a message from the daemon
 func (c *DaemonClient) handleMessage(msg *daemonMessage) {
-	log.Debug("DaemonClient: Received command: %s", msg.Type)
+	log.Debug("DaemonClient: Received command", "type", msg.Type)
 
 	cmd := DaemonCommand{
 		Type: msg.Type,
@@ -358,7 +358,7 @@ func (c *DaemonClient) handleMessage(msg *daemonMessage) {
 	case c.commandChan <- cmd:
 	case <-c.ctx.Done():
 	default:
-		log.Warn("DaemonClient: Command channel full, dropping command: %s", msg.Type)
+		log.Warn("DaemonClient: Command channel full, dropping command", "type", msg.Type)
 	}
 }
 
@@ -405,7 +405,7 @@ func (c *DaemonClient) SendPlaybackStarted(track *domain.Track, artwork image.Im
 	if artwork != nil {
 		artworkData, err := encodeImageToJPEG(artwork)
 		if err != nil {
-			log.Debug("DaemonClient: Failed to encode artwork: %v", err)
+			log.Debug("DaemonClient: Failed to encode artwork", "error", err)
 		} else {
 			data["artwork"] = base64.StdEncoding.EncodeToString(artworkData)
 		}
@@ -417,11 +417,11 @@ func (c *DaemonClient) SendPlaybackStarted(track *domain.Track, artwork image.Im
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.started: %v", err)
+		log.Debug("DaemonClient: Failed to send playback.started", "error", err)
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.started for '%s'", track.Title)
+	log.Debug("DaemonClient: Sent playback.started", "title", track.Title)
 	return nil
 }
 
@@ -444,7 +444,7 @@ func (c *DaemonClient) SendPlaybackPaused(position, sampleRate int) error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.paused: %v", err)
+		log.Debug("DaemonClient: Failed to send playback.paused", "error", err)
 		return err
 	}
 
@@ -463,7 +463,7 @@ func (c *DaemonClient) SendPlaybackResumed(position, sampleRate int) error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.resumed: %v", err)
+		log.Debug("DaemonClient: Failed to send playback.resumed", "error", err)
 		return err
 	}
 
@@ -478,7 +478,7 @@ func (c *DaemonClient) SendPlaybackStopped() error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.stopped: %v", err)
+		log.Debug("DaemonClient: Failed to send playback.stopped", "error", err)
 		return err
 	}
 
@@ -501,11 +501,11 @@ func (c *DaemonClient) SendArtwork(pngData []byte) error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.artwork: %v", err)
+		log.Debug("DaemonClient: Failed to send playback.artwork", "error", err)
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.artwork (%d bytes)", len(pngData))
+	log.Debug("DaemonClient: Sent playback.artwork", "bytes", len(pngData))
 	return nil
 }
 
@@ -517,7 +517,7 @@ func (c *DaemonClient) SendArtworkImage(img image.Image) error {
 
 	artworkData, err := encodeImageToJPEG(img)
 	if err != nil {
-		log.Debug("DaemonClient: Failed to encode artwork image: %v", err)
+		log.Debug("DaemonClient: Failed to encode artwork image", "error", err)
 		return err
 	}
 
@@ -530,11 +530,11 @@ func (c *DaemonClient) SendArtworkImage(img image.Image) error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.artwork: %v", err)
+		log.Debug("DaemonClient: Failed to send playback.artwork", "error", err)
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.artwork image (%d bytes)", len(artworkData))
+	log.Debug("DaemonClient: Sent playback.artwork image", "bytes", len(artworkData))
 	return nil
 }
 

@@ -46,12 +46,12 @@ func (w *MediaControlWrapper) Start(ctx context.Context) error {
 
 		case event := <-playbackEvents:
 			if event.Type != "playback.position" {
-				log.Debug("Received playback event: %s", event.Type)
+				log.Debug("Received playback event", "type", event.Type)
 			}
 			w.handlePlaybackEvent(event.Payload)
 
 		case cmd := <-daemonCommands:
-			log.Debug("Received daemon command: %s", cmd.Type)
+			log.Debug("Received daemon command", "type", cmd.Type)
 			w.handleDaemonCommand(cmd)
 		}
 	}
@@ -61,29 +61,29 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 	switch event.Type {
 	case "playback.started":
 		if event.Track != nil {
-			log.Debug("Sending playback.started to daemon: %s - %s", event.Track.Artist, event.Track.Title)
+			log.Debug("Sending playback.started to daemon", "artist", event.Track.Artist, "title", event.Track.Title)
 			artwork := w.appCtx.Playback.AlbumArt()
 			if err := w.daemonClient.SendPlaybackStarted(event.Track, artwork); err != nil {
-				log.Debug("Failed to send playback.started: %v", err)
+				log.Debug("Failed to send playback.started", "error", err)
 			}
 		}
 
 	case "playback.paused":
 		log.Debug("Sending playback.paused to daemon")
 		if err := w.daemonClient.SendPlaybackPaused(event.Position, event.SampleRate); err != nil {
-			log.Debug("Failed to send playback.paused: %v", err)
+			log.Debug("Failed to send playback.paused", "error", err)
 		}
 
 	case "playback.resumed":
 		log.Debug("Sending playback.resumed to daemon")
 		if err := w.daemonClient.SendPlaybackResumed(event.Position, event.SampleRate); err != nil {
-			log.Debug("Failed to send playback.resumed: %v", err)
+			log.Debug("Failed to send playback.resumed", "error", err)
 		}
 
 	case "playback.stopped":
 		log.Debug("Sending playback.stopped to daemon")
 		if err := w.daemonClient.SendPlaybackStopped(); err != nil {
-			log.Debug("Failed to send playback.stopped: %v", err)
+			log.Debug("Failed to send playback.stopped", "error", err)
 		}
 
 	case "playback.position":
@@ -96,14 +96,14 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 	case "playback.seeked":
 		log.Debug("Sending playback.seeked to daemon")
 		if err := w.daemonClient.SendPosition(event.Position, event.Duration, event.SampleRate); err != nil {
-			log.Debug("Failed to send playback.seeked: %v", err)
+			log.Debug("Failed to send playback.seeked", "error", err)
 		}
 
 	case "playback.artwork":
 		if event.Artwork != nil {
 			log.Debug("Sending playback.artwork to daemon")
 			if err := w.daemonClient.SendArtworkImage(event.Artwork); err != nil {
-				log.Debug("Failed to send playback.artwork: %v", err)
+				log.Debug("Failed to send playback.artwork", "error", err)
 			}
 		}
 	}
@@ -116,7 +116,7 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 		if state == domain.PlaybackPaused {
 			log.Info("Remote command: Resuming playback")
 			if err := w.pbService.Resume(); err != nil {
-				log.Warn("Failed to resume playback: %v", err)
+				log.Warn("Failed to resume playback", "error", err)
 			}
 		}
 
@@ -125,7 +125,7 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 		if state == domain.PlaybackPlaying {
 			log.Info("Remote command: Pausing playback")
 			if err := w.pbService.Pause(); err != nil {
-				log.Warn("Failed to pause playback: %v", err)
+				log.Warn("Failed to pause playback", "error", err)
 			}
 		}
 
@@ -134,12 +134,12 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 		case domain.PlaybackPlaying:
 			log.Info("Media key: Pausing playback")
 			if err := w.pbService.Pause(); err != nil {
-				log.Warn("Failed to pause playback: %v", err)
+				log.Warn("Failed to pause playback", "error", err)
 			}
 		case domain.PlaybackPaused:
 			log.Info("Media key: Resuming playback")
 			if err := w.pbService.Resume(); err != nil {
-				log.Warn("Failed to resume playback: %v", err)
+				log.Warn("Failed to resume playback", "error", err)
 			}
 		}
 
@@ -155,9 +155,9 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 				case int64:
 					posSeconds = float64(v)
 				}
-				log.Info("Remote command: Seeking to %.2f seconds", posSeconds)
+				log.Info("Remote command: Seeking", "seconds", posSeconds)
 				if err := w.pbService.SeekToSeconds(posSeconds); err != nil {
-					log.Warn("Failed to seek: %v", err)
+					log.Warn("Failed to seek", "error", err)
 				}
 			}
 		}
@@ -185,13 +185,13 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 				w.ctx, dq, queueIdx, dtracks, selected, libSvc,
 			)
 			if err != nil {
-				log.Warn("Failed to determine next track: %v", err)
+				log.Warn("Failed to determine next track", "error", err)
 				return
 			}
 
 			if next != nil {
 				if err := w.pbService.PlayDomainTrack(w.ctx, libSvc, next); err != nil {
-					log.Warn("Failed to play next track: %v", err)
+					log.Warn("Failed to play next track", "error", err)
 					return
 				}
 				if isQueue {
@@ -225,13 +225,13 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 				w.ctx, dq, queueIdx, dtracks, selected, libSvc,
 			)
 			if err != nil {
-				log.Warn("Failed to determine previous track: %v", err)
+				log.Warn("Failed to determine previous track", "error", err)
 				return
 			}
 
 			if prev != nil {
 				if err := w.pbService.PlayDomainTrack(w.ctx, libSvc, prev); err != nil {
-					log.Warn("Failed to play previous track: %v", err)
+					log.Warn("Failed to play previous track", "error", err)
 					return
 				}
 				if isQueue {
@@ -243,7 +243,7 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 		}
 
 	default:
-		log.Warn("Unknown daemon command: %s", cmd.Type)
+		log.Warn("Unknown daemon command", "type", cmd.Type)
 	}
 }
 
