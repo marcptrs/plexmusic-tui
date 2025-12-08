@@ -18,19 +18,19 @@ import (
 // Orchestrator provides a high-level API for the UI to start playback and
 // navigate the queue/tracklist, while keeping playback logic out of the page.
 type Orchestrator struct {
-	coordinator app.Coordinatorer
-	libSvc      interface {
+	ctx    *app.AppContext
+	libSvc interface {
 		FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
 	}
 	pbSvc service.PlaybackServicer
 }
 
 // NewOrchestrator creates an orchestrator instance.
-func NewOrchestrator(coord app.Coordinatorer, lib interface {
+func NewOrchestrator(ctx *app.AppContext, lib interface {
 	FetchStream(ctx context.Context, t *domain.Track) (io.ReadCloser, string, error)
 }, pb service.PlaybackServicer,
 ) *Orchestrator {
-	return &Orchestrator{coordinator: coord, libSvc: lib, pbSvc: pb}
+	return &Orchestrator{ctx: ctx, libSvc: lib, pbSvc: pb}
 }
 
 // Pause pauses playback, updating coordinator state and returning any error from pbSvc.
@@ -39,8 +39,8 @@ func (o *Orchestrator) Pause() error {
 		return fmt.Errorf("playback service unavailable")
 	}
 	if err := o.pbSvc.Pause(); err != nil {
-		if o.coordinator != nil {
-			o.coordinator.SetNotification(
+		if o.ctx != nil {
+			o.ctx.View.SetNotification(
 				fmt.Sprintf("Pause failed: %v", err),
 				"error",
 				5*time.Second,
@@ -48,8 +48,8 @@ func (o *Orchestrator) Pause() error {
 		}
 		return err
 	}
-	if o.coordinator != nil {
-		o.coordinator.SetPlaybackState(app.PlaybackPaused)
+	if o.ctx != nil {
+		o.ctx.Playback.SetState(app.PlaybackPaused)
 	}
 	return nil
 }
@@ -60,8 +60,8 @@ func (o *Orchestrator) Resume() error {
 		return fmt.Errorf("playback service unavailable")
 	}
 	if err := o.pbSvc.Resume(); err != nil {
-		if o.coordinator != nil {
-			o.coordinator.SetNotification(
+		if o.ctx != nil {
+			o.ctx.View.SetNotification(
 				fmt.Sprintf("Resume failed: %v", err),
 				"error",
 				5*time.Second,
@@ -69,12 +69,12 @@ func (o *Orchestrator) Resume() error {
 		}
 		return err
 	}
-	if o.coordinator != nil {
-		o.coordinator.SetPlaybackState(app.PlaybackPlaying)
+	if o.ctx != nil {
+		o.ctx.Playback.SetState(app.PlaybackPlaying)
 	}
 	// Debug: emit playback state and position
-	if o.coordinator != nil {
-		o.coordinator.SetNotification("Playback resumed", "info", 2*time.Second)
+	if o.ctx != nil {
+		o.ctx.View.SetNotification("Playback resumed", "info", 2*time.Second)
 	}
 	return nil
 }
@@ -85,8 +85,8 @@ func (o *Orchestrator) Stop() error {
 		return fmt.Errorf("playback service unavailable")
 	}
 	if err := o.pbSvc.Stop(); err != nil {
-		if o.coordinator != nil {
-			o.coordinator.SetNotification(
+		if o.ctx != nil {
+			o.ctx.View.SetNotification(
 				fmt.Sprintf("Stop failed: %v", err),
 				"error",
 				5*time.Second,
@@ -94,8 +94,8 @@ func (o *Orchestrator) Stop() error {
 		}
 		return err
 	}
-	if o.coordinator != nil {
-		o.coordinator.SetPlaybackState(app.PlaybackStopped)
+	if o.ctx != nil {
+		o.ctx.Playback.SetState(app.PlaybackStopped)
 	}
 	return nil
 }
@@ -106,8 +106,8 @@ func (o *Orchestrator) Seek(pos int) error {
 		return fmt.Errorf("playback service unavailable")
 	}
 	if err := o.pbSvc.Seek(pos); err != nil {
-		if o.coordinator != nil {
-			o.coordinator.SetNotification(
+		if o.ctx != nil {
+			o.ctx.View.SetNotification(
 				fmt.Sprintf("Seek failed: %v", err),
 				"error",
 				5*time.Second,
@@ -115,8 +115,8 @@ func (o *Orchestrator) Seek(pos int) error {
 		}
 		return err
 	}
-	if o.coordinator != nil {
-		o.coordinator.SetStreamPosition(pos)
+	if o.ctx != nil {
+		o.ctx.Playback.SetStreamPosition(pos)
 	}
 	return nil
 }
@@ -128,7 +128,8 @@ func (o *Orchestrator) AdjustVolumeByPercent(percentageDelta int) error {
 	}
 	pc := service.NewPlaybackController(o.pbSvc)
 	pc.AdjustVolume(float64(percentageDelta))
-	if cfg := o.coordinator.ConfigManager(); cfg != nil {
+	if o.ctx != nil && o.ctx.Services.ConfigManager() != nil {
+		cfg := o.ctx.Services.ConfigManager()
 		newVol := o.pbSvc.GetVolume()
 		cfg.SetVolume(newVol)
 		_ = cfg.Save()
@@ -225,8 +226,8 @@ func (o *Orchestrator) PlayAppTrack(ctx context.Context, at *app.Track) error {
 		if o.libSvc != nil {
 			if err := o.pbSvc.PlayDomainTrack(ctx, o.libSvc, dt); err != nil {
 				// Set coordinator notification
-				if o.coordinator != nil {
-					o.coordinator.SetNotification(
+				if o.ctx != nil {
+					o.ctx.View.SetNotification(
 						fmt.Sprintf("Play failed: %v", err),
 						"error",
 						10*time.Second,
@@ -236,17 +237,17 @@ func (o *Orchestrator) PlayAppTrack(ctx context.Context, at *app.Track) error {
 			}
 		} else {
 			if err := o.pbSvc.Play(dt); err != nil {
-				if o.coordinator != nil {
-					o.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+				if o.ctx != nil {
+					o.ctx.View.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
 				}
 				return err
 			}
 		}
 	}
 	// Set coordinator current track for immediate UI feedback
-	if o.coordinator != nil {
-		o.coordinator.SetCurrentTrack(at)
-		o.coordinator.SetPlaybackState(app.PlaybackPlaying)
+	if o.ctx != nil {
+		o.ctx.Playback.SetCurrentTrack(at)
+		o.ctx.Playback.SetState(app.PlaybackPlaying)
 	}
 	return nil
 }
@@ -256,36 +257,23 @@ func (o *Orchestrator) PlayAppTrack(ctx context.Context, at *app.Track) error {
 func (o *Orchestrator) PlayNext(
 	ctx context.Context,
 	pc *service.PlaybackController,
-	queue []app.Track,
+	queue []domain.Track,
 	queueIndex int,
-	tracks []app.Track,
+	tracks []domain.Track,
 	selected int,
 ) error {
-	// Convert app.Track to domain.Track slices
-	dq := make([]domain.Track, len(queue))
-	for i, t := range queue {
-		if dt := util.AppTrackToDomain(&t); dt != nil {
-			dq[i] = *dt
-		}
-	}
-	dtracks := make([]domain.Track, len(tracks))
-	for i, t := range tracks {
-		if dt := util.AppTrackToDomain(&t); dt != nil {
-			dtracks[i] = *dt
-		}
-	}
 	isQueue, newQueueIdx, newSelected, next, err := pc.PlayNext(
 		ctx,
-		dq,
+		queue,
 		queueIndex,
-		dtracks,
+		tracks,
 		selected,
 		o.libSvc,
 	)
 	if err != nil {
 		// Although controller no longer calls pbSvc, preserve handling if controller returns error
-		if o.coordinator != nil {
-			o.coordinator.SetNotification(
+		if o.ctx != nil {
+			o.ctx.View.SetNotification(
 				fmt.Sprintf("Play failed: %v", err),
 				"error",
 				10*time.Second,
@@ -300,11 +288,11 @@ func (o *Orchestrator) PlayNext(
 	// stop playback and clear the queue selection instead of wrapping. This avoids
 	// infinite looping of queued tracks — when the queue completes, stop and clear
 	// the queue selection/state.
-	if isQueue && len(dq) > 0 && newQueueIdx == -1 {
+	if isQueue && len(queue) > 0 && newQueueIdx == -1 {
 		if o.pbSvc != nil {
 			if err := o.pbSvc.Stop(); err != nil {
-				if o.coordinator != nil {
-					o.coordinator.SetNotification(
+				if o.ctx != nil {
+					o.ctx.View.SetNotification(
 						fmt.Sprintf("Stop failed: %v", err),
 						"error",
 						10*time.Second,
@@ -313,13 +301,13 @@ func (o *Orchestrator) PlayNext(
 				return err
 			}
 		} else {
-			if o.coordinator != nil {
-				o.coordinator.SetPlaybackState(app.PlaybackStopped)
+			if o.ctx != nil {
+				o.ctx.Playback.SetState(app.PlaybackStopped)
 			}
 		}
-		if o.coordinator != nil {
-			o.coordinator.SetQueueIndex(-1)
-			o.coordinator.SetCurrentTrack(nil)
+		if o.ctx != nil {
+			o.ctx.Content.SetQueueIndex(-1)
+			o.ctx.Playback.SetCurrentTrack(nil)
 		}
 		return nil
 	}
@@ -328,15 +316,15 @@ func (o *Orchestrator) PlayNext(
 	// This prevents double-skip when playback fails
 	if next != nil {
 		if at := util.DomainTrackToApp(next); at != nil {
-			o.coordinator.SetCurrentTrack(at)
-			o.coordinator.SetPlaybackState(app.PlaybackPlaying)
+			o.ctx.Playback.SetCurrentTrack(at)
+			o.ctx.Playback.SetState(app.PlaybackPlaying)
 		}
 		// Attempt to start playback via pbSvc
 		if o.pbSvc != nil {
 			if o.libSvc != nil {
 				if err := o.pbSvc.PlayDomainTrack(ctx, o.libSvc, next); err != nil {
-					if o.coordinator != nil {
-						o.coordinator.SetNotification(
+					if o.ctx != nil {
+						o.ctx.View.SetNotification(
 							fmt.Sprintf("Play failed: %v", err),
 							"error",
 							10*time.Second,
@@ -346,15 +334,15 @@ func (o *Orchestrator) PlayNext(
 				}
 			} else {
 				if err := o.pbSvc.Play(next); err != nil {
-					if o.coordinator != nil {
-						o.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+					if o.ctx != nil {
+						o.ctx.View.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
 					}
 					return err
 				}
 			}
 		} else {
-			if o.coordinator != nil {
-				o.coordinator.SetNotification("Play failed: playback service unavailable", "error", 10*time.Second)
+			if o.ctx != nil {
+				o.ctx.View.SetNotification("Play failed: playback service unavailable", "error", 10*time.Second)
 			}
 			return fmt.Errorf("playback service unavailable")
 		}
@@ -362,9 +350,9 @@ func (o *Orchestrator) PlayNext(
 
 	// Only update queue/track index AFTER playback has successfully started
 	if isQueue {
-		o.coordinator.SetQueueIndex(newQueueIdx)
+		o.ctx.Content.SetQueueIndex(newQueueIdx)
 	} else {
-		o.coordinator.SetSelectedTrack(newSelected)
+		o.ctx.View.SetSelectedTrack(newSelected)
 	}
 	return nil
 }
@@ -373,34 +361,22 @@ func (o *Orchestrator) PlayNext(
 func (o *Orchestrator) PlayPrev(
 	ctx context.Context,
 	pc *service.PlaybackController,
-	queue []app.Track,
+	queue []domain.Track,
 	queueIndex int,
-	tracks []app.Track,
+	tracks []domain.Track,
 	selected int,
 ) error {
-	dq := make([]domain.Track, len(queue))
-	for i, t := range queue {
-		if dt := util.AppTrackToDomain(&t); dt != nil {
-			dq[i] = *dt
-		}
-	}
-	dtracks := make([]domain.Track, len(tracks))
-	for i, t := range tracks {
-		if dt := util.AppTrackToDomain(&t); dt != nil {
-			dtracks[i] = *dt
-		}
-	}
 	isQueue, newQueueIdx, newSelected, prev, err := pc.PlayPrev(
 		ctx,
-		dq,
+		queue,
 		queueIndex,
-		dtracks,
+		tracks,
 		selected,
 		o.libSvc,
 	)
 	if err != nil {
-		if o.coordinator != nil {
-			o.coordinator.SetNotification(
+		if o.ctx != nil {
+			o.ctx.View.SetNotification(
 				fmt.Sprintf("Play failed: %v", err),
 				"error",
 				10*time.Second,
@@ -409,21 +385,21 @@ func (o *Orchestrator) PlayPrev(
 		return err
 	}
 	if isQueue {
-		o.coordinator.SetQueueIndex(newQueueIdx)
+		o.ctx.Content.SetQueueIndex(newQueueIdx)
 	} else {
-		o.coordinator.SetSelectedTrack(newSelected)
+		o.ctx.View.SetSelectedTrack(newSelected)
 	}
 	if prev != nil {
 		if at := util.DomainTrackToApp(prev); at != nil {
-			o.coordinator.SetCurrentTrack(at)
-			o.coordinator.SetPlaybackState(app.PlaybackPlaying)
+			o.ctx.Playback.SetCurrentTrack(at)
+			o.ctx.Playback.SetState(app.PlaybackPlaying)
 		}
 		// Attempt to start playback via pbSvc using prev
 		if o.pbSvc != nil {
 			if o.libSvc != nil {
 				if err := o.pbSvc.PlayDomainTrack(ctx, o.libSvc, prev); err != nil {
-					if o.coordinator != nil {
-						o.coordinator.SetNotification(
+					if o.ctx != nil {
+						o.ctx.View.SetNotification(
 							fmt.Sprintf("Play failed: %v", err),
 							"error",
 							10*time.Second,
@@ -433,15 +409,15 @@ func (o *Orchestrator) PlayPrev(
 				}
 			} else {
 				if err := o.pbSvc.Play(prev); err != nil {
-					if o.coordinator != nil {
-						o.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
+					if o.ctx != nil {
+						o.ctx.View.SetNotification(fmt.Sprintf("Play failed: %v", err), "error", 10*time.Second)
 					}
 					return err
 				}
 			}
 		} else {
-			if o.coordinator != nil {
-				o.coordinator.SetNotification("Play failed: playback service unavailable", "error", 10*time.Second)
+			if o.ctx != nil {
+				o.ctx.View.SetNotification("Play failed: playback service unavailable", "error", 10*time.Second)
 			}
 			return fmt.Errorf("playback service unavailable")
 		}

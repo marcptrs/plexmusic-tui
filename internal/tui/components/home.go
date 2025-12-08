@@ -22,7 +22,7 @@ type HomeItem struct {
 
 // HomeComponent displays a scrollable home view with hubs and recently added
 type HomeComponent struct {
-	coordinator app.Coordinatorer
+	ctx         *app.AppContext
 	viewport    viewport.Model
 	items       []HomeItem
 	selectedIdx int
@@ -32,11 +32,11 @@ type HomeComponent struct {
 }
 
 // NewHomeComponent creates a new scrollable home component
-func NewHomeComponent(coord app.Coordinatorer) *HomeComponent {
+func NewHomeComponent(ctx *app.AppContext) *HomeComponent {
 	vp := viewport.New(80, 20)
 
 	return &HomeComponent{
-		coordinator: coord,
+		ctx:         ctx,
 		viewport:    vp,
 		items:       []HomeItem{},
 		selectedIdx: 0,
@@ -125,7 +125,7 @@ func (c *HomeComponent) RefreshFromCoordinator() {
 	c.items = []HomeItem{}
 
 	// Add recently played artists FIRST (matching Plex dashboard order)
-	recentArtists := c.coordinator.RecentlyPlayedArtists()
+	recentArtists := c.ctx.Content.RecentlyPlayedArtists()
 	for _, artist := range recentArtists {
 		c.items = append(c.items, HomeItem{
 			Title:    artist.Name,
@@ -136,7 +136,7 @@ func (c *HomeComponent) RefreshFromCoordinator() {
 	}
 
 	// Get hubs once for all sections below
-	hubs := c.coordinator.LibraryHubs()
+	hubs := c.ctx.Content.LibraryHubs()
 
 	// Add recently added albums SECOND - from hubs
 	for _, hub := range hubs {

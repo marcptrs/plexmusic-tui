@@ -14,14 +14,14 @@ import (
 
 // SettingsComponent handles the settings list and configuration updates.
 type SettingsComponent struct {
-	coordinator app.Coordinatorer
-	list        list.Model
-	width       int
-	height      int
+	ctx    *app.AppContext
+	list   list.Model
+	width  int
+	height int
 }
 
 // NewSettingsComponent creates a new SettingsComponent.
-func NewSettingsComponent(coord app.Coordinatorer) *SettingsComponent {
+func NewSettingsComponent(ctx *app.AppContext) *SettingsComponent {
 	delegate := styles.NewCustomDelegate()
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = "Settings"
@@ -31,8 +31,8 @@ func NewSettingsComponent(coord app.Coordinatorer) *SettingsComponent {
 	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	s := &SettingsComponent{
-		coordinator: coord,
-		list:        l,
+		ctx:  ctx,
+		list: l,
 	}
 	s.RefreshItems()
 	return s
@@ -52,16 +52,16 @@ func (s *SettingsComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle shortcuts
 		switch msg.String() {
 		case "c":
-			if s.coordinator != nil && s.coordinator.ConfigManager() != nil {
-				cur := s.coordinator.ConfigManager().GetCoverArtPosition()
+			if s.ctx != nil && s.ctx.Services.ConfigManager() != nil {
+				cur := s.ctx.Services.ConfigManager().GetCoverArtPosition()
 				newVal := "right"
 				if cur == "right" {
 					newVal = "left"
 				}
-				s.coordinator.ConfigManager().SetCoverArtPosition(newVal)
-				_ = s.coordinator.ConfigManager().Save()
+				s.ctx.Services.ConfigManager().SetCoverArtPosition(newVal)
+				_ = s.ctx.Services.ConfigManager().Save()
 				s.RefreshItems()
-				s.coordinator.SetNotification("Cover art position updated", "success", 3*time.Second)
+				s.ctx.View.SetNotification("Cover art position updated", "success", 3*time.Second)
 			}
 			return s, nil
 		case "enter":
@@ -70,19 +70,19 @@ func (s *SettingsComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case "coverArtPos":
 					// Toggle left/right choice
 					cur := "left"
-					if s.coordinator != nil && s.coordinator.ConfigManager() != nil {
-						cur = s.coordinator.ConfigManager().GetCoverArtPosition()
+					if s.ctx != nil && s.ctx.Services.ConfigManager() != nil {
+						cur = s.ctx.Services.ConfigManager().GetCoverArtPosition()
 					}
 					newVal := "left"
 					if cur == "left" {
 						newVal = "right"
 					}
-					if s.coordinator != nil && s.coordinator.ConfigManager() != nil {
-						s.coordinator.ConfigManager().SetCoverArtPosition(newVal)
-						_ = s.coordinator.ConfigManager().Save()
+					if s.ctx != nil && s.ctx.Services.ConfigManager() != nil {
+						s.ctx.Services.ConfigManager().SetCoverArtPosition(newVal)
+						_ = s.ctx.Services.ConfigManager().Save()
 					}
 					s.RefreshItems()
-					s.coordinator.SetNotification("Cover art position updated", "success", 2*time.Second)
+					s.ctx.View.SetNotification("Cover art position updated", "success", 2*time.Second)
 				}
 			}
 			return s, nil
@@ -108,8 +108,8 @@ func (s *SettingsComponent) SetSize(w, h int) {
 
 // RefreshItems reloads settings from the configuration.
 func (s *SettingsComponent) RefreshItems() {
-	if s.coordinator != nil && s.coordinator.ConfigManager() != nil {
-		pos := s.coordinator.ConfigManager().GetCoverArtPosition()
+	if s.ctx != nil && s.ctx.Services.ConfigManager() != nil {
+		pos := s.ctx.Services.ConfigManager().GetCoverArtPosition()
 		items := []list.Item{}
 		items = append(items, util.SettingsItem{
 			Group:           "Layout",

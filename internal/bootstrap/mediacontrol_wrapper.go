@@ -20,6 +20,7 @@ type MediaControlWrapper struct {
 	pbService        *service.PlaybackService
 	orchestrator     *tui.Orchestrator
 	coordinator      *app.Coordinator
+	appCtx           *app.AppContext
 	ctx              context.Context
 	lastPositionSent time.Time
 }
@@ -61,7 +62,7 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 	case "playback.started":
 		if event.Track != nil {
 			log.Debug("Sending playback.started to daemon: %s - %s", event.Track.Artist, event.Track.Title)
-			artwork := w.coordinator.PlaybackAlbumArt()
+			artwork := w.appCtx.Playback.AlbumArt()
 			if err := w.daemonClient.SendPlaybackStarted(event.Track, artwork); err != nil {
 				log.Debug("Failed to send playback.started: %v", err)
 			}
@@ -162,23 +163,23 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 		}
 
 	case "next":
-		if w.coordinator != nil && w.pbService != nil {
+		if w.appCtx != nil && w.pbService != nil {
 			log.Info("Media key: Playing next track")
 
-			libSvc := w.coordinator.LibraryService()
+			libSvc := w.appCtx.Services.LibraryService()
 			if libSvc == nil {
 				log.Warn("Media key: Cannot play next track - library service not available")
 				return
 			}
 
 			pc := service.NewPlaybackController(nil)
-			queue := w.coordinator.Queue()
-			queueIdx := w.coordinator.QueueIndex()
-			tracks := w.coordinator.Tracks()
-			selected := w.coordinator.SelectedTrack()
+			queue := w.appCtx.Content.Queue()
+			queueIdx := w.appCtx.Content.QueueIndex()
+			tracks := w.appCtx.Content.Tracks()
+			selected := w.appCtx.View.SelectedTrack()
 
-			dq := convertAppTracksToDomain(queue)
-			dtracks := convertAppTracksToDomain(tracks)
+			dq := queue
+			dtracks := tracks
 
 			isQueue, newQueueIdx, newSelected, next, err := pc.PlayNext(
 				w.ctx, dq, queueIdx, dtracks, selected, libSvc,
@@ -194,31 +195,31 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 					return
 				}
 				if isQueue {
-					w.coordinator.SetQueueIndex(newQueueIdx)
+					w.appCtx.Content.SetQueueIndex(newQueueIdx)
 				} else {
-					w.coordinator.SetSelectedTrack(newSelected)
+					w.appCtx.View.SetSelectedTrack(newSelected)
 				}
 			}
 		}
 
 	case "previous":
-		if w.coordinator != nil && w.pbService != nil {
+		if w.appCtx != nil && w.pbService != nil {
 			log.Info("Media key: Playing previous track")
 
-			libSvc := w.coordinator.LibraryService()
+			libSvc := w.appCtx.Services.LibraryService()
 			if libSvc == nil {
 				log.Warn("Media key: Cannot play previous track - library service not available")
 				return
 			}
 
 			pc := service.NewPlaybackController(nil)
-			queue := w.coordinator.Queue()
-			queueIdx := w.coordinator.QueueIndex()
-			tracks := w.coordinator.Tracks()
-			selected := w.coordinator.SelectedTrack()
+			queue := w.appCtx.Content.Queue()
+			queueIdx := w.appCtx.Content.QueueIndex()
+			tracks := w.appCtx.Content.Tracks()
+			selected := w.appCtx.View.SelectedTrack()
 
-			dq := convertAppTracksToDomain(queue)
-			dtracks := convertAppTracksToDomain(tracks)
+			dq := queue
+			dtracks := tracks
 
 			isQueue, newQueueIdx, newSelected, prev, err := pc.PlayPrev(
 				w.ctx, dq, queueIdx, dtracks, selected, libSvc,
@@ -234,9 +235,9 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 					return
 				}
 				if isQueue {
-					w.coordinator.SetQueueIndex(newQueueIdx)
+					w.appCtx.Content.SetQueueIndex(newQueueIdx)
 				} else {
-					w.coordinator.SetSelectedTrack(newSelected)
+					w.appCtx.View.SetSelectedTrack(newSelected)
 				}
 			}
 		}
@@ -296,5 +297,6 @@ func provideMediaControlWrapper(
 		pbService:    playbackService,
 		orchestrator: orchestrator,
 		coordinator:  coordinator,
+		appCtx:       coordinator.GetAppContext(),
 	}
 }

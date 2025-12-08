@@ -1360,7 +1360,6 @@ func (s *LibraryService) FetchSonicAdventure(ctx context.Context, start, end str
 func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string) ([]domain.Hub, error) {
 	// Fetch hubs for the music section - this includes stations, mixes, on this day, etc.
 	endpoint := fmt.Sprintf("%s/hubs/sections/%s?includeStations=1", s.baseURL, sectionKey)
-	// log.Debug("FetchLibraryHubs: fetching hubs", "endpoint", endpoint, "sectionKey", sectionKey)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -1382,8 +1381,6 @@ func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string
 
 	// Log the raw response to understand the structure
 	_ = body // Preview truncation left for potential debugging
-	// preview := string(body[:2000])
-	// log.Debug("FetchLibraryHubs: response preview", "preview", preview)
 
 	// Parse the hub response
 	var hubResponse struct {
@@ -1495,7 +1492,6 @@ func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string
 		hubs = append(hubs, hub)
 	}
 
-	// log.Debug("FetchLibraryHubs: parsed hubs", "count", len(hubs))
 	return hubs, nil
 }
 

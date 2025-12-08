@@ -16,6 +16,7 @@ import (
 type AppModel struct {
 	router      *Router
 	coord       *app.Coordinator
+	appCtx      *app.AppContext
 	authService service.AuthServicer
 	configMgr   *config.Manager
 	keyMap      KeyMap
@@ -40,6 +41,7 @@ func NewAppModel(
 	return &AppModel{
 		router:      router,
 		coord:       coord,
+		appCtx:      coord.GetAppContext(),
 		authService: authSvc,
 		configMgr:   cfgMgr,
 		keyMap:      keyMap,
@@ -57,11 +59,11 @@ func (a *AppModel) Init() tea.Cmd {
 	// If we already have a coordinator-provided terminal size, ensure the
 	// initial page receives it immediately so pages that rely on width/height
 	// don't render an empty layout while waiting for a WindowSize message.
-	if a.coord != nil {
+	if a.appCtx != nil {
 		sizeCmd := func() tea.Msg {
 			return tea.WindowSizeMsg{
-				Width:  a.coord.Width(),
-				Height: a.coord.Height(),
+				Width:  a.appCtx.View.Width(),
+				Height: a.appCtx.View.Height(),
 			}
 		}
 		return tea.Batch(initCmd, sizeCmd)
@@ -108,9 +110,9 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// used when creating or initializing pages. We don't consume the message;
 	// we still forward it to the router so the active page receives it too.
 	case tea.WindowSizeMsg:
-		if a.coord != nil {
-			a.coord.SetWidth(msg.Width)
-			a.coord.SetHeight(msg.Height)
+		if a.appCtx != nil {
+			a.appCtx.View.SetWidth(msg.Width)
+			a.appCtx.View.SetHeight(msg.Height)
 		}
 
 	case PageChangeMsg:
@@ -127,10 +129,10 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// with the router navigation command.
 		navCmd := a.router.NavigateTo(newPage, msg.ID)
 		sizeCmd := func() tea.Msg {
-			if a.coord == nil {
+			if a.appCtx == nil {
 				return nil
 			}
-			return tea.WindowSizeMsg{Width: a.coord.Width(), Height: a.coord.Height()}
+			return tea.WindowSizeMsg{Width: a.appCtx.View.Width(), Height: a.appCtx.View.Height()}
 		}
 		return a, tea.Batch(navCmd, sizeCmd)
 	}

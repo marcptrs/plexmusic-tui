@@ -11,19 +11,19 @@ import (
 func TestNowPlaying_VolumeDisplayReflectsPbService(t *testing.T) {
 	coord := app.NewCoordinator()
 	// Ensure coordinator has a playback service
-	pbSvc := coord.PlaybackService()
+	pbSvc := coord.GetAppContext().Services.PlaybackService()
 	if pbSvc == nil {
-		coord.SetPlaybackService(service.NewPlaybackService())
-		pbSvc = coord.PlaybackService()
+		coord.GetAppContext().Services.SetPlaybackService(service.NewPlaybackService())
+		pbSvc = coord.GetAppContext().Services.PlaybackService()
 	}
 
 	// Prepare current track to ensure volume display renders
 	track := app.Track{Title: "Test Track", Artist: "Artist", Album: "Album", Duration: 200000}
-	coord.SetCurrentTrack(&track)
+	coord.GetAppContext().Playback.SetCurrentTrack(&track)
 
 	// Set volume to 0 (100%) and verify text contains 'Volume: 100%'
 	pbSvc.SetVolume(0)
-	np := NewNowPlayingComponent(coord, pbSvc)
+	np := NewNowPlayingComponent(coord.GetAppContext(), pbSvc)
 	out := np.Render(80, 20)
 	if !strings.Contains(out, "Volume: 100%") {
 		t.Fatalf("expected Volume: 100%% in rendered output, got: %s", out)

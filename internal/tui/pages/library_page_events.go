@@ -29,12 +29,12 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 	switch msg.Type {
 	case "server.plexpass":
 		// Plex Pass available on the server
-		p.coordinator.SetPlexPass(true)
-		p.coordinator.SetNotification("Plex Pass detected: sonic features may be available.", "info", 6*time.Second)
+		p.appCtx.Content.SetPlexPass(true)
+		p.appCtx.View.SetNotification("Plex Pass detected: sonic features may be available.", "info", 6*time.Second)
 		return p, tea.Batch(p.subscribeToLibraryEvents(), p.subscribeToPlaybackEvents())
 	case "library.sonic_analyzed":
 		// Sonic analysis detected — enable sonic features and fetch related home content
-		p.coordinator.SetSonicAvailable(true)
+		p.appCtx.Content.SetSonicAvailable(true)
 		// Trigger home content fetches for Mixes/OnThisDay/MoodStations
 		return p, tea.Batch(
 			p.fetchMixesForYou(),
@@ -45,13 +45,9 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 		)
 	case "libraries.loaded":
 		log.Debug("LibraryPage: libraries.loaded", "count", len(msg.Libraries))
-		appLibs := make([]app.MusicLibrary, len(msg.Libraries))
-		for i, l := range msg.Libraries {
-			appLibs[i] = app.MusicLibrary{Key: l.Key, Title: l.Title, Type: l.Type}
-		}
-		p.coordinator.SetLibraries(appLibs)
-		if len(appLibs) > 0 {
-			p.coordinator.SetSelectedLibrary(0)
+		p.appCtx.Session.SetLibraries(msg.Libraries)
+		if len(msg.Libraries) > 0 {
+			p.appCtx.Session.SetSelectedLibrary(0)
 			// Stats will be fetched on-demand when settings tab is viewed
 			return p, tea.Batch(
 				p.subscribeToLibraryEvents(),
@@ -61,112 +57,77 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			log.Warn("LibraryPage: No libraries found")
 		}
 	case "recently_added.loaded":
-		// Convert domain.Album to app.Album and update the coordinator
-		appAlbums := make([]app.Album, len(msg.Albums))
+		// Update the coordinator with domain albums directly
+		p.appCtx.Content.SetAlbums(msg.Albums)
+
 		items := make([]list.Item, len(msg.Albums))
 		for i, a := range msg.Albums {
-			appAlbums[i] = app.Album{
-				Title:  a.Title,
-				Artist: a.Artist,
-				Year:   a.Year,
-				Key:    a.Key,
-				Thumb:  a.Thumb,
-			}
 			items[i] = util.AlbumItem{Album: a}
 		}
-		p.coordinator.SetAlbums(appAlbums)
 		// Note: msg.TotalSize here is the count of recently added items (e.g. 50),
 		// not the total albums in the library. We should not overwrite the library stats.
 		p.recentlyAddedComponent.SetItems(items)
 		// Keep UI selection sane
-		if len(appAlbums) > 0 {
-			p.coordinator.SetSelectedAlbum(0)
+		if len(msg.Albums) > 0 {
+			p.appCtx.View.SetSelectedAlbum(0)
 			p.recentlyAddedComponent.Select(0)
 			// Reset last selected album index so first selection triggers a fetch
 			p.lastSelectedAlbumIndex = -1
 		}
 
 	case "playlists.loaded":
-		appPlaylists := make([]app.Playlist, len(msg.Playlists))
+		p.appCtx.Content.SetPlaylists(msg.Playlists)
+
 		items := make([]list.Item, len(msg.Playlists))
 		for i, pl := range msg.Playlists {
-			appPlaylists[i] = app.Playlist{
-				Title:        pl.Title,
-				Key:          pl.Key,
-				LeafCount:    pl.LeafCount,
-				Duration:     pl.Duration,
-				PlaylistType: pl.PlaylistType,
-			}
 			items[i] = util.PlaylistItem{Playlist: pl}
 		}
-		p.coordinator.SetPlaylists(appPlaylists)
+
 		if msg.TotalSize > 0 {
-			p.coordinator.SetPlaylistsTotal(msg.TotalSize)
+			p.appCtx.Content.SetPlaylistsTotal(msg.TotalSize)
 		} else {
-			p.coordinator.SetPlaylistsTotal(len(appPlaylists))
+			p.appCtx.Content.SetPlaylistsTotal(len(msg.Playlists))
 		}
 		p.playlistComponent.SetItems(items)
-		if len(appPlaylists) > 0 {
-			p.coordinator.SetSelectedPlaylist(0)
+		if len(msg.Playlists) > 0 {
+			p.appCtx.View.SetSelectedPlaylist(0)
 			p.playlistComponent.Select(0)
 			// Reset last selected playlist index so first selection triggers a fetch
 			p.lastSelectedPlaylistIndex = -1
 		}
 
 	case "mixes.loaded":
-		appPlaylists := make([]app.Playlist, len(msg.Playlists))
-		for i, pl := range msg.Playlists {
-			appPlaylists[i] = app.Playlist{
-				Title:        pl.Title,
-				Key:          pl.Key,
-				LeafCount:    pl.LeafCount,
-				Duration:     pl.Duration,
-				PlaylistType: pl.PlaylistType,
-			}
-		}
-		p.coordinator.SetMixesForYou(appPlaylists)
+		p.appCtx.Content.SetMixesForYou(msg.Playlists)
 
 	case "onthisday.loaded":
-		appAlbums := make([]app.Album, len(msg.Albums))
-		for i, a := range msg.Albums {
-			appAlbums[i] = app.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
-		}
-		p.coordinator.SetOnThisDay(appAlbums)
+		p.appCtx.Content.SetOnThisDay(msg.Albums)
 
 	case "moodstation.loaded":
-		appTracks := make([]app.Track, len(msg.Tracks))
-		for i, t := range msg.Tracks {
-			if at := util.DomainTrackToApp(&t); at != nil {
-				appTracks[i] = *at
-			}
-		}
-		p.coordinator.SetMoodStations(appTracks)
+		p.appCtx.Content.SetMoodStations(msg.Tracks)
 
 	case "tracks.loaded":
-		appTracks := make([]app.Track, len(msg.Tracks))
+		p.appCtx.Content.SetTracks(msg.Tracks)
+
 		items := make([]list.Item, len(msg.Tracks))
 		for i, t := range msg.Tracks {
-			if at := util.DomainTrackToApp(&t); at != nil {
-				appTracks[i] = *at
-			}
 			items[i] = util.TrackItem{Track: t}
 		}
-		p.coordinator.SetTracks(appTracks)
+
 		if msg.TotalSize > 0 {
-			p.coordinator.SetTracksTotal(msg.TotalSize)
+			p.appCtx.Content.SetTracksTotal(msg.TotalSize)
 		} else {
-			p.coordinator.SetTracksTotal(len(appTracks))
+			p.appCtx.Content.SetTracksTotal(len(msg.Tracks))
 		}
 		p.trackComponent.SetItems(items)
-		if len(appTracks) > 0 {
-			p.coordinator.SetSelectedTrack(0)
+		if len(msg.Tracks) > 0 {
+			p.appCtx.View.SetSelectedTrack(0)
 			p.trackComponent.Select(0)
 		}
 
 		// Attempt to fetch cover art for the first track when tracks are loaded
-		if len(appTracks) > 0 {
-			if appTracks[0].Thumb != "" && p.coordinator.PlaybackAlbumArtThumb() != appTracks[0].Thumb {
-				postCmd = p.fetchCoverArtCmd(appTracks[0].Thumb)
+		if len(msg.Tracks) > 0 {
+			if msg.Tracks[0].Thumb != "" && p.appCtx.Playback.AlbumArtThumb() != msg.Tracks[0].Thumb {
+				postCmd = p.fetchCoverArtCmd(msg.Tracks[0].Thumb)
 			}
 		}
 
@@ -176,20 +137,20 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			"autoPlayOnTracksLoaded",
 			p.autoPlayOnTracksLoaded,
 			"trackCount",
-			len(appTracks),
+			len(msg.Tracks),
 		)
 		// kick off playback of the first track.
 		if p.autoPlayOnTracksLoaded {
 			log.Info("tracks.loaded: autoPlayOnTracksLoaded triggered - this is the WRONG path for stations!")
 			p.autoPlayOnTracksLoaded = false
 			// Build queue and queue items
-			q := make([]app.Track, len(appTracks))
-			copy(q, appTracks)
-			p.coordinator.SetQueue(q)
-			p.coordinator.SetQueueIndex(0)
+			q := make([]domain.Track, len(msg.Tracks))
+			copy(q, msg.Tracks)
+			p.appCtx.Content.SetQueue(q)
+			p.appCtx.Content.SetQueueIndex(0)
 			p.queueComponent.UpdateListFromCoordinator()
 			p.showingTracks = false
-			p.coordinator.SetActiveTab(app.QueueTab)
+			p.appCtx.View.SetActiveTab(app.QueueTab)
 			// Play first track asynchronously
 			if len(q) > 0 {
 				log.Info(
@@ -202,9 +163,9 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 				// Include postCmd (fetch cover art) alongside subscription/setup
 				if postCmd != nil {
 					return p, tea.Batch(
-						append([]tea.Cmd{postCmd}, p.playAppTrack(&q[0]), p.subscribeToPlaybackEvents())...)
+						append([]tea.Cmd{postCmd}, p.playTrack(&q[0]), p.subscribeToPlaybackEvents())...)
 				}
-				return p, tea.Batch(p.playAppTrack(&q[0]), p.subscribeToPlaybackEvents())
+				return p, tea.Batch(p.playTrack(&q[0]), p.subscribeToPlaybackEvents())
 			}
 		}
 
@@ -225,7 +186,7 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 				errMsg = errMsg[:60] + "..."
 			}
 			// Show truncated message in UI
-			p.coordinator.SetNotification(fmt.Sprintf("Library fetch error: %s", errMsg), "error", 10*time.Second)
+			p.appCtx.View.SetNotification(fmt.Sprintf("Library fetch error: %s", errMsg), "error", 10*time.Second)
 			// Log full details including event type for debugging
 			log.Error("Library fetch failed", "event_type", msg.Type, "full_error", msg.Error.Error())
 		}
@@ -242,35 +203,24 @@ func (p *LibraryPage) handleAuthEvent(msg domain.AuthEvent) (tea.Model, tea.Cmd)
 	case "servers.loaded":
 		// Convert to app-level servers and set them in the coordinator.
 		if len(msg.Servers) > 0 {
-			appServers := make([]app.PlexServer, len(msg.Servers))
-			for i, s := range msg.Servers {
-				appServers[i] = app.PlexServer{
-					Name:         s.Name,
-					Host:         s.Host,
-					Port:         s.Port,
-					AccessToken:  s.AccessToken,
-					LocalAddress: s.LocalAddress,
-					Scheme:       s.Scheme,
-				}
-			}
-			p.coordinator.SetServers(appServers)
+			p.appCtx.Session.SetServers(msg.Servers)
 		}
 
 		// If we do not already have a sub/service for the selected server
 		// but the coordinator already has a selection and a token, create it.
-		srv := p.coordinator.GetCurrentServer()
+		srv := p.appCtx.Session.GetCurrentServer()
 		if srv == nil && len(msg.Servers) > 0 {
 			// If no selected server, default to the first server in the event
 			// and mark it as selected.
-			p.coordinator.SetSelectedServer(0)
-			srv = p.coordinator.GetCurrentServer()
+			p.appCtx.Session.SetSelectedServer(0)
+			srv = p.appCtx.Session.GetCurrentServer()
 		}
 		// Prefer server-specific access token if available, otherwise fall back to coordinator token
 		token := ""
 		if srv != nil && srv.AccessToken != "" {
 			token = srv.AccessToken
 		} else {
-			token = p.coordinator.GetToken()
+			token = p.appCtx.Session.Token()
 		}
 		if p.libSvc == nil && srv != nil && token != "" {
 			baseURL := fmt.Sprintf("%s://%s", srv.Scheme, srv.Host)
@@ -280,8 +230,8 @@ func (p *LibraryPage) handleAuthEvent(msg domain.AuthEvent) (tea.Model, tea.Cmd)
 			p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token, http.NewFactory())
 			p.libEvtCh = p.libSvc.Subscribe(p.ctx)
 			// Store in coordinator so media control wrapper can access it
-			if p.coordinator != nil {
-				p.coordinator.SetLibraryService(p.libSvc)
+			if p.appCtx != nil {
+				p.appCtx.Services.SetLibraryService(p.libSvc)
 			}
 
 			// Kick off a library refresh and subscribe to library events
@@ -302,35 +252,35 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		// Mark that the last load failed to prevent double-skip from playback.finished
 		p.lastLoadFailed = true
 		if msg.Error != nil {
-			p.coordinator.SetNotification(fmt.Sprintf("Load failed: %v", msg.Error), "error", 10*time.Second)
+			p.appCtx.View.SetNotification(fmt.Sprintf("Load failed: %v", msg.Error), "error", 10*time.Second)
 			log.Debug("LibraryPage: set load_failed notification", "err", msg.Error)
 		} else {
-			p.coordinator.SetNotification("Load failed", "error", 10*time.Second)
+			p.appCtx.View.SetNotification("Load failed", "error", 10*time.Second)
 			log.Debug("LibraryPage: set load_failed notification", "no err")
 		}
 	case "playback.play_failed":
 		p.lastLoadFailed = true
 		if msg.Error != nil {
-			p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", msg.Error), "error", 10*time.Second)
+			p.appCtx.View.SetNotification(fmt.Sprintf("Play failed: %v", msg.Error), "error", 10*time.Second)
 		} else {
-			p.coordinator.SetNotification("Play failed", "error", 10*time.Second)
+			p.appCtx.View.SetNotification("Play failed", "error", 10*time.Second)
 		}
 	case "playback.started":
 		// Clear the load failed flag since playback started successfully
 		p.lastLoadFailed = false
 		// Record when this track started to help detect stale advance messages
 		p.lastTrackStarted = time.Now()
-		p.coordinator.SetPlaybackState(app.PlaybackPlaying)
-		p.coordinator.SetStreamPosition(0)
+		p.appCtx.Playback.SetState(app.PlaybackPlaying)
+		p.appCtx.Playback.SetStreamPosition(0)
 		if msg.Track != nil {
 			track := util.DomainTrackToApp(msg.Track)
-			p.coordinator.SetCurrentTrack(track)
+			p.appCtx.Playback.SetCurrentTrack(track)
 			log.Debug("playback.started: track set",
 				"title", track.Title,
 				"thumb", track.Thumb,
-				"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
+				"currentArtThumb", p.appCtx.Playback.AlbumArtThumb())
 			// Fetch the album art for the track now that playback started
-			if track.Thumb != "" && p.coordinator.PlaybackAlbumArtThumb() != track.Thumb {
+			if track.Thumb != "" && p.appCtx.Playback.AlbumArtThumb() != track.Thumb {
 				postCmd = p.fetchCoverArtCmd(track.Thumb)
 			}
 		}
@@ -344,7 +294,7 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 			p.startProgressTick(),
 		)
 	case "playback.resumed":
-		p.coordinator.SetPlaybackState(app.PlaybackPlaying)
+		p.appCtx.Playback.SetState(app.PlaybackPlaying)
 		// Start progress bar ticker for display updates
 		return p, tea.Batch(
 			p.subscribeToPlaybackEvents(),
@@ -352,11 +302,11 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 			p.startProgressTick(),
 		)
 	case "playback.paused":
-		p.coordinator.SetPlaybackState(app.PlaybackPaused)
+		p.appCtx.Playback.SetState(app.PlaybackPaused)
 	case "playback.stopped":
-		p.coordinator.SetPlaybackState(app.PlaybackStopped)
+		p.appCtx.Playback.SetState(app.PlaybackStopped)
 		// Clear the active playQueue when playback is explicitly stopped
-		p.coordinator.ClearActivePlayQueue()
+		p.appCtx.Content.ClearActivePlayQueue()
 	case "playback.volume_changed":
 		// Playback service publishes floats — we don't keep it in coordinator as a primitive.
 	case "playback.finished":
@@ -365,7 +315,7 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		// although playback.finished usually implies the stream ran to completion.
 		// Also skip if the last load failed - this prevents double-skip when a failed decode
 		// causes both load_failed and finished events to fire in quick succession.
-		if p.coordinator.IsPlaying() && !p.lastLoadFailed {
+		if p.appCtx.Playback.IsPlaying() && !p.lastLoadFailed {
 			// Schedule advance with timestamp so we can detect stale messages
 			scheduledAt := time.Now()
 			// Re-subscribe to events so we're listening when playbackAdvanceMsg triggers
@@ -386,18 +336,18 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		// Periodic position updates from the service.
 		// Update stream position directly - TUI displays this value.
 		if msg.Position >= 0 {
-			p.coordinator.SetStreamPosition(msg.Position)
+			p.appCtx.Playback.SetStreamPosition(msg.Position)
 		}
 		if msg.Duration > 0 {
-			p.coordinator.SetStreamLength(msg.Duration)
+			p.appCtx.Playback.SetStreamLength(msg.Duration)
 		}
 		if msg.SampleRate > 0 {
-			p.coordinator.SetSampleRate(beep.SampleRate(msg.SampleRate))
+			p.appCtx.Playback.SetSampleRate(beep.SampleRate(msg.SampleRate))
 		}
 	case "playback.seeked":
 		// Update position on seek
 		if msg.Position >= 0 {
-			p.coordinator.SetStreamPosition(msg.Position)
+			p.appCtx.Playback.SetStreamPosition(msg.Position)
 		}
 	}
 	// Re-subscribe to continue receiving playback/library events

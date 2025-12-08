@@ -26,9 +26,9 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if (key.Matches(msg, p.keys.Up) ||
 		key.Matches(msg, p.keys.Down) ||
 		isRuneKey(msg, 'k') ||
-		isRuneKey(msg, 'j')) && p.coordinator != nil {
-		if p.coordinator.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible() {
-			if len(p.coordinator.Queue()) > 0 {
+		isRuneKey(msg, 'j')) && p.appCtx != nil {
+		if p.appCtx.View.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible() {
+			if len(p.appCtx.Content.Queue()) > 0 {
 				// If we are now routing Up/Down to the queue, prefer to mark the queue
 				// as focused so subsequent logic skips updating the left-side lists.
 				p.SetFocusedQueue(true)
@@ -38,7 +38,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Let the search component handle keys while on Search tab.
-	if p.coordinator.ActiveTab() == app.SearchTab {
+	if p.appCtx.View.ActiveTab() == app.SearchTab {
 		switch msg.String() {
 		case "1", "2", "3", "4", "5", "6":
 			// Allow these to fall through into the main key handling below
@@ -49,7 +49,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// If user hits Esc, abort and return to Home
 			if msg.String() == "esc" {
 				p.searchComponent.Blur()
-				p.coordinator.SetActiveTab(app.HomeTab)
+				p.appCtx.View.SetActiveTab(app.HomeTab)
 			}
 			return p, cmd
 		}
@@ -60,9 +60,9 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Check global keys first
 	switch {
-	case p.coordinator != nil &&
-		(p.coordinator.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible()) &&
-		len(p.coordinator.Queue()) > 0 &&
+	case p.appCtx != nil &&
+		(p.appCtx.View.ShowQueueModal() || p.IsFocusedQueue() || p.isQueueVisible()) &&
+		len(p.appCtx.Content.Queue()) > 0 &&
 		(key.Matches(msg, p.keys.Up) ||
 			key.Matches(msg, p.keys.Down) ||
 			key.Matches(msg, p.keys.PlaySelected) ||
@@ -74,15 +74,15 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// or when the queue is visible as a pane, route queue-specific keys to the unified handler.
 		// This overrides other lists when the queue has explicit focus or is visible to the user.
 		return p, p.handleQueueKeyMsg(msg)
-	case p.coordinator != nil && p.coordinator.ShowQueueModal() && key.Matches(msg, p.keys.Back):
+	case p.appCtx != nil && p.appCtx.View.ShowQueueModal() && key.Matches(msg, p.keys.Back):
 		// Close queue modal on 'Back' key when visible
-		p.coordinator.SetShowQueueModal(false)
+		p.appCtx.View.SetShowQueueModal(false)
 		p.SetFocusedQueue(false)
 		// Continue to fallback: no selection handled by libSvc branch.
 	case key.Matches(msg, p.keys.Back):
 		// If the queue modal is open, close it first; otherwise go back to server selection.
-		if p.coordinator.ShowQueueModal() {
-			p.coordinator.SetShowQueueModal(false)
+		if p.appCtx.View.ShowQueueModal() {
+			p.appCtx.View.SetShowQueueModal(false)
 			return p, nil
 		}
 		// Close left-pane drawer or tracklist if open instead of closing the page.
@@ -102,7 +102,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				p.playbackInitCancel()
 			}
 			p.playbackInitializing = false
-			p.coordinator.SetNotification("Playback initialization canceled", "info", 3*time.Second)
+			p.appCtx.View.SetNotification("Playback initialization canceled", "info", 3*time.Second)
 			return p, nil
 		}
 		return p, func() tea.Msg {
@@ -110,7 +110,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case key.Matches(msg, p.keys.Play):
-		log.Info("Play key matched", "msg", msg, "activeTab", p.coordinator.ActiveTab())
+		log.Info("Play key matched", "msg", msg, "activeTab", p.appCtx.View.ActiveTab())
 		// Debounce Play key events to avoid auto-repeat toggles (e.g., if key is held).
 		if !p.lastPlayKey.IsZero() && time.Since(p.lastPlayKey) < 250*time.Millisecond {
 			log.Debug("Play key: ignored due to debounce", "elapsed_ms", time.Since(p.lastPlayKey).Milliseconds())
@@ -119,7 +119,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		p.lastPlayKey = time.Now()
 
 		if p.orchestrator == nil {
-			p.coordinator.SetNotification(
+			p.appCtx.View.SetNotification(
 				"Playback unavailable: orchestrator is not initialized",
 				"error",
 				5*time.Second,
@@ -128,69 +128,73 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		log.Debug("Play key: current state",
-			"isPlaying", p.coordinator.IsPlaying(),
-			"isPaused", p.coordinator.IsPaused(),
+			"isPlaying", p.appCtx.Playback.IsPlaying(),
+			"isPaused", p.appCtx.Playback.IsPaused(),
 			"orchestrator_set", p.orchestrator != nil) // Toggle playback if already active.
-		if p.coordinator.IsPlaying() {
+		if p.appCtx.Playback.IsPlaying() {
 			if p.orchestrator != nil {
 				err := p.orchestrator.Pause()
 				log.Debug("Play key: pause called", "err", err)
 				if err != nil {
-					p.coordinator.SetNotification(fmt.Sprintf("Pause failed: %v", err), "error", 5*time.Second)
+					p.appCtx.View.SetNotification(fmt.Sprintf("Pause failed: %v", err), "error", 5*time.Second)
 				}
 				// Regardless of error state, update coordinator playback state so UI reflects intended pause
-				p.coordinator.SetPlaybackState(app.PlaybackPaused)
+				p.appCtx.Playback.SetState(app.PlaybackPaused)
 			} else {
-				p.coordinator.SetNotification("Pause failed: playback orchestrator unavailable", "error", 5*time.Second)
+				p.appCtx.View.SetNotification("Pause failed: playback orchestrator unavailable", "error", 5*time.Second)
 			}
 			return p, nil
 		}
-		if p.coordinator.IsPaused() {
+		if p.appCtx.Playback.IsPaused() {
 			if p.orchestrator != nil {
 				err := p.orchestrator.Resume()
 				log.Debug("Play key: resume called", "err", err)
 				if err != nil {
-					p.coordinator.SetNotification(fmt.Sprintf("Resume failed: %v", err), "error", 5*time.Second)
+					p.appCtx.View.SetNotification(fmt.Sprintf("Resume failed: %v", err), "error", 5*time.Second)
 				} else {
 					// If resume didn't lead to a playing state, try to restart current track
 					if p.orchestrator.GetState() != domain.PlaybackPlaying {
-						if tr := p.coordinator.CurrentTrack(); tr != nil {
-							at := tr
+						if tr := p.appCtx.Playback.CurrentTrack(); tr != nil {
+							// Convert app.Track to domain.Track for playTrack
+							dt := util.AppTrackToDomain(tr)
 							return p, func() tea.Msg {
-								err := p.orchestrator.PlayAppTrack(context.Background(), at)
+								err := p.orchestrator.PlayDomainTrack(context.Background(), p.libSvc, dt)
 								return playResultMsg{Err: err}
 							}
 						}
 					}
 					// Ensure UI shows playing state after resume attempt
-					p.coordinator.SetPlaybackState(app.PlaybackPlaying)
+					p.appCtx.Playback.SetState(app.PlaybackPlaying)
 				}
 			} else {
-				p.coordinator.SetNotification("Resume failed: playback orchestrator unavailable", "error", 5*time.Second)
+				p.appCtx.View.SetNotification("Resume failed: playback orchestrator unavailable", "error", 5*time.Second)
 			}
 			return p, nil
 		}
 		// Stopped: try to start playback. First prefer current track, else try to play
 		// based on the currently selected item (mirroring Space behavior)
-		if !p.coordinator.IsPlaying() && !p.coordinator.IsPaused() {
+		if !p.appCtx.Playback.IsPlaying() && !p.appCtx.Playback.IsPaused() {
 			log.Info(
 				"Play key: stopped state, starting new playback",
 				"hasCurrentTrack",
-				p.coordinator.HasCurrentTrack(),
+				p.appCtx.Playback.HasCurrentTrack(),
 			)
 			// Try to restart current track if present
-			if p.coordinator.HasCurrentTrack() {
+			if p.appCtx.Playback.HasCurrentTrack() {
 				log.Info("Play key: playing current track")
-				if tr := p.coordinator.CurrentTrack(); tr != nil {
-					return p, p.playAppTrack(tr)
+				if tr := p.appCtx.Playback.CurrentTrack(); tr != nil {
+					// Convert app.Track to domain.Track for playTrack
+					dt := util.AppTrackToDomain(tr)
+					return p, p.playTrack(dt)
 				}
 			}
-			active := p.coordinator.ActiveTab()
+			active := p.appCtx.View.ActiveTab()
 			// If Showing Tracks, play selected track
 			if p.showingTracks {
 				if item, ok := p.trackComponent.SelectedItem().(util.TrackItem); ok {
-					at := util.DomainTrackToApp(&item.Track)
-					tracks := p.coordinator.Tracks()
+					// Use the selected item directly
+					dt := &item.Track
+					tracks := p.appCtx.Content.Tracks()
 					selIdx := p.trackComponent.Index()
 					if len(tracks) == 0 {
 						return p, nil
@@ -198,19 +202,19 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					if selIdx < 0 || selIdx >= len(tracks) {
 						selIdx = 0
 					}
-					newQueue := make([]app.Track, len(tracks)-selIdx)
+					newQueue := make([]domain.Track, len(tracks)-selIdx)
 					copy(newQueue, tracks[selIdx:])
-					if at != nil && len(newQueue) > 0 {
-						newQueue[0] = *at
+					if dt != nil && len(newQueue) > 0 {
+						newQueue[0] = *dt
 					}
-					p.coordinator.SetQueue(newQueue)
-					p.coordinator.SetQueueIndex(0)
+					p.appCtx.Content.SetQueue(newQueue)
+					p.appCtx.Content.SetQueueIndex(0)
 					p.queueComponent.UpdateListFromCoordinator()
-					p.coordinator.SetSelectedTrack(selIdx)
+					p.appCtx.View.SetSelectedTrack(selIdx)
 					p.showingTracks = false
-					p.coordinator.SetActiveTab(app.QueueTab)
+					p.appCtx.View.SetActiveTab(app.QueueTab)
 					if len(newQueue) > 0 {
-						return p, p.playAppTrack(&newQueue[0])
+						return p, p.playTrack(&newQueue[0])
 					}
 					return p, nil
 				}
@@ -223,11 +227,11 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						p.playbackInitializing = true
 						p.autoPlayOnTracksLoaded = true
 						return p, tea.Batch(p.fetchTracksCmd(item.Playlist.Key), p.spinner.Tick)
-					} else if p.coordinator != nil {
+					} else if p.appCtx != nil {
 						// Fallback to the coordinator's selected playlist.
-						sel := p.coordinator.SelectedPlaylist()
-						if sel >= 0 && sel < len(p.coordinator.Playlists()) {
-							key := p.coordinator.Playlists()[sel].Key
+						sel := p.appCtx.View.SelectedPlaylist()
+						if sel >= 0 && sel < len(p.appCtx.Content.Playlists()) {
+							key := p.appCtx.Content.Playlists()[sel].Key
 							p.playbackInitializing = true
 							p.autoPlayOnTracksLoaded = true
 							return p, tea.Batch(p.fetchTracksCmd(key), p.spinner.Tick)
@@ -257,32 +261,31 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case key.Matches(msg, p.keys.PlaySelected):
-		log.Info("PlaySelected key matched", "msg", msg, "activeTab", p.coordinator.ActiveTab())
+		log.Info("PlaySelected key matched", "msg", msg, "activeTab", p.appCtx.View.ActiveTab())
 
 		// If the Queue tab is active and the user presses space, treat it as
 		// a "play selected" from the queue: remove previous entries up to the
 		// selected item and begin playing that track.
-		active := p.coordinator.ActiveTab()
+		active := p.appCtx.View.ActiveTab()
 		if active == app.QueueTab {
 			sel := p.queueComponent.Index()
-			q := p.coordinator.Queue()
+			q := p.appCtx.Content.Queue()
 			if len(q) == 0 || sel < 0 || sel >= len(q) {
 				return p, nil
 			}
 			// If selected is not the first item, trim the queue to the selected item and onward
 			if sel > 0 {
-				newQueue := make([]app.Track, len(q)-sel)
+				newQueue := make([]domain.Track, len(q)-sel)
 				copy(newQueue, q[sel:])
-				p.coordinator.SetQueue(newQueue)
-				p.coordinator.SetQueueIndex(0)
+				p.appCtx.Content.SetQueue(newQueue)
+				p.appCtx.Content.SetQueueIndex(0)
 				p.queueComponent.UpdateListFromCoordinator()
 				p.queueComponent.Select(0)
-				return p, p.playAppTrack(&newQueue[0])
+				return p, p.playTrack(&newQueue[0])
 			}
 			// Selected is the first item — just play it
 			if item, ok := p.queueComponent.SelectedItem().(util.QueueItem); ok {
-				at := util.DomainTrackToApp(&item.Track)
-				return p, p.playAppTrack(at)
+				return p, p.playTrack(&item.Track)
 			}
 			return p, nil
 		}
@@ -290,13 +293,13 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Try to play the selected/first track from album, playlist or queue.
 		if p.showingTracks {
 			if item, ok := p.trackComponent.SelectedItem().(util.TrackItem); ok {
-				// Convert domain.Track -> app.Track defensively using the selected item
-				at := util.DomainTrackToApp(&item.Track)
+				// Use the selected item directly
+				dt := &item.Track
 
 				// If the user chooses to play a track while viewing an album/playlist,
 				// build a queue from the selected track to the end of the list so the
 				// subsequent tracks will be played automatically.
-				tracks := p.coordinator.Tracks()
+				tracks := p.appCtx.Content.Tracks()
 				selIdx := p.trackComponent.Index()
 				if len(tracks) == 0 {
 					return p, nil
@@ -304,33 +307,33 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if selIdx < 0 || selIdx >= len(tracks) {
 					selIdx = 0
 				}
-				newQueue := make([]app.Track, len(tracks)-selIdx)
+				newQueue := make([]domain.Track, len(tracks)-selIdx)
 				copy(newQueue, tracks[selIdx:])
 
-				// Ensure the first queued track matches the selected item (if convert succeeded)
-				if at != nil && len(newQueue) > 0 {
-					newQueue[0] = *at
+				// Ensure the first queued track matches the selected item
+				if dt != nil && len(newQueue) > 0 {
+					newQueue[0] = *dt
 				}
 
 				// Persist queue & selection to coordinator
-				p.coordinator.SetQueue(newQueue)
-				p.coordinator.SetQueueIndex(0)
+				p.appCtx.Content.SetQueue(newQueue)
+				p.appCtx.Content.SetQueueIndex(0)
 				p.queueComponent.UpdateListFromCoordinator()
 
 				// Make sure the underlying tracklist selection is reflected in coordinator
-				p.coordinator.SetSelectedTrack(selIdx)
+				p.appCtx.View.SetSelectedTrack(selIdx)
 				p.showingTracks = false
-				p.coordinator.SetActiveTab(app.QueueTab)
+				p.appCtx.View.SetActiveTab(app.QueueTab)
 
 				// Play the first track in the newly created queue (the selected track)
 				if len(newQueue) > 0 {
-					return p, p.playAppTrack(&newQueue[0])
+					return p, p.playTrack(&newQueue[0])
 				}
 			}
 			return p, nil
 		}
 
-		active = p.coordinator.ActiveTab()
+		active = p.appCtx.View.ActiveTab()
 		if p.libSvc != nil && (active == app.PlaylistsTab || active == app.HomeTab || active == app.LibraryTab) {
 			switch active {
 			case app.PlaylistsTab:
@@ -364,10 +367,10 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return p, tea.Batch(p.fetchTracksCmd(item.Key), p.spinner.Tick)
 				}
 				// Fallback to coordinator selection if homeComponent doesn't have an item
-				if p.coordinator != nil {
-					sel := p.coordinator.SelectedAlbum()
-					if sel >= 0 && sel < len(p.coordinator.Albums()) {
-						key := p.coordinator.Albums()[sel].Key
+				if p.appCtx != nil {
+					sel := p.appCtx.View.SelectedAlbum()
+					if sel >= 0 && sel < len(p.appCtx.Content.Albums()) {
+						key := p.appCtx.Content.Albums()[sel].Key
 						p.playbackInitializing = true
 						p.autoPlayOnTracksLoaded = true
 						return p, tea.Batch(p.fetchTracksCmd(key), p.spinner.Tick)
@@ -385,14 +388,14 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// Fallback: play selected track from Tracks or Queue.
-		tracks := p.coordinator.Tracks()
+		tracks := p.appCtx.Content.Tracks()
 		if len(tracks) > 0 {
-			idx := p.coordinator.SelectedTrack()
+			idx := p.appCtx.View.SelectedTrack()
 			if idx < 0 || idx >= len(tracks) {
 				idx = 0
 			}
 			tr := &tracks[idx]
-			return p, p.playAppTrack(tr)
+			return p, p.playTrack(tr)
 		}
 		return p, nil
 
@@ -401,8 +404,8 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, p.keys.Prev):
 		return p, tea.Batch(p.playPrev(), p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	case key.Matches(msg, p.keys.SeekForward):
-		if p.coordinator.PlaybackService() != nil && p.orchestrator != nil {
-			svc := p.coordinator.PlaybackService()
+		if p.appCtx.Services.PlaybackService() != nil && p.orchestrator != nil {
+			svc := p.appCtx.Services.PlaybackService()
 			// Guard against nil pointer wrapped in interface
 			if reflect.ValueOf(svc).Kind() == reflect.Ptr && reflect.ValueOf(svc).IsNil() {
 				return p, nil
@@ -435,8 +438,8 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return p, nil
 	case key.Matches(msg, p.keys.SeekBackward):
-		if p.coordinator.PlaybackService() != nil && p.orchestrator != nil {
-			svc := p.coordinator.PlaybackService()
+		if p.appCtx.Services.PlaybackService() != nil && p.orchestrator != nil {
+			svc := p.appCtx.Services.PlaybackService()
 			// Guard against nil pointer wrapped in interface
 			if reflect.ValueOf(svc).Kind() == reflect.Ptr && reflect.ValueOf(svc).IsNil() {
 				return p, nil
@@ -475,14 +478,14 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return p, nil
 	case key.Matches(msg, p.keys.Queue) || isRuneKey(msg, 'o') || isRuneKey(msg, 'O'):
 		// If the modal is visible, close it and clear focus
-		if p.coordinator.ShowQueueModal() {
-			p.coordinator.SetShowQueueModal(false)
+		if p.appCtx.View.ShowQueueModal() {
+			p.appCtx.View.SetShowQueueModal(false)
 			p.SetFocusedQueue(false)
 			return p, nil
 		}
 		// If the active tab is the Queue tab, toggle queue focus instead of opening modal.
 		// This allows Up/Down to be routed to the queue lists when focused.
-		if p.coordinator.ActiveTab() == app.QueueTab {
+		if p.appCtx.View.ActiveTab() == app.QueueTab {
 			p.SetFocusedQueue(!p.IsFocusedQueue())
 			if p.IsFocusedQueue() {
 				p.focusedNowPlaying = false // don't keep both focused states set
@@ -490,8 +493,8 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return p, nil
 		}
 		// Otherwise, open/close the queue modal and set focus in a consistent manner.
-		showing := !p.coordinator.ShowQueueModal()
-		p.coordinator.SetShowQueueModal(showing)
+		showing := !p.appCtx.View.ShowQueueModal()
+		p.appCtx.View.SetShowQueueModal(showing)
 		p.SetFocusedQueue(showing)
 		return p, nil
 	case key.Matches(msg, p.keys.Refresh):
@@ -511,19 +514,19 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 			defer cancel()
 			ok, _ := p.libSvc.HasSonicAnalysis(ctx)
-			if p.coordinator != nil {
-				p.coordinator.SetSonicAvailable(ok)
+			if p.appCtx != nil {
+				p.appCtx.Content.SetSonicAvailable(ok)
 			}
 			return sonicDetectResultMsg{ok: ok}
 		}
 
 	case key.Matches(msg, p.keys.Search):
 		// Toggle Search tab and focus/blur the search input accordingly
-		if p.coordinator.ActiveTab() == app.SearchTab {
+		if p.appCtx.View.ActiveTab() == app.SearchTab {
 			p.searchComponent.Blur()
-			p.coordinator.SetActiveTab(app.HomeTab)
+			p.appCtx.View.SetActiveTab(app.HomeTab)
 		} else {
-			p.coordinator.SetActiveTab(app.SearchTab)
+			p.appCtx.View.SetActiveTab(app.SearchTab)
 			p.searchComponent.Focus()
 		}
 		return p, nil
@@ -535,17 +538,17 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		sw := msg.String()
 		switch sw {
 		case "1":
-			p.coordinator.SetActiveTab(app.HomeTab)
+			p.appCtx.View.SetActiveTab(app.HomeTab)
 		case "2":
-			p.coordinator.SetActiveTab(app.LibraryTab)
+			p.appCtx.View.SetActiveTab(app.LibraryTab)
 		case "3":
-			p.coordinator.SetActiveTab(app.PlaylistsTab)
+			p.appCtx.View.SetActiveTab(app.PlaylistsTab)
 		case "4":
-			p.coordinator.SetActiveTab(app.SearchTab)
+			p.appCtx.View.SetActiveTab(app.SearchTab)
 		case "5":
-			p.coordinator.SetActiveTab(app.QueueTab)
+			p.appCtx.View.SetActiveTab(app.QueueTab)
 		case "6":
-			p.coordinator.SetActiveTab(app.SettingsTab)
+			p.appCtx.View.SetActiveTab(app.SettingsTab)
 		}
 		// For browsing-focused tabs, open the drawer; queue tab should keep drawer closed
 		switch sw {
@@ -565,22 +568,22 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Delegate to the active list
-	active := p.coordinator.ActiveTab()
+	active := p.appCtx.View.ActiveTab()
 
 	// In Settings tab, handle quick shortcuts (e.g., 'c' toggles cover-art side).
 	if active == app.SettingsTab {
 		if km := msg; true {
 			switch km.String() {
 			case "c":
-				if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
-					cur := p.coordinator.ConfigManager().GetCoverArtPosition()
+				if p.appCtx != nil && p.appCtx.Services.ConfigManager() != nil {
+					cur := p.appCtx.Services.ConfigManager().GetCoverArtPosition()
 					if cur == "left" {
-						p.coordinator.ConfigManager().SetCoverArtPosition("right")
+						p.appCtx.Services.ConfigManager().SetCoverArtPosition("right")
 					} else {
-						p.coordinator.ConfigManager().SetCoverArtPosition("left")
+						p.appCtx.Services.ConfigManager().SetCoverArtPosition("left")
 					}
-					_ = p.coordinator.ConfigManager().Save()
-					p.coordinator.SetNotification("Cover art position updated", "success", 3*time.Second)
+					_ = p.appCtx.Services.ConfigManager().Save()
+					p.appCtx.View.SetNotification("Cover art position updated", "success", 3*time.Second)
 				}
 				return p, nil
 			}
@@ -588,11 +591,11 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if p.showingTracks {
-		if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
+		if !p.IsFocusedQueue() && !p.appCtx.View.ShowQueueModal() {
 			oldSel := p.trackComponent.Index()
 			_, cmd = p.trackComponent.Update(msg)
 			newSel := p.trackComponent.Index()
-			p.coordinator.SetSelectedTrack(newSel)
+			p.appCtx.View.SetSelectedTrack(newSel)
 
 			// If selection changed, update the last selected index
 			if newSel != oldSel {
@@ -611,7 +614,7 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch active {
 	case app.HomeTab:
-		if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
+		if !p.IsFocusedQueue() && !p.appCtx.View.ShowQueueModal() {
 			p.homeComponent.SetFocused(true)
 			_, cmd = p.homeComponent.Update(msg)
 
@@ -641,11 +644,11 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return p, cmd
 
 	case app.LibraryTab:
-		if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
+		if !p.IsFocusedQueue() && !p.appCtx.View.ShowQueueModal() {
 			p.recentlyAddedComponent.SetFocused(true)
 			_, cmd = p.recentlyAddedComponent.Update(msg)
 			newIdx := p.recentlyAddedComponent.Index()
-			p.coordinator.SetSelectedAlbum(newIdx)
+			p.appCtx.View.SetSelectedAlbum(newIdx)
 
 			// If selection changed, fetch tracks for the selected album in the background
 			if item, ok := p.recentlyAddedComponent.SelectedItem().(util.AlbumItem); ok {
@@ -672,9 +675,9 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 	case app.PlaylistsTab:
-		if !p.IsFocusedQueue() && !p.coordinator.ShowQueueModal() {
+		if !p.IsFocusedQueue() && !p.appCtx.View.ShowQueueModal() {
 			_, cmd = p.playlistComponent.Update(msg)
-			p.coordinator.SetSelectedPlaylist(p.playlistComponent.Index())
+			p.appCtx.View.SetSelectedPlaylist(p.playlistComponent.Index())
 
 			if item, ok := p.playlistComponent.SelectedItem().(util.PlaylistItem); ok {
 				newIdx := p.playlistComponent.Index()
@@ -718,15 +721,21 @@ func isRuneKey(msg tea.KeyMsg, r rune) bool {
 	return len(msg.Runes) == 1 && msg.Runes[0] == r
 }
 
-// Helper: play the provided app.Track (UI & playback service)
-func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
+// Helper: play the provided domain.Track (UI & playback service)
+func (p *LibraryPage) playTrack(dt *domain.Track) tea.Cmd {
+	if dt == nil {
+		return nil
+	}
+	// Convert to app.Track for UI/Orchestrator compatibility
+	at := util.DomainTrackToApp(dt)
 	if at == nil {
 		return nil
 	}
-	log.Info("playAppTrack.called", "title", at.Title, "playQueueItemID", at.PlayQueueItemID)
+
+	log.Info("playTrack.called", "title", at.Title, "playQueueItemID", at.PlayQueueItemID)
 	// Update UI coordinator state preemptively for immediate UI feedback — playback.started will reconcile state later
-	p.coordinator.SetCurrentTrack(at)
-	p.coordinator.SetPlaybackState(app.PlaybackPlaying)
+	p.appCtx.Playback.SetCurrentTrack(at)
+	p.appCtx.Playback.SetState(app.PlaybackPlaying)
 
 	var cmds []tea.Cmd
 
@@ -743,14 +752,14 @@ func (p *LibraryPage) playAppTrack(at *app.Track) tea.Cmd {
 		p.playbackInitializing = true
 		var initCtx context.Context
 		initCtx, p.playbackInitCancel = context.WithCancel(p.ctx)
-		log.Debug("playAppTrack: starting playback initialization", "title", at.Title)
+		log.Debug("playTrack: starting playback initialization", "title", at.Title)
 		playCmd = func() tea.Msg {
 			err := p.orchestrator.PlayAppTrack(initCtx, at)
 			return playResultMsg{Err: err}
 		}
 	} else {
 		// Orchestrator missing: notify user
-		p.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
+		p.appCtx.View.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
 		return nil
 	}
 	// Also kick the spinner clock while initializing playback
@@ -771,23 +780,23 @@ func (p *LibraryPage) SetFocusedQueue(v bool) {
 // It accounts for the modal state, the active Queue tab, and whether the UI
 // is showing a queue pane (i.e., no left-pane tracklist or drawer).
 func (p *LibraryPage) isQueueVisible() bool {
-	if p.coordinator == nil {
+	if p.appCtx == nil {
 		return false
 	}
 	// Queue modal takes precedence
-	if p.coordinator.ShowQueueModal() {
+	if p.appCtx.View.ShowQueueModal() {
 		return true
 	}
 	// Queue tab active is treated as visible
-	if p.coordinator.ActiveTab() == app.QueueTab {
+	if p.appCtx.View.ActiveTab() == app.QueueTab {
 		return true
 	}
 	// Compute cover art position from config manager and determine whether the
 	// queue content is shown as a secondary pane (right or left) depending on the
 	// configured layout and whether drawers/tracklist are displayed.
 	pos := "left"
-	if p.coordinator.ConfigManager() != nil {
-		pos = p.coordinator.ConfigManager().GetCoverArtPosition()
+	if p.appCtx.Services.ConfigManager() != nil {
+		pos = p.appCtx.Services.ConfigManager().GetCoverArtPosition()
 	}
 	// When there is no drawer open and no album/playlist tracklist showing,
 	// the queue is shown in the opposite column from the cover art (so it is visible).
@@ -846,15 +855,15 @@ func (p *LibraryPage) playNext() tea.Cmd {
 	// If we're in station playback mode, refresh the playQueue to get new tracks
 	// Only refresh when we're approaching the end of the queue (within 5 tracks)
 	var refreshCmd tea.Cmd
-	isStation := p.coordinator.IsStationPlayback()
+	isStation := p.appCtx.Content.IsStationPlayback()
 	hasLibSvc := p.libSvc != nil
 	log.Info("playNext: checking station mode", "isStationPlayback", isStation, "hasLibSvc", hasLibSvc)
 
 	if isStation && hasLibSvc {
-		activeQueue := p.coordinator.ActivePlayQueue()
+		activeQueue := p.appCtx.Content.ActivePlayQueue()
 		if activeQueue != nil && activeQueue.PlayQueueID > 0 {
-			queue := p.coordinator.Queue()
-			currentIdx := p.coordinator.QueueIndex()
+			queue := p.appCtx.Content.Queue()
+			currentIdx := p.appCtx.Content.QueueIndex()
 			nextIdx := currentIdx + 1
 			tracksRemaining := len(queue) - nextIdx - 1 // tracks after the one we're about to play
 
@@ -901,10 +910,10 @@ func (p *LibraryPage) playNext() tea.Cmd {
 	err := p.orchestrator.PlayNext(
 		p.ctx,
 		pc,
-		p.coordinator.Queue(),
-		p.coordinator.QueueIndex(),
-		p.coordinator.Tracks(),
-		p.coordinator.SelectedTrack(),
+		p.appCtx.Content.Queue(),
+		p.appCtx.Content.QueueIndex(),
+		p.appCtx.Content.Tracks(),
+		p.appCtx.View.SelectedTrack(),
 	)
 	if err != nil {
 		log.Error("PlayNext failed", "err", err)
@@ -923,10 +932,10 @@ func (p *LibraryPage) playPrev() tea.Cmd {
 	err := p.orchestrator.PlayPrev(
 		p.ctx,
 		pc,
-		p.coordinator.Queue(),
-		p.coordinator.QueueIndex(),
-		p.coordinator.Tracks(),
-		p.coordinator.SelectedTrack(),
+		p.appCtx.Content.Queue(),
+		p.appCtx.Content.QueueIndex(),
+		p.appCtx.Content.Tracks(),
+		p.appCtx.View.SelectedTrack(),
 	)
 	if err != nil {
 		log.Error("PlayPrev failed", "err", err)

@@ -217,24 +217,9 @@ This resolves subtle input-handling issues by ensuring a single source of truth 
 
 ## 7. Future Work
 
-#### A. Convert Coordinator to Service-Based
+#### A. Migrate to AppContext
 
-Currently the Coordinator is a giant state container with direct field access. Refactor to:
-
-```internal/app/coordinator.go#L1-200
-type Coordinator struct {
-    // Services (dependencies)
-    auth     service.AuthServicer
-    library  service.LibraryServicer
-    playback service.PlaybackServicer
-    
-    // State (private)
-    state    *domain.AppState
-    
-    // Event routing
-    eventBus *pubsub.Broker[tea.Msg]
-}
-```
+Currently the Coordinator is a giant state container with direct field access. Refactor to use `AppContext` (already created in `internal/app/context.go`) and remove the Coordinator facade methods.
 
 #### B. Create Page Components
 
@@ -361,6 +346,7 @@ Example:
 - `internal/tui/styles/styles.go` - Centralized styles
 - `internal/tui/app_model.go` - AppModel and pageFactory wiring
 - `internal/tui/pages/list_items.go` - List item adapters for bubbles/list
+- `internal/app/context.go` - AppContext struct (gh-dash pattern)
 
 ## Next Steps
 

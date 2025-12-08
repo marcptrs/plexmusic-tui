@@ -33,6 +33,7 @@ func (i serverItem) FilterValue() string { return i.Name }
 
 type ServerSelectionPage struct {
 	coordinator app.Coordinatorer
+	appCtx      *app.AppContext
 	authService service.AuthServicer
 	configMgr   *config.Manager
 
@@ -84,6 +85,7 @@ func NewServerSelectionPage(
 
 	return &ServerSelectionPage{
 		coordinator:    coord,
+		appCtx:         coord.GetAppContext(),
 		authService:    authSvc,
 		configMgr:      cfgMgr,
 		ctx:            ctx,
@@ -177,7 +179,7 @@ func (p *ServerSelectionPage) Close() {
 // fetchServers fetches available servers
 func (p *ServerSelectionPage) fetchServers() tea.Cmd {
 	return func() tea.Msg {
-		token := p.coordinator.GetToken()
+		token := p.appCtx.Session.Token()
 		if token == "" {
 			return domain.AuthEvent{
 				Type:  "servers.fetch_failed",
@@ -309,23 +311,14 @@ func (p *ServerSelectionPage) selectServer() tea.Cmd {
 	}
 	selected := domain.PlexServer(selectedItem.(serverItem))
 
-	// Store servers and selected index in coordinator
-	// Convert domain.PlexServer to app.PlexServer
+	// Store servers and selected index in session context
 	items := p.list.Items()
-	appServers := make([]app.PlexServer, len(items))
+	domainServers := make([]domain.PlexServer, len(items))
 	for i, item := range items {
-		s := domain.PlexServer(item.(serverItem))
-		appServers[i] = app.PlexServer{
-			Name:         s.Name,
-			Host:         s.Host,
-			Port:         s.Port,
-			AccessToken:  s.AccessToken,
-			LocalAddress: s.LocalAddress,
-			Scheme:       s.Scheme,
-		}
+		domainServers[i] = domain.PlexServer(item.(serverItem))
 	}
-	p.coordinator.SetServers(appServers)
-	p.coordinator.SetSelectedServer(p.list.Index())
+	p.appCtx.Session.SetServers(domainServers)
+	p.appCtx.Session.SetSelectedServer(p.list.Index())
 
 	// Save to config (if config manager present)
 	if p.configMgr != nil {

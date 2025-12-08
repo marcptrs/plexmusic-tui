@@ -23,6 +23,7 @@ import (
 // LoginPage handles authentication UI
 type LoginPage struct {
 	coordinator app.Coordinatorer
+	appCtx      *app.AppContext
 	authService service.AuthServicer
 	configMgr   *config.Manager
 
@@ -71,6 +72,7 @@ func NewLoginPageWithConfig(
 
 	return &LoginPage{
 		coordinator:   coord,
+		appCtx:        coord.GetAppContext(),
 		authService:   authSvc,
 		configMgr:     cfgMgr,
 		usernameInput: usernameInput,
@@ -88,7 +90,7 @@ func (p *LoginPage) Init() tea.Cmd {
 	// If there's already a token stored in the config, restore it and navigate to the next page.
 	if p.configMgr != nil {
 		if token := p.configMgr.GetAuthToken(); token != "" {
-			p.coordinator.SetToken(token)
+			p.appCtx.Session.SetToken(token)
 
 			// If there's a previously selected server, proactively fetch servers
 			// and wait for the auth service to publish 'servers.loaded' so we can
@@ -327,7 +329,7 @@ func (p *LoginPage) subscribeToAuthEvents() tea.Cmd {
 // available servers for the current authenticated user.
 func (p *LoginPage) fetchServers() tea.Cmd {
 	return func() tea.Msg {
-		token := p.coordinator.GetToken()
+		token := p.appCtx.Session.Token()
 		if token == "" {
 			return nil
 		}
@@ -347,7 +349,7 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 	case "auth.success":
 		p.authenticating = false
 		p.errorMsg = ""
-		p.coordinator.SetToken(event.Token)
+		p.appCtx.Session.SetToken(event.Token)
 
 		// Persist token to config if available
 		if p.configMgr != nil {
@@ -374,19 +376,8 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 		return p, nil
 
 	case "servers.loaded":
-		// Convert domain servers to app servers and store them in the coordinator
-		appServers := make([]app.PlexServer, len(event.Servers))
-		for i, s := range event.Servers {
-			appServers[i] = app.PlexServer{
-				Name:         s.Name,
-				Host:         s.Host,
-				Port:         s.Port,
-				AccessToken:  s.AccessToken,
-				LocalAddress: s.LocalAddress,
-				Scheme:       s.Scheme,
-			}
-		}
-		p.coordinator.SetServers(appServers)
+		// Store servers in session context
+		p.appCtx.Session.SetServers(event.Servers)
 
 		// Try to auto-select the previously used server. Accept both canonical
 		// host/name and the legacy server name-only format. When a legacy
@@ -400,7 +391,7 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 			for i, s := range event.Servers {
 				key := fmt.Sprintf("%s/%s", s.Host, s.Name)
 				if key == lastServer || s.Name == lastServer {
-					p.coordinator.SetSelectedServer(i)
+					p.appCtx.Session.SetSelectedServer(i)
 					// If matched by server name only, attempt to upgrade the stored
 					// key to the canonical host/name format to avoid future ambiguity.
 					if p.configMgr != nil && s.Host != "" && s.Name == lastServer {

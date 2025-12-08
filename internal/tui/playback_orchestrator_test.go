@@ -63,7 +63,7 @@ func TestOrchestrator_PlayAppTrack_PbErrorSetsNotification(t *testing.T) {
 	coord := app.NewCoordinator()
 	// Mock PlaybackService that returns an error
 	pb := &mockPbSvcErr{err: errors.New("play fail")}
-	orchestrator := tui.NewOrchestrator(coord, nil, pb)
+	orchestrator := tui.NewOrchestrator(coord.GetAppContext(), nil, pb)
 	at := &app.Track{Title: "Track 1"}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -71,7 +71,7 @@ func TestOrchestrator_PlayAppTrack_PbErrorSetsNotification(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected error from PlayAppTrack when pbSvc fails")
 	}
-	if !coord.NotificationActive() {
+	if !coord.GetAppContext().View.NotificationActive() {
 		t.Fatalf("expected coordinator to have active notification after playback fail")
 	}
 }
@@ -83,17 +83,17 @@ func TestOrchestrator_PlayNext_PbErrorSetsNotification(t *testing.T) {
 	pc := service.NewPlaybackController(pbSvc)
 	// Create orchestrator with libSvc that returns fetch error
 	lib := &mockLibFetchErr{}
-	orchestrator := tui.NewOrchestrator(coord, lib, pbSvc)
+	orchestrator := tui.NewOrchestrator(coord.GetAppContext(), lib, pbSvc)
 	// Queue and tracks: single track in queue
-	q := []app.Track{{Title: "Q1"}}
-	tracks := []app.Track{{Title: "T1"}}
+	q := []domain.Track{{Title: "Q1"}}
+	tracks := []domain.Track{{Title: "T1"}}
 	// PlayNext should call PlayDomainTrack which will use lib.FetchStream -> error
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := orchestrator.PlayNext(ctx, pc, q, -1, tracks, 0); err == nil {
 		t.Fatalf("expected error from PlayNext due to lib fetch error")
 	}
-	if !coord.NotificationActive() {
+	if !coord.GetAppContext().View.NotificationActive() {
 		t.Fatalf("expected coordinator to have active notification after PlayNext fail")
 	}
 }
@@ -105,15 +105,15 @@ func TestOrchestrator_PlayNext_PbSvcErrorSetsNotification(t *testing.T) {
 	// Create a real controller using this mocked pb service
 	pc := service.NewPlaybackController(pb)
 	lib := &mockLibFetchErr{}
-	orchestrator := tui.NewOrchestrator(coord, lib, pb)
-	q := []app.Track{{Title: "Q1"}}
-	tracks := []app.Track{{Title: "T1"}}
+	orchestrator := tui.NewOrchestrator(coord.GetAppContext(), lib, pb)
+	q := []domain.Track{{Title: "Q1"}}
+	tracks := []domain.Track{{Title: "T1"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := orchestrator.PlayNext(ctx, pc, q, -1, tracks, 0); err == nil {
 		t.Fatalf("expected orchestrator PlayNext error due to pbSvc PlayDomainTrack error")
 	}
-	if !coord.NotificationActive() {
+	if !coord.GetAppContext().View.NotificationActive() {
 		t.Fatalf("expected coordinator to have notification after pbSvc PlayNext error")
 	}
 }
@@ -123,15 +123,15 @@ func TestOrchestrator_PlayPrev_PbSvcErrorSetsNotification(t *testing.T) {
 	pb := &mockPbSvcErr{err: errors.New("playback fail")}
 	pc := service.NewPlaybackController(pb)
 	lib := &mockLibFetchErr{}
-	orchestrator := tui.NewOrchestrator(coord, lib, pb)
-	q := []app.Track{{Title: "Q1"}}
-	tracks := []app.Track{{Title: "T1"}}
+	orchestrator := tui.NewOrchestrator(coord.GetAppContext(), lib, pb)
+	q := []domain.Track{{Title: "Q1"}}
+	tracks := []domain.Track{{Title: "T1"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := orchestrator.PlayPrev(ctx, pc, q, 0, tracks, 0); err == nil {
 		t.Fatalf("expected orchestrator PlayPrev error due to pbSvc PlayDomainTrack error")
 	}
-	if !coord.NotificationActive() {
+	if !coord.GetAppContext().View.NotificationActive() {
 		t.Fatalf("expected coordinator to have notification after pbSvc PlayPrev error")
 	}
 }
@@ -140,42 +140,42 @@ func TestOrchestrator_PauseResume_SetsStateAndNotifications(t *testing.T) {
 	coord := app.NewCoordinator()
 	// Reuse existing mock that returns nil errors for operations when err == nil.
 	pb := &mockPbSvcErr{err: nil}
-	orchestrator := tui.NewOrchestrator(coord, nil, pb)
+	orchestrator := tui.NewOrchestrator(coord.GetAppContext(), nil, pb)
 	// No context required for Pause/Resume tests
 	if err := orchestrator.Pause(); err != nil {
 		t.Fatalf("Pause returned unexpected error: %v", err)
 	}
-	if coord.PlaybackState() != app.PlaybackPaused {
-		t.Fatalf("expected paused state, got %v", coord.PlaybackState())
+	if coord.GetAppContext().Playback.State() != app.PlaybackPaused {
+		t.Fatalf("expected paused state, got %v", coord.GetAppContext().Playback.State())
 	}
 	if err := orchestrator.Resume(); err != nil {
 		t.Fatalf("Resume returned unexpected error: %v", err)
 	}
-	if coord.PlaybackState() != app.PlaybackPlaying {
-		t.Fatalf("expected playing state, got %v", coord.PlaybackState())
+	if coord.GetAppContext().Playback.State() != app.PlaybackPlaying {
+		t.Fatalf("expected playing state, got %v", coord.GetAppContext().Playback.State())
 	}
 }
 
 func TestOrchestrator_PlayAppTrack_Success(t *testing.T) {
 	coord := app.NewCoordinator()
 	pb := &mockPbSvcErr{err: nil}
-	orchestrator := tui.NewOrchestrator(coord, nil, pb)
+	orchestrator := tui.NewOrchestrator(coord.GetAppContext(), nil, pb)
 	at := &app.Track{Title: "Track OK", Artist: "Artist"}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := orchestrator.PlayAppTrack(ctx, at); err != nil {
 		t.Fatalf("expected PlayAppTrack success, got error: %v", err)
 	}
-	if !coord.HasCurrentTrack() {
+	if !coord.GetAppContext().Playback.HasCurrentTrack() {
 		t.Fatalf("expected coordinator to have current track set after PlayAppTrack success")
 	}
-	if coord.CurrentTrack().Title != "Track OK" {
+	if coord.GetAppContext().Playback.CurrentTrack().Title != "Track OK" {
 		t.Fatalf(
 			"expected coordinator current track title 'Track OK', got '%s'",
-			coord.CurrentTrack().Title,
+			coord.GetAppContext().Playback.CurrentTrack().Title,
 		)
 	}
-	if coord.PlaybackState() != app.PlaybackPlaying {
+	if coord.GetAppContext().Playback.State() != app.PlaybackPlaying {
 		t.Fatalf("expected playback state to be playing")
 	}
 }
@@ -183,7 +183,7 @@ func TestOrchestrator_PlayAppTrack_Success(t *testing.T) {
 func TestOrchestrator_PlayAppTrack_UpdatesNowPlaying(t *testing.T) {
 	coord := app.NewCoordinator()
 	pb := &mockPbSvcErr{err: nil}
-	orch := tui.NewOrchestrator(coord, nil, pb)
+	orch := tui.NewOrchestrator(coord.GetAppContext(), nil, pb)
 	at := &app.Track{Title: "Integration Track", Artist: "Integration Artist"}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -191,7 +191,7 @@ func TestOrchestrator_PlayAppTrack_UpdatesNowPlaying(t *testing.T) {
 		t.Fatalf("expected PlayAppTrack success, got: %v", err)
 	}
 	// Now create NowPlaying component to render using coordinator/orchestrator
-	np := components.NewNowPlayingComponent(coord, orch)
+	np := components.NewNowPlayingComponent(coord.GetAppContext(), orch)
 	out := np.Render(80, 20)
 	if !strings.Contains(out, "Integration Track") {
 		t.Fatalf("expected NowPlaying render to contain 'Integration Track', got: %s", out)

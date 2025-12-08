@@ -22,6 +22,7 @@ type InProcessMediaControl struct {
 	pbService        *service.PlaybackService
 	orchestrator     *tui.Orchestrator
 	coordinator      *app.Coordinator
+	appCtx           *app.AppContext
 	ctx              context.Context
 	lastPositionSent time.Time
 }
@@ -42,6 +43,7 @@ func NewInProcessMediaControl(
 		pbService:    playbackService,
 		orchestrator: orchestrator,
 		coordinator:  coordinator,
+		appCtx:       coordinator.GetAppContext(),
 	}, nil
 }
 
@@ -107,24 +109,24 @@ func (h *commandHandler) HandleSeek(position time.Duration) {
 }
 
 func (ctrl *InProcessMediaControl) playNext() {
-	if ctrl.coordinator == nil || ctrl.pbService == nil {
+	if ctrl.appCtx == nil || ctrl.pbService == nil {
 		return
 	}
 
-	libSvc := ctrl.coordinator.LibraryService()
+	libSvc := ctrl.appCtx.Services.LibraryService()
 	if libSvc == nil {
 		log.Warn("Cannot play next: library service not available")
 		return
 	}
 
 	pc := service.NewPlaybackController(nil)
-	queue := ctrl.coordinator.Queue()
-	queueIdx := ctrl.coordinator.QueueIndex()
-	tracks := ctrl.coordinator.Tracks()
-	selected := ctrl.coordinator.SelectedTrack()
+	queue := ctrl.appCtx.Content.Queue()
+	queueIdx := ctrl.appCtx.Content.QueueIndex()
+	tracks := ctrl.appCtx.Content.Tracks()
+	selected := ctrl.appCtx.View.SelectedTrack()
 
-	dq := convertAppTracksToDomain(queue)
-	dtracks := convertAppTracksToDomain(tracks)
+	dq := queue
+	dtracks := tracks
 
 	isQueue, newQueueIdx, newSelected, next, err := pc.PlayNext(
 		ctrl.ctx, dq, queueIdx, dtracks, selected, libSvc,
@@ -140,32 +142,32 @@ func (ctrl *InProcessMediaControl) playNext() {
 			return
 		}
 		if isQueue {
-			ctrl.coordinator.SetQueueIndex(newQueueIdx)
+			ctrl.appCtx.Content.SetQueueIndex(newQueueIdx)
 		} else {
-			ctrl.coordinator.SetSelectedTrack(newSelected)
+			ctrl.appCtx.View.SetSelectedTrack(newSelected)
 		}
 	}
 }
 
 func (ctrl *InProcessMediaControl) playPrev() {
-	if ctrl.coordinator == nil || ctrl.pbService == nil {
+	if ctrl.appCtx == nil || ctrl.pbService == nil {
 		return
 	}
 
-	libSvc := ctrl.coordinator.LibraryService()
+	libSvc := ctrl.appCtx.Services.LibraryService()
 	if libSvc == nil {
 		log.Warn("Cannot play previous: library service not available")
 		return
 	}
 
 	pc := service.NewPlaybackController(nil)
-	queue := ctrl.coordinator.Queue()
-	queueIdx := ctrl.coordinator.QueueIndex()
-	tracks := ctrl.coordinator.Tracks()
-	selected := ctrl.coordinator.SelectedTrack()
+	queue := ctrl.appCtx.Content.Queue()
+	queueIdx := ctrl.appCtx.Content.QueueIndex()
+	tracks := ctrl.appCtx.Content.Tracks()
+	selected := ctrl.appCtx.View.SelectedTrack()
 
-	dq := convertAppTracksToDomain(queue)
-	dtracks := convertAppTracksToDomain(tracks)
+	dq := queue
+	dtracks := tracks
 
 	isQueue, newQueueIdx, newSelected, prev, err := pc.PlayPrev(
 		ctrl.ctx, dq, queueIdx, dtracks, selected, libSvc,
@@ -181,9 +183,9 @@ func (ctrl *InProcessMediaControl) playPrev() {
 			return
 		}
 		if isQueue {
-			ctrl.coordinator.SetQueueIndex(newQueueIdx)
+			ctrl.appCtx.Content.SetQueueIndex(newQueueIdx)
 		} else {
-			ctrl.coordinator.SetSelectedTrack(newSelected)
+			ctrl.appCtx.View.SetSelectedTrack(newSelected)
 		}
 	}
 }
@@ -238,7 +240,7 @@ func (ctrl *InProcessMediaControl) handlePlaybackEvent(event domain.PlaybackEven
 			ctrl.controller.UpdatePlaybackState(mediacontrol.StatePlaying)
 
 			// Set artwork if available
-			artwork := ctrl.coordinator.PlaybackAlbumArt()
+			artwork := ctrl.appCtx.Playback.AlbumArt()
 			if artwork != nil {
 				ctrl.controller.SetArtwork(artwork)
 			}

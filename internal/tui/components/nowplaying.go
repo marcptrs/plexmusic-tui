@@ -17,8 +17,8 @@ import (
 // NowPlayingComponent handles rendering the Now Playing pane with track info,
 // album art, and playback controls.
 type NowPlayingComponent struct {
-	coordinator app.Coordinatorer
-	pbSvc       service.PlaybackServicer // Use interface instead of concrete type for flexibility
+	ctx   *app.AppContext
+	pbSvc service.PlaybackServicer // Use interface instead of concrete type for flexibility
 	// precompute tracking to avoid repeated Precompute calls when nothing changed
 	lastPrecomputeThumb string
 	lastPrecomputeW     int
@@ -29,7 +29,7 @@ type NowPlayingComponent struct {
 
 // NewNowPlayingComponent creates a new NowPlayingComponent.
 func NewNowPlayingComponent(
-	coordinator app.Coordinatorer,
+	ctx *app.AppContext,
 	pbSvc service.PlaybackServicer,
 ) *NowPlayingComponent {
 	// Create progress bar with custom styling
@@ -42,29 +42,29 @@ func NewNowPlayingComponent(
 	prog.EmptyColor = string(styles.ColorMuted)
 
 	return &NowPlayingComponent{
-		coordinator: coordinator,
-		pbSvc:       pbSvc,
-		progress:    prog,
+		ctx:      ctx,
+		pbSvc:    pbSvc,
+		progress: prog,
 	}
 }
 
 // Render returns the rendered view of the Now Playing pane.
 func (np *NowPlayingComponent) Render(width, height int) string {
 	// If no track is present, show a 'Nothing Playing' placeholder
-	if !np.coordinator.HasCurrentTrack() {
+	if !np.ctx.Playback.HasCurrentTrack() {
 		return np.renderNothingPlaying(width, height)
 	}
 
-	tr := np.coordinator.CurrentTrack()
+	tr := np.ctx.Playback.CurrentTrack()
 	trackTitle := styles.PrimaryTextStyle().Render(tr.Title)
 	artist := styles.SecondaryTextStyle().Render(tr.Artist)
 	album := styles.TertiaryTextStyle().Render(tr.Album)
 
 	// Render album art using the playback renderer (if available).
-	art := np.coordinator.PlaybackAlbumArt()
+	art := np.ctx.Playback.AlbumArt()
 	var artView string
 	artW := 0
-	if art != nil && np.coordinator.PlaybackImgRenderer() != nil {
+	if art != nil && np.ctx.Services.PlaybackImgRenderer() != nil {
 		// Give the art roughly 45% of the detail width with a lower bound
 		artW = width * 45 / 100
 		if artW < 6 {
@@ -78,19 +78,19 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 		// Ask the renderer to precompute the exact size to prevent the
 		// first-render blocking PNG encode. Debounce using the thumb URL and
 		// requested size so we don't precompute repeatedly for the same content.
-		thumb := np.coordinator.PlaybackAlbumArtThumb()
+		thumb := np.ctx.Playback.AlbumArtThumb()
 		if thumb != np.lastPrecomputeThumb || artW != np.lastPrecomputeW || artH != np.lastPrecomputeH {
-			np.coordinator.PlaybackImgRenderer().Precompute(art, artW, artH)
+			np.ctx.Services.PlaybackImgRenderer().Precompute(art, artW, artH)
 			np.lastPrecomputeThumb = thumb
 			np.lastPrecomputeW = artW
 			np.lastPrecomputeH = artH
 		}
 
-		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
+		artView = np.ctx.Services.PlaybackImgRenderer().Render(art, artW, artH)
 		artView = strings.TrimRight(artView, "\r\n ")
 	} else {
 		// Fallback to the thumbnail URL if image rendering is not available.
-		thumb := np.coordinator.PlaybackAlbumArtThumb()
+		thumb := np.ctx.Playback.AlbumArtThumb()
 		if thumb != "" {
 			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
 		} else {
@@ -106,8 +106,8 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 
 	// Next track info
 	var nextTrackView string
-	queue := np.coordinator.Queue()
-	idx := np.coordinator.QueueIndex()
+	queue := np.ctx.Content.Queue()
+	idx := np.ctx.Content.QueueIndex()
 	if idx+1 < len(queue) {
 		next := queue[idx+1]
 		// Use centralized renderer for title + artist to keep styling consistent
@@ -147,11 +147,11 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 // stacked/column layout (e.g. left column art + info under it).
 func (np *NowPlayingComponent) RenderInfo(width, height int) string {
 	// If no track present show 'Nothing Playing' placeholder area
-	if !np.coordinator.HasCurrentTrack() {
+	if !np.ctx.Playback.HasCurrentTrack() {
 		return np.renderNothingPlaying(width, height)
 	}
 
-	tr := np.coordinator.CurrentTrack()
+	tr := np.ctx.Playback.CurrentTrack()
 	trackTitle := styles.PrimaryTextStyle().Render(tr.Title)
 	artist := styles.SecondaryTextStyle().Render(tr.Artist)
 	album := styles.TertiaryTextStyle().Render(tr.Album)
@@ -160,8 +160,8 @@ func (np *NowPlayingComponent) RenderInfo(width, height int) string {
 
 	// Next track info
 	var nextTrackView string
-	queue := np.coordinator.Queue()
-	idx := np.coordinator.QueueIndex()
+	queue := np.ctx.Content.Queue()
+	idx := np.ctx.Content.QueueIndex()
 	if idx+1 < len(queue) {
 		next := queue[idx+1]
 		nextTrackView = styles.MutedStyle.Render(fmt.Sprintf("Next: %s • %s", next.Title, next.Artist))
@@ -200,9 +200,9 @@ func (np *NowPlayingComponent) renderNothingPlaying(width, height int) string {
 // buildProgressBar constructs a progress bar string with position/duration.
 func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDuration int) string {
 	// Use time-based calculated position for smooth display
-	posMs := np.coordinator.CalculatedPositionMs()
-	sr := int(np.coordinator.SampleRate())
-	lengthSamples := np.coordinator.StreamLength()
+	posMs := np.ctx.Playback.CalculatedPositionMs()
+	sr := int(np.ctx.Playback.SampleRate())
+	lengthSamples := np.ctx.Playback.StreamLength()
 
 	var lenMs int
 	if sr > 0 && lengthSamples > 0 {
@@ -280,7 +280,7 @@ func (np *NowPlayingComponent) buildVolumeDisplay() string {
 	// Otherwise, check the coordinator
 	// This is a limitation of the component design; alternatively, pass pbSvc in.
 	// For now, just render a placeholder or nothing.
-	if v := np.coordinator.Volume(); v != nil {
+	if v := np.ctx.Playback.Volume(); v != nil {
 		return fmt.Sprintf("Volume: %.0f%%", float64(np.toPercent(v.Volume)))
 	}
 	volume = fmt.Sprintf("Volume: %.0f%%", 100.0)
@@ -316,7 +316,7 @@ func (np *NowPlayingComponent) SetVolume(pbVolume float64) {
 // RenderFull produces a full-screen Now Playing view. Coordinates match the
 // previous page-level `renderNowPlayingFull` function.
 func (np *NowPlayingComponent) RenderFull(width int, height int) string {
-	if !np.coordinator.HasCurrentTrack() {
+	if !np.ctx.Playback.HasCurrentTrack() {
 		help := styles.NothingPlayingHintStyle()
 		return lipgloss.JoinVertical(
 			lipgloss.Center,
@@ -328,14 +328,14 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		)
 	}
 
-	tr := np.coordinator.CurrentTrack()
+	tr := np.ctx.Playback.CurrentTrack()
 	title := styles.PrimaryTextStyle().Render(tr.Title)
 	artist := styles.SecondaryTextStyle().Render(tr.Artist)
 	album := styles.TertiaryTextStyle().Render(tr.Album)
 
-	art := np.coordinator.PlaybackAlbumArt()
+	art := np.ctx.Playback.AlbumArt()
 	var artView string
-	if art != nil && np.coordinator.PlaybackImgRenderer() != nil {
+	if art != nil && np.ctx.Services.PlaybackImgRenderer() != nil {
 		// Compute a larger art size for full-screen mode
 		artW := width * 60 / 100
 		if artW < 20 {
@@ -347,18 +347,18 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		}
 		// Precompute for the large/full-screen size as a background op to avoid
 		// blocking the first render.
-		thumb := np.coordinator.PlaybackAlbumArtThumb()
+		thumb := np.ctx.Playback.AlbumArtThumb()
 		if thumb != np.lastPrecomputeThumb || artW != np.lastPrecomputeW || artH != np.lastPrecomputeH {
-			np.coordinator.PlaybackImgRenderer().Precompute(art, artW, artH)
+			np.ctx.Services.PlaybackImgRenderer().Precompute(art, artW, artH)
 			np.lastPrecomputeThumb = thumb
 			np.lastPrecomputeW = artW
 			np.lastPrecomputeH = artH
 		}
 
-		artView = np.coordinator.PlaybackImgRenderer().Render(art, artW, artH)
+		artView = np.ctx.Services.PlaybackImgRenderer().Render(art, artW, artH)
 		artView = strings.TrimRight(artView, "\r\n ")
 	} else {
-		thumb := np.coordinator.PlaybackAlbumArtThumb()
+		thumb := np.ctx.Playback.AlbumArtThumb()
 		if thumb != "" {
 			artView = styles.PrimaryTextStyle().Render(fmt.Sprintf("Art: %s", thumb))
 		} else {
@@ -367,9 +367,9 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 	}
 
 	// Use time-based calculated position for smooth display
-	posMs := np.coordinator.CalculatedPositionMs()
-	sr := int(np.coordinator.SampleRate())
-	lengthSamples := np.coordinator.StreamLength()
+	posMs := np.ctx.Playback.CalculatedPositionMs()
+	sr := int(np.ctx.Playback.SampleRate())
+	lengthSamples := np.ctx.Playback.StreamLength()
 	var lenMs int
 	if sr > 0 && lengthSamples > 0 {
 		lenMs = lengthSamples * 1000 / sr
@@ -433,7 +433,7 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		lipgloss.JoinHorizontal(lipgloss.Left,
 			"Volume: ",
 			styles.BlurredStyle.Render(fmt.Sprintf("%.2f", func() float64 {
-				if vol := np.coordinator.Volume(); vol != nil {
+				if vol := np.ctx.Playback.Volume(); vol != nil {
 					return vol.Volume
 				}
 				return 1.0

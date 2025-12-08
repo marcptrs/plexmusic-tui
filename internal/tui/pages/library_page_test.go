@@ -32,7 +32,7 @@ import (
 func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	albums := []app.Album{
+	albums := []domain.Album{
 		{
 			Title:  "Test Album",
 			Artist: "Test Artist",
@@ -43,7 +43,7 @@ func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 	}
 
 	// Set up hubs with recently added albums
-	hubs := []app.Hub{
+	hubs := []domain.Hub{
 		{
 			HubIdentifier: "music.recent.added.3",
 			Title:         "Recently Added in Music",
@@ -53,21 +53,21 @@ func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 			Albums:        albums,
 		},
 	}
-	coord.SetLibraryHubs(hubs)
-	coord.SetSelectedAlbum(0)
-	coord.SetActiveTab(app.HomeTab)
+	coord.GetAppContext().Content.SetLibraryHubs(hubs)
+	coord.GetAppContext().View.SetSelectedAlbum(0)
+	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
 	// Simulate an authenticated session and a selected server so the page renders content.
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPage(coord)
 
@@ -106,7 +106,7 @@ func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 func TestLibraryPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	playlists := []app.Playlist{
+	playlists := []domain.Playlist{
 		{
 			Title:     "Test Playlist",
 			Key:       "/playlists/1",
@@ -115,21 +115,21 @@ func TestLibraryPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 		},
 	}
 
-	coord.SetPlaylists(playlists)
-	coord.SetSelectedPlaylist(0)
-	coord.SetActiveTab(app.PlaylistsTab)
+	coord.GetAppContext().Content.SetPlaylists(playlists)
+	coord.GetAppContext().View.SetSelectedPlaylist(0)
+	coord.GetAppContext().View.SetActiveTab(app.PlaylistsTab)
 
 	// Simulate an authenticated session and a selected server so the page renders content.
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPage(coord)
 	page.width = 120
@@ -155,24 +155,24 @@ func TestLibraryPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 
 func TestLibraryPage_DefaultLayout_ShowsNowPlayingAndQueue(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
-	page.coordinator.SetActiveTab(app.HomeTab)
+	page.appCtx.View.SetActiveTab(app.HomeTab)
 	page.width = 120
 	page.height = 30
 
 	// Populate queue so it shows up (otherwise retro logo is shown)
-	coord.SetQueue([]app.Track{{Title: "Test Track"}})
+	coord.GetAppContext().Content.SetQueue([]domain.Track{{Title: "Test Track"}})
 
 	view := page.View()
 	if !strings.Contains(view, "Nothing Playing") {
@@ -185,24 +185,24 @@ func TestLibraryPage_DefaultLayout_ShowsNowPlayingAndQueue(t *testing.T) {
 
 func TestLibraryPage_View_ToastOverlay(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
-	page.coordinator.SetActiveTab(app.HomeTab)
+	page.appCtx.View.SetActiveTab(app.HomeTab)
 	page.width = 80
 	page.height = 24
 
 	// Set a transient notification and render
-	coord.SetNotification("Test overlay toast", "info", 5*time.Second)
+	coord.GetAppContext().View.SetNotification("Test overlay toast", "info", 5*time.Second)
 	view := page.View()
 
 	if !strings.Contains(view, "Test overlay toast") {
@@ -231,24 +231,24 @@ func TestLibraryPage_View_ToastOverlay(t *testing.T) {
 
 func TestLibraryPage_ViewHome_RendersSonicSections(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	// Make sonic features available and populate coordinator with hub data
-	coord.SetSonicAvailable(true)
-	coord.SetLibraryHubs([]app.Hub{
+	coord.GetAppContext().Content.SetSonicAvailable(true)
+	coord.GetAppContext().Content.SetLibraryHubs([]domain.Hub{
 		{
 			Title:   "Stations",
 			Context: "hub.music.stations",
-			Playlists: []app.Playlist{
+			Playlists: []domain.Playlist{
 				{Title: "My Mix"},
 			},
 		},
@@ -259,7 +259,7 @@ func TestLibraryPage_ViewHome_RendersSonicSections(t *testing.T) {
 	page.height = 40
 
 	// The Home tab should render sonic sections when sonic is available
-	page.coordinator.SetActiveTab(app.HomeTab)
+	page.appCtx.View.SetActiveTab(app.HomeTab)
 	// Open the drawer so the left pane with 'Stations' is visible
 	page.drawerOpen = true
 	view := page.View()
@@ -321,16 +321,16 @@ func TestLibraryPage_DetectKeyTriggersSonic(t *testing.T) {
 	srv := httptest.NewServer(srvMux)
 	defer srv.Close()
 
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        strings.TrimPrefix(strings.TrimPrefix(srv.URL, "http://"), "https://"),
 		Port:        "",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -392,7 +392,7 @@ func TestLibraryPage_DetectKeyTriggersSonic(t *testing.T) {
 	m2, cmd2 := page.Update(msg)
 	_ = m2
 	// Now coordinator should have sonic available and load Mixes/OnThisDay via fetch commands
-	if !coord.HasSonicAvailable() {
+	if !coord.GetAppContext().Content.HasSonicAvailable() {
 		t.Fatalf("expected sonic detection to be set on coordinator; got false")
 	}
 	// The cmd2 is a tea.Batch which contains multiple commands (fetchMixesForYou, fetchOnThisDay, fetchMoodStations).
@@ -419,11 +419,11 @@ func TestLibraryPage_DetectKeyTriggersSonic(t *testing.T) {
 	// Allow short time for any async operations to settle
 	time.Sleep(50 * time.Millisecond)
 	// Verify coordinator entries set by fetch commands
-	mixes := coord.MixesForYou()
+	mixes := coord.GetAppContext().Content.MixesForYou()
 	if len(mixes) == 0 || mixes[0].Title != "My Mix" {
 		t.Fatalf("expected Stations to be populated; got: %+v", mixes)
 	}
-	onThis := coord.OnThisDay()
+	onThis := coord.GetAppContext().Content.OnThisDay()
 	if len(onThis) == 0 || onThis[0].Title != "On Day" {
 		t.Fatalf("expected On This Day to be populated; got: %+v", onThis)
 	}
@@ -431,20 +431,20 @@ func TestLibraryPage_DetectKeyTriggersSonic(t *testing.T) {
 
 func TestLibraryPage_DrawerOnRight_KeepsNowPlayingVisible(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	// Ensure we have items to show in drawer - set up hubs with recently added albums
-	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
-	hubs := []app.Hub{
+	albums := []domain.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
+	hubs := []domain.Hub{
 		{
 			HubIdentifier: "music.recent.added.3",
 			Title:         "Recently Added in Music",
@@ -454,8 +454,8 @@ func TestLibraryPage_DrawerOnRight_KeepsNowPlayingVisible(t *testing.T) {
 			Albums:        albums,
 		},
 	}
-	coord.SetLibraryHubs(hubs)
-	coord.SetActiveTab(app.HomeTab)
+	coord.GetAppContext().Content.SetLibraryHubs(hubs)
+	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -495,16 +495,16 @@ func TestLibraryPage_Settings_ToggleCoverArtPosition(t *testing.T) {
 
 	coord := app.NewCoordinator()
 	coord.SetConfigManager(cfgMgr)
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -537,7 +537,7 @@ func TestLibraryPage_Settings_ToggleCoverArtPosition(t *testing.T) {
 	}
 
 	// Open settings and select the item
-	coord.SetActiveTab(app.SettingsTab)
+	coord.GetAppContext().View.SetActiveTab(app.SettingsTab)
 	page.drawerOpen = true
 	page.settingsComponent.Select(idx)
 
@@ -559,16 +559,16 @@ func TestLibraryPage_Settings_ToggleCoverArtPosition(t *testing.T) {
 
 func TestLibraryPage_SwitchView_PressesOpenDrawer(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -584,20 +584,20 @@ func TestLibraryPage_SwitchView_PressesOpenDrawer(t *testing.T) {
 
 func TestLibraryPage_LineCountStableOnSwitchView(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	// prepare some albums so the drawer has content
-	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
-	coord.SetAlbums(albums)
+	albums := []domain.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
+	coord.GetAppContext().Content.SetAlbums(albums)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -626,21 +626,21 @@ func TestLibraryPage_LineCountStableOnSwitchView(t *testing.T) {
 
 func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_LeftArt(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
-	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
-	coord.SetAlbums(albums)
-	coord.SetSelectedAlbum(0)
-	coord.SetActiveTab(app.HomeTab)
+	albums := []domain.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
+	coord.GetAppContext().Content.SetAlbums(albums)
+	coord.GetAppContext().View.SetSelectedAlbum(0)
+	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -654,7 +654,7 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_LeftArt(t *testing.T)
 	}
 	page.trackComponent.SetItems(items)
 	page.trackComponent.Select(0)
-	page.coordinator.SetTracks([]app.Track{{Title: "T1", Artist: "X", Album: "Test Album"}})
+	page.appCtx.Content.SetTracks([]domain.Track{{Title: "T1", Artist: "X", Album: "Test Album"}})
 	page.showingTracks = true
 	// Also open the drawer to simulate the case that previously caused duplication
 	page.drawerOpen = true
@@ -680,21 +680,21 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_RightArt(t *testing.T
 
 	coord := app.NewCoordinator()
 	coord.SetConfigManager(cfgMgr)
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
-	albums := []app.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
-	coord.SetAlbums(albums)
-	coord.SetSelectedAlbum(0)
-	coord.SetActiveTab(app.HomeTab)
+	albums := []domain.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
+	coord.GetAppContext().Content.SetAlbums(albums)
+	coord.GetAppContext().View.SetSelectedAlbum(0)
+	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -708,7 +708,7 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_RightArt(t *testing.T
 	}
 	page.trackComponent.SetItems(items)
 	page.trackComponent.Select(0)
-	page.coordinator.SetTracks([]app.Track{{Title: "T1", Artist: "X", Album: "Test Album"}})
+	page.appCtx.Content.SetTracks([]domain.Track{{Title: "T1", Artist: "X", Album: "Test Album"}})
 	page.showingTracks = true
 	// Also open the drawer to simulate the case where the drawer conflicts
 	page.drawerOpen = true
@@ -725,16 +725,16 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_RightArt(t *testing.T
 
 func TestLibraryPage_ArtLoad_NoExtraLine(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -746,7 +746,7 @@ func TestLibraryPage_ArtLoad_NoExtraLine(t *testing.T) {
 
 	// Simulate loading of a tiny image
 	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
-	page.coordinator.SetPlaybackAlbumArt(img, "/thumb.png")
+	page.appCtx.Playback.SetAlbumArt(img, "/thumb.png")
 
 	// Now render again — no extra blank lines should appear due to trailing newline
 	after := page.View()
@@ -766,16 +766,16 @@ func TestLibraryPage_ArtLoad_NoExtraLine(t *testing.T) {
 // Debug test: assert the view lines are consistent and print the first differing line
 func TestLibraryPage_ArtLoad_LineDiff(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -786,7 +786,7 @@ func TestLibraryPage_ArtLoad_LineDiff(t *testing.T) {
 
 	// Simulate loading art
 	img := image.NewRGBA(image.Rect(0, 0, 20, 20))
-	page.coordinator.SetPlaybackAlbumArt(img, "/thumb.png")
+	page.appCtx.Playback.SetAlbumArt(img, "/thumb.png")
 	after := page.View()
 	afterLines := strings.Split(after, "\n")
 
@@ -851,9 +851,9 @@ func TestLibraryPage_FetchesLibraryDataFromServer(t *testing.T) {
 	port := u.Port()
 
 	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Test Server",
 				Host:        host,
@@ -863,7 +863,7 @@ func TestLibraryPage_FetchesLibraryDataFromServer(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -921,10 +921,10 @@ LOOP:
 	}
 
 	// Now coordinator should have both albums and playlists populated
-	if len(coord.Albums()) == 0 {
+	if len(coord.GetAppContext().Content.Albums()) == 0 {
 		t.Fatalf("expected coordinator to have albums after fetch")
 	}
-	if len(coord.Playlists()) == 0 {
+	if len(coord.GetAppContext().Content.Playlists()) == 0 {
 		t.Fatalf("expected coordinator to have playlists after fetch")
 	}
 }
@@ -970,9 +970,9 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	port := u.Port()
 
 	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Test Server",
 				Host:        host,
@@ -982,7 +982,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -1030,7 +1030,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	}
 	// Switch active tab to Library to ensure key navigation updates the recentlyAdded list
 	// (HomeTab now uses the homeComponent with scrollable sections)
-	page.coordinator.SetActiveTab(app.LibraryTab)
+	page.appCtx.View.SetActiveTab(app.LibraryTab)
 	// Move selection to index 1 (Down) which should trigger a track fetch for album 2
 	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeyDown})
 	page = m.(*LibraryPage)
@@ -1125,9 +1125,9 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	port := u.Port()
 
 	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Test Server",
 				Host:        host,
@@ -1137,7 +1137,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -1182,7 +1182,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	}
 	// Switch active tab to Library to ensure key navigation updates the recentlyAdded list
 	// (HomeTab now uses the homeComponent with scrollable sections)
-	page.coordinator.SetActiveTab(app.LibraryTab)
+	page.appCtx.View.SetActiveTab(app.LibraryTab)
 	// Move selection to index 1 (Down) which should trigger a track fetch for album 2
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
 	page = m.(*LibraryPage)
@@ -1268,9 +1268,9 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	port := u.Port()
 
 	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Test Server",
 				Host:        host,
@@ -1280,11 +1280,14 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
+	// Send WindowSizeMsg to ensure components are sized correctly
+	page.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
 	if page.Init() == nil {
 		t.Fatalf("expected Init to return a cmd")
 	}
@@ -1314,7 +1317,8 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 		t.Fatalf("expected playlists after fetch")
 	}
 	// Switch active tab to Playlists to ensure key navigation updates the playlist list
-	page.coordinator.SetActiveTab(app.PlaylistsTab)
+	page.appCtx.View.SetActiveTab(app.PlaylistsTab)
+	page.playlistComponent.SetFocused(true)
 
 	// Move selection down which should fetch tracks for playlist 2
 	m2, cmd2 := page.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -1393,9 +1397,9 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	port := u.Port()
 
 	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Test Server",
 				Host:        host,
@@ -1405,8 +1409,8 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
-	coord.SetActiveTab(app.HomeTab)
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -1441,8 +1445,8 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	}
 	// Make sure tab is active and selection set
 	// Use LibraryTab since HomeTab now uses scrollable homeComponent
-	page.coordinator.SetActiveTab(app.LibraryTab)
-	page.coordinator.SetSelectedAlbum(0)
+	page.appCtx.View.SetActiveTab(app.LibraryTab)
+	page.appCtx.View.SetSelectedAlbum(0)
 
 	// Open the drawer on the right so the track list shows
 	page.drawerOpen = true
@@ -1457,10 +1461,10 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	if !page.showingTracks {
 		t.Fatalf("expected page.showingTracks after pressing Enter")
 	}
-	if coord.HasCurrentTrack() {
+	if coord.GetAppContext().Playback.HasCurrentTrack() {
 		t.Fatalf("did not expect coordinator to have current track after pressing Enter")
 	}
-	if coord.IsPlaying() {
+	if coord.GetAppContext().Playback.IsPlaying() {
 		t.Fatalf("did not expect coordinator playback state to be Playing after pressing Enter")
 	}
 }
@@ -1497,9 +1501,9 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 	port := u.Port()
 
 	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Test Server",
 				Host:        host,
@@ -1509,8 +1513,8 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
-	coord.SetActiveTab(app.PlaylistsTab)
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().View.SetActiveTab(app.PlaylistsTab)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -1541,8 +1545,8 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 	if len(page.playlistComponent.Items()) == 0 {
 		t.Fatalf("expected playlists after fetch")
 	}
-	page.coordinator.SetActiveTab(app.PlaylistsTab)
-	page.coordinator.SetSelectedPlaylist(0)
+	page.appCtx.View.SetActiveTab(app.PlaylistsTab)
+	page.appCtx.View.SetSelectedPlaylist(0)
 
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
 	page = m.(*LibraryPage)
@@ -1552,7 +1556,7 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 
 	// Wait for tracks.loaded event and process it (which triggers auto-play)
 	start = time.Now()
-	for !coord.HasCurrentTrack() {
+	for !coord.GetAppContext().Playback.HasCurrentTrack() {
 		if time.Since(start) > 2*time.Second {
 			break
 		}
@@ -1568,47 +1572,47 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 		}
 	}
 
-	if !coord.HasCurrentTrack() {
+	if !coord.GetAppContext().Playback.HasCurrentTrack() {
 		t.Fatalf("expected coordinator to have current track after pressing space on playlist")
 	}
-	if !coord.IsPlaying() {
+	if !coord.GetAppContext().Playback.IsPlaying() {
 		t.Fatalf(
 			"expected coordinator playback state to be Playing after pressing space on playlist",
 		)
 	}
-	queue := coord.Queue()
+	queue := coord.GetAppContext().Content.Queue()
 	if len(queue) != 2 {
 		t.Fatalf("expected queue to contain all playlist tracks, got %d", len(queue))
 	}
-	if coord.QueueIndex() != 0 {
-		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
+	if coord.GetAppContext().Content.QueueIndex() != 0 {
+		t.Fatalf("expected queue index to be 0, got %d", coord.GetAppContext().Content.QueueIndex())
 	}
 	if page.showingTracks {
 		t.Fatalf(
 			"expected page.showingTracks to be false after pressing p on playlist (should switch to queue)",
 		)
 	}
-	if coord.ActiveTab() != app.QueueTab {
+	if coord.GetAppContext().View.ActiveTab() != app.QueueTab {
 		t.Fatalf(
 			"expected active tab to be QueueTab after pressing p on playlist, got %v",
-			coord.ActiveTab(),
+			coord.GetAppContext().View.ActiveTab(),
 		)
 	}
 }
 
 func TestLibraryPage_Init_UsesServerAccessTokenOverCoordinatorToken(t *testing.T) {
 	coord := app.NewCoordinator()
-	coord.SetToken("coord-token")
+	coord.GetAppContext().Session.SetToken("coord-token")
 
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "server-token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
 
 	page := NewLibraryPage(coord)
 	page.width = 120
@@ -1723,16 +1727,16 @@ func executeCmdWithPage(page *LibraryPage, cmd tea.Cmd, timeout time.Duration) *
 
 func TestLibraryPage_QueueSelectionDoesNotUpdateCoverArt(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -1745,22 +1749,22 @@ func TestLibraryPage_QueueSelectionDoesNotUpdateCoverArt(t *testing.T) {
 	page.libSvc = &mockLibSvcShort{}
 
 	// Prepare a queue with two items that have different thumbnails
-	qTracks := []app.Track{
+	qTracks := []domain.Track{
 		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1", Thumb: "/t1.jpg"},
 		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2", Thumb: "/t2.jpg"},
 	}
-	coord.SetQueue(qTracks)
-	coord.SetQueueIndex(0)
+	coord.GetAppContext().Content.SetQueue(qTracks)
+	coord.GetAppContext().Content.SetQueueIndex(0)
 	page.queueComponent.UpdateListFromCoordinator()
 	page.queueComponent.Select(0)
 
 	// Ensure the queue is visible so routing will send Up/Down to queue
-	page.coordinator.SetActiveTab(app.HomeTab)
+	page.appCtx.View.SetActiveTab(app.HomeTab)
 	page.drawerOpen = false
 	page.showingTracks = false
 
 	// Ensure the coordinator has some existing playback art and that scrolling the queue does not change it
-	page.coordinator.SetPlaybackAlbumArt(image.NewRGBA(image.Rect(0, 0, 1, 1)), "/initial.jpg")
+	page.appCtx.Playback.SetAlbumArt(image.NewRGBA(image.Rect(0, 0, 1, 1)), "/initial.jpg")
 
 	// Press Down to change selection and run returned command
 	_, cmd := page.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -1774,24 +1778,24 @@ func TestLibraryPage_QueueSelectionDoesNotUpdateCoverArt(t *testing.T) {
 	}
 
 	// Expect the coordinator playback art to remain unchanged
-	if page.coordinator.PlaybackAlbumArtThumb() != "/initial.jpg" {
+	if page.appCtx.Playback.AlbumArtThumb() != "/initial.jpg" {
 		t.Fatalf("expected coordinator playback thumb to remain /initial.jpg, got %s",
-			page.coordinator.PlaybackAlbumArtThumb())
+			page.appCtx.Playback.AlbumArtThumb())
 	}
 }
 
 func TestLibraryPage_PlaybackStartedUpdatesCoverArt(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -1802,7 +1806,7 @@ func TestLibraryPage_PlaybackStartedUpdatesCoverArt(t *testing.T) {
 	page.libSvc = &mockLibSvcShort{}
 
 	// Prime the coordinator with a different album art so we can validate change
-	page.coordinator.SetPlaybackAlbumArt(image.NewRGBA(image.Rect(0, 0, 1, 1)), "/initial.jpg")
+	page.appCtx.Playback.SetAlbumArt(image.NewRGBA(image.Rect(0, 0, 1, 1)), "/initial.jpg")
 
 	// Simulate playback.started event with a different thumb
 	ev := domain.PlaybackEvent{Type: "playback.started", Track: &domain.Track{Thumb: "/played.jpg"}}
@@ -1814,10 +1818,10 @@ func TestLibraryPage_PlaybackStartedUpdatesCoverArt(t *testing.T) {
 	// Execute the returned cmd and process returned messages through the page
 	page = executeCmdWithPage(page, cmd, 500*time.Millisecond)
 
-	if page.coordinator.PlaybackAlbumArtThumb() != "/played.jpg" {
+	if page.appCtx.Playback.AlbumArtThumb() != "/played.jpg" {
 		t.Fatalf(
 			"expected playback thumb to be updated to /played.jpg, got %s",
-			page.coordinator.PlaybackAlbumArtThumb(),
+			page.appCtx.Playback.AlbumArtThumb(),
 		)
 	}
 }
@@ -1831,7 +1835,7 @@ func TestLibraryPage_RenderSearch_IncludesTracks(t *testing.T) {
 	coord := app.NewCoordinator()
 
 	// Add a sample track that should be matched by search
-	tracks := []app.Track{
+	tracks := []domain.Track{
 		{
 			Title:  "Super Track",
 			Artist: "Search Artist",
@@ -1839,21 +1843,21 @@ func TestLibraryPage_RenderSearch_IncludesTracks(t *testing.T) {
 			Key:    "/library/metadata/1/track/1",
 		},
 	}
-	coord.SetTracks(tracks)
+	coord.GetAppContext().Content.SetTracks(tracks)
 	// Activate Search tab
-	coord.SetActiveTab(app.SearchTab)
+	coord.GetAppContext().View.SetActiveTab(app.SearchTab)
 
 	// Simulate authenticated server so the page renders
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 100
@@ -1950,9 +1954,9 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	port := u.Port()
 
 	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Test Server",
 				Host:        host,
@@ -1962,8 +1966,8 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
-	coord.SetActiveTab(app.HomeTab)
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -1994,8 +1998,8 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	if len(page.recentlyAddedComponent.Items()) == 0 {
 		t.Fatalf("expected recently added albums after fetch")
 	}
-	page.coordinator.SetActiveTab(app.HomeTab)
-	page.coordinator.SetSelectedAlbum(0)
+	page.appCtx.View.SetActiveTab(app.HomeTab)
+	page.appCtx.View.SetSelectedAlbum(0)
 
 	// Press 'space' to play album and expect queue to be set and playback to begin
 	m, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
@@ -2006,7 +2010,7 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 
 	// Wait for tracks.loaded event and process it (which triggers auto-play)
 	start = time.Now()
-	for !coord.HasCurrentTrack() {
+	for !coord.GetAppContext().Playback.HasCurrentTrack() {
 		if time.Since(start) > 2*time.Second {
 			break
 		}
@@ -2022,28 +2026,28 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 		}
 	}
 
-	if !coord.HasCurrentTrack() {
+	if !coord.GetAppContext().Playback.HasCurrentTrack() {
 		t.Fatalf("expected coordinator to have current track after pressing space on album")
 	}
-	if !coord.IsPlaying() {
+	if !coord.GetAppContext().Playback.IsPlaying() {
 		t.Fatalf("expected coordinator playback state to be Playing after pressing space on album")
 	}
-	queue := coord.Queue()
+	queue := coord.GetAppContext().Content.Queue()
 	if len(queue) != 2 {
 		t.Fatalf("expected queue to contain all album tracks, got %d", len(queue))
 	}
-	if coord.QueueIndex() != 0 {
-		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
+	if coord.GetAppContext().Content.QueueIndex() != 0 {
+		t.Fatalf("expected queue index to be 0, got %d", coord.GetAppContext().Content.QueueIndex())
 	}
 	if page.showingTracks {
 		t.Fatalf(
 			"expected page.showingTracks to be false after pressing p on album (should switch to queue)",
 		)
 	}
-	if coord.ActiveTab() != app.QueueTab {
+	if coord.GetAppContext().View.ActiveTab() != app.QueueTab {
 		t.Fatalf(
 			"expected active tab to be QueueTab after pressing p on album, got %v",
-			coord.ActiveTab(),
+			coord.GetAppContext().View.ActiveTab(),
 		)
 	}
 }
@@ -2077,16 +2081,16 @@ func TestLibraryPage_PlayPauseToggle(t *testing.T) {
 	port := u.Port()
 
 	coord := app.NewCoordinator()
-	coord.SetToken("test-token")
-	coord.SetServers([]app.PlexServer{{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{{
 		Name: "Test Server", Host: host, Port: port, Scheme: u.Scheme, AccessToken: "test-token",
 	}})
-	coord.SetSelectedServer(0)
-	coord.SetActiveTab(app.HomeTab)
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
 	// Inject mock playback service that doesn't initialize audio to avoid speaker use in tests
 	mockPb := &mockPbSvcOK{}
-	coord.SetPlaybackService(mockPb)
+	coord.GetAppContext().Services.SetPlaybackService(mockPb)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -2125,8 +2129,8 @@ func TestLibraryPage_PlayPauseToggle(t *testing.T) {
 	if len(page.recentlyAddedComponent.Items()) == 0 {
 		t.Fatalf("expected recently added albums after fetch")
 	}
-	page.coordinator.SetActiveTab(app.HomeTab)
-	page.coordinator.SetSelectedAlbum(0)
+	page.appCtx.View.SetActiveTab(app.HomeTab)
+	page.appCtx.View.SetSelectedAlbum(0)
 
 	// Start playback via space
 	m, cmd = page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
@@ -2137,7 +2141,7 @@ func TestLibraryPage_PlayPauseToggle(t *testing.T) {
 
 	// Wait for tracks.loaded event and process it (which triggers auto-play)
 	start = time.Now()
-	for !coord.HasCurrentTrack() {
+	for !coord.GetAppContext().Playback.HasCurrentTrack() {
 		if time.Since(start) > 2*time.Second {
 			break
 		}
@@ -2153,9 +2157,9 @@ func TestLibraryPage_PlayPauseToggle(t *testing.T) {
 		}
 	}
 
-	if !coord.HasCurrentTrack() || !coord.IsPlaying() {
+	if !coord.GetAppContext().Playback.HasCurrentTrack() || !coord.GetAppContext().Playback.IsPlaying() {
 		t.Fatalf("expected track playing after space, got hasCurrent=%v, playing=%v",
-			coord.HasCurrentTrack(), coord.IsPlaying())
+			coord.GetAppContext().Playback.HasCurrentTrack(), coord.GetAppContext().Playback.IsPlaying())
 	}
 
 	// Wait for playback initialization to complete (the async PlayAppTrack goroutine)
@@ -2181,9 +2185,9 @@ func TestLibraryPage_PlayPauseToggle(t *testing.T) {
 	}
 	// small wait to propagate
 	time.Sleep(20 * time.Millisecond)
-	if !coord.IsPaused() {
+	if !coord.GetAppContext().Playback.IsPaused() {
 		t.Fatalf("expected playback paused after pressing 'p', got IsPlaying=%v, IsPaused=%v",
-			coord.IsPlaying(), coord.IsPaused())
+			coord.GetAppContext().Playback.IsPlaying(), coord.GetAppContext().Playback.IsPaused())
 	}
 
 	// Wait for debounce period (250ms) before pressing 'p' again
@@ -2196,9 +2200,9 @@ func TestLibraryPage_PlayPauseToggle(t *testing.T) {
 		executeCmd(cmd)
 	}
 	time.Sleep(20 * time.Millisecond)
-	if !coord.IsPlaying() {
+	if !coord.GetAppContext().Playback.IsPlaying() {
 		t.Fatalf("expected playback resumed after pressing 'p' second time, got IsPlaying=%v, IsPaused=%v",
-			coord.IsPlaying(), coord.IsPaused())
+			coord.GetAppContext().Playback.IsPlaying(), coord.GetAppContext().Playback.IsPaused())
 	}
 }
 
@@ -2241,9 +2245,9 @@ func (m *mockPbSvcOK) PublishArtwork(artwork image.Image) {}
 func TestLibraryPage_PlaySelected_QueuesTracksFromSelection(t *testing.T) {
 	coord := app.NewCoordinator()
 	// Simulate authenticated server so page can build layout; orchestrator will be swapped with a mock below.
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Local Server",
 				Host:        "127.0.0.1",
@@ -2253,36 +2257,34 @@ func TestLibraryPage_PlaySelected_QueuesTracksFromSelection(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 
 	// Build a simple in-memory tracklist on the page and select the second track.
-	appTracks := []app.Track{
+	appTracks := []domain.Track{
 		{Title: "T1", Artist: "Artist", Album: "Album", Key: "/t1"},
 		{Title: "T2", Artist: "Artist", Album: "Album", Key: "/t2"},
 		{Title: "T3", Artist: "Artist", Album: "Album", Key: "/t3"},
 	}
-	coord.SetTracks(appTracks)
+	coord.GetAppContext().Content.SetTracks(appTracks)
 
 	items := make([]list.Item, len(appTracks))
 	for i, t := range appTracks {
-		if dt := util.AppTrackToDomain(&t); dt != nil {
-			items[i] = util.TrackItem{Track: *dt}
-		}
+		items[i] = util.TrackItem{Track: t}
 	}
 	page.trackComponent.SetItems(items)
 	page.trackComponent.Select(1)
-	coord.SetSelectedTrack(1)
+	coord.GetAppContext().View.SetSelectedTrack(1)
 	page.showingTracks = true
 
 	// Use a minimal mock playback service so we don't initialize audio.
 	pb := &mockPbSvcOK{ch: make(chan pubsub.Event[domain.PlaybackEvent], 4)}
-	page.orchestrator = tui.NewOrchestrator(coord, nil, pb)
+	page.orchestrator = tui.NewOrchestrator(coord.GetAppContext(), nil, pb)
 	page.pbEvtCh = page.orchestrator.Subscribe(page.ctx)
-	page.nowPlaying = components.NewNowPlayingComponent(coord, page.orchestrator)
+	page.nowPlaying = components.NewNowPlayingComponent(coord.GetAppContext(), page.orchestrator)
 
 	// Press space (PlaySelected) to queue from selected track and start playback.
 	_, cmd := page.Update(tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}})
@@ -2290,27 +2292,30 @@ func TestLibraryPage_PlaySelected_QueuesTracksFromSelection(t *testing.T) {
 		_ = cmd()
 	}
 
-	q := coord.Queue()
+	q := coord.GetAppContext().Content.Queue()
 	if len(q) != 2 {
 		t.Fatalf("expected queue to contain 2 items (selected + remaining), got %d", len(q))
 	}
-	if coord.QueueIndex() != 0 {
-		t.Fatalf("expected queue index to be 0, got %d", coord.QueueIndex())
+	if coord.GetAppContext().Content.QueueIndex() != 0 {
+		t.Fatalf("expected queue index to be 0, got %d", coord.GetAppContext().Content.QueueIndex())
 	}
-	if !coord.HasCurrentTrack() {
+	if !coord.GetAppContext().Playback.HasCurrentTrack() {
 		t.Fatalf("expected coordinator to have a current track set")
 	}
-	if coord.CurrentTrack().Title != "T2" {
-		t.Fatalf("expected currently playing track to be T2, got %s", coord.CurrentTrack().Title)
+	if coord.GetAppContext().Playback.CurrentTrack().Title != "T2" {
+		t.Fatalf(
+			"expected currently playing track to be T2, got %s",
+			coord.GetAppContext().Playback.CurrentTrack().Title,
+		)
 	}
 }
 
 func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	coord.SetToken("test-token")
-	coord.SetServers(
-		[]app.PlexServer{
+	coord.GetAppContext().Session.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers(
+		[]domain.PlexServer{
 			{
 				Name:        "Local Server",
 				Host:        "127.0.0.1",
@@ -2320,27 +2325,27 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 			},
 		},
 	)
-	coord.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetSelectedServer(0)
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
 	page.height = 40
 
 	// Prepare queue with two tracks and mark playing on the first.
-	qTracks := []app.Track{
+	qTracks := []domain.Track{
 		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1"},
 		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2"},
 	}
-	coord.SetQueue(qTracks)
-	coord.SetQueueIndex(0)
-	coord.SetCurrentTrack(&qTracks[0])
-	coord.SetPlaybackState(app.PlaybackPlaying)
+	coord.GetAppContext().Content.SetQueue(qTracks)
+	coord.GetAppContext().Content.SetQueueIndex(0)
+	coord.GetAppContext().Playback.SetCurrentTrack(util.DomainTrackToApp(&qTracks[0]))
+	coord.GetAppContext().Playback.SetState(app.PlaybackPlaying)
 
 	// Use a minimal mock playback service and orchestrator.
 	pb := &mockPbSvcOK{ch: make(chan pubsub.Event[domain.PlaybackEvent], 4)}
-	page.orchestrator = tui.NewOrchestrator(coord, nil, pb)
+	page.orchestrator = tui.NewOrchestrator(coord.GetAppContext(), nil, pb)
 	page.pbEvtCh = page.orchestrator.Subscribe(page.ctx)
-	page.nowPlaying = components.NewNowPlayingComponent(coord, page.orchestrator)
+	page.nowPlaying = components.NewNowPlayingComponent(coord.GetAppContext(), page.orchestrator)
 
 	// Simulate end-of-track via a playback.finished event
 	ev := domain.PlaybackEvent{
@@ -2365,16 +2370,16 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 	}
 
 	// Expect the queue to have advanced to the second track
-	if coord.QueueIndex() != 1 {
-		t.Fatalf("expected queue index 1 after auto-advance, got %d", coord.QueueIndex())
+	if coord.GetAppContext().Content.QueueIndex() != 1 {
+		t.Fatalf("expected queue index 1 after auto-advance, got %d", coord.GetAppContext().Content.QueueIndex())
 	}
-	if !coord.HasCurrentTrack() {
+	if !coord.GetAppContext().Playback.HasCurrentTrack() {
 		t.Fatalf("expected coordinator to have a current track set after auto-advance")
 	}
-	if coord.CurrentTrack().Title != "Q2" {
+	if coord.GetAppContext().Playback.CurrentTrack().Title != "Q2" {
 		t.Fatalf(
 			"expected current track to be Q2 after auto-advance, got %s",
-			coord.CurrentTrack().Title,
+			coord.GetAppContext().Playback.CurrentTrack().Title,
 		)
 	}
 }
@@ -2383,16 +2388,16 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 func TestLibraryPage_PlayQueueRefresh_AppendsNewTracks(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -2400,12 +2405,12 @@ func TestLibraryPage_PlayQueueRefresh_AppendsNewTracks(t *testing.T) {
 
 	// Set up initial queue with 2 tracks (simulating station start)
 	// Each track needs a unique PlayQueueItemID for deduplication to work correctly
-	initialTracks := []app.Track{
+	initialTracks := []domain.Track{
 		{Title: "Track1", Artist: "Artist", Album: "Album", Key: "/t1", RatingKey: "1", PlayQueueItemID: 101},
 		{Title: "Track2", Artist: "Artist", Album: "Album", Key: "/t2", RatingKey: "2", PlayQueueItemID: 102},
 	}
-	coord.SetQueue(initialTracks)
-	coord.SetQueueIndex(0)
+	coord.GetAppContext().Content.SetQueue(initialTracks)
+	coord.GetAppContext().Content.SetQueueIndex(0)
 
 	// Set up active playQueue to indicate station playback mode
 	activeQueue := &domain.ActivePlayQueue{
@@ -2413,10 +2418,10 @@ func TestLibraryPage_PlayQueueRefresh_AppendsNewTracks(t *testing.T) {
 		StationKey:  "/library/metadata/station1",
 		Version:     1,
 	}
-	coord.SetActivePlayQueue(activeQueue)
+	coord.GetAppContext().Content.SetActivePlayQueue(activeQueue)
 
 	// Verify we're in station playback mode
-	if !coord.IsStationPlayback() {
+	if !coord.GetAppContext().Content.IsStationPlayback() {
 		t.Fatal("expected IsStationPlayback to be true")
 	}
 
@@ -2438,7 +2443,7 @@ func TestLibraryPage_PlayQueueRefresh_AppendsNewTracks(t *testing.T) {
 	_, _ = page.Update(refreshMsg)
 
 	// Verify the new track was appended to the queue
-	queue := coord.Queue()
+	queue := coord.GetAppContext().Content.Queue()
 	if len(queue) != 3 {
 		t.Fatalf("expected queue to have 3 tracks after refresh, got %d", len(queue))
 	}
@@ -2447,8 +2452,11 @@ func TestLibraryPage_PlayQueueRefresh_AppendsNewTracks(t *testing.T) {
 	}
 
 	// Verify the activePlayQueue version was updated
-	if coord.ActivePlayQueue().Version != 2 {
-		t.Fatalf("expected activePlayQueue version to be 2, got %d", coord.ActivePlayQueue().Version)
+	if coord.GetAppContext().Content.ActivePlayQueue().Version != 2 {
+		t.Fatalf(
+			"expected activePlayQueue version to be 2, got %d",
+			coord.GetAppContext().Content.ActivePlayQueue().Version,
+		)
 	}
 }
 
@@ -2456,16 +2464,16 @@ func TestLibraryPage_PlayQueueRefresh_AppendsNewTracks(t *testing.T) {
 func TestLibraryPage_StationPlaybackStartedMsg_SetsUpQueue(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -2491,7 +2499,7 @@ func TestLibraryPage_StationPlaybackStartedMsg_SetsUpQueue(t *testing.T) {
 	_, _ = page.Update(msg)
 
 	// Verify the queue was set up
-	queue := coord.Queue()
+	queue := coord.GetAppContext().Content.Queue()
 	if len(queue) != 3 {
 		t.Fatalf("expected queue to have 3 tracks, got %d", len(queue))
 	}
@@ -2500,7 +2508,7 @@ func TestLibraryPage_StationPlaybackStartedMsg_SetsUpQueue(t *testing.T) {
 	}
 
 	// Verify activePlayQueue was set
-	activeQueue := coord.ActivePlayQueue()
+	activeQueue := coord.GetAppContext().Content.ActivePlayQueue()
 	if activeQueue == nil {
 		t.Fatal("expected activePlayQueue to be set")
 	}
@@ -2512,7 +2520,7 @@ func TestLibraryPage_StationPlaybackStartedMsg_SetsUpQueue(t *testing.T) {
 	}
 
 	// Verify IsStationPlayback returns true
-	if !coord.IsStationPlayback() {
+	if !coord.GetAppContext().Content.IsStationPlayback() {
 		t.Fatal("expected IsStationPlayback to return true")
 	}
 }
@@ -2522,16 +2530,16 @@ func TestLibraryPage_StationPlaybackStartedMsg_SetsUpQueue(t *testing.T) {
 func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -2555,18 +2563,18 @@ func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
 	page.recentlyAddedComponent.Select(0)
 
 	// Populate queue with 3 items and verify queue list sync
-	qTracks := []app.Track{
+	qTracks := []domain.Track{
 		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1"},
 		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2"},
 		{Title: "Q3", Artist: "Artist", Album: "Album", Key: "/q3"},
 	}
-	coord.SetQueue(qTracks)
-	coord.SetQueueIndex(0)
+	coord.GetAppContext().Content.SetQueue(qTracks)
+	coord.GetAppContext().Content.SetQueueIndex(0)
 	page.queueComponent.UpdateListFromCoordinator()
 	page.queueComponent.Select(0)
 
 	// Open the queue modal
-	page.coordinator.SetShowQueueModal(true)
+	page.appCtx.View.SetShowQueueModal(true)
 
 	oldQIdx := page.queueComponent.Index()
 	oldRaIdx := page.recentlyAddedComponent.Index()
@@ -2591,16 +2599,16 @@ func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
 func TestLibraryPage_QueueFocusTogglesWithKeyOnQueueTab(t *testing.T) {
 	coord := app.NewCoordinator()
 
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -2610,18 +2618,18 @@ func TestLibraryPage_QueueFocusTogglesWithKeyOnQueueTab(t *testing.T) {
 	}
 
 	// Populate a queue with multiple tracks
-	qTracks := []app.Track{
+	qTracks := []domain.Track{
 		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1"},
 		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2"},
 		{Title: "Q3", Artist: "Artist", Album: "Album", Key: "/q3"},
 	}
-	coord.SetQueue(qTracks)
-	coord.SetQueueIndex(0)
+	coord.GetAppContext().Content.SetQueue(qTracks)
+	coord.GetAppContext().Content.SetQueueIndex(0)
 	page.queueComponent.UpdateListFromCoordinator()
 	page.queueComponent.Select(0)
 
 	// Put the page on the Queue tab (the tab is visible — focus should be off initially)
-	coord.SetActiveTab(app.QueueTab)
+	coord.GetAppContext().View.SetActiveTab(app.QueueTab)
 	if page.IsFocusedQueue() {
 		t.Fatalf("expected queue not to have focus initially")
 	}
@@ -2663,16 +2671,16 @@ func TestLibraryPage_QueueFocusTogglesWithKeyOnQueueTab(t *testing.T) {
 
 func TestLibraryPage_QueueVisibleInterceptsUpDown(t *testing.T) {
 	coord := app.NewCoordinator()
-	server := app.PlexServer{
+	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
 		Port:        "32400",
 		AccessToken: "token",
 		Scheme:      "http",
 	}
-	coord.SetServers([]app.PlexServer{server})
-	coord.SetSelectedServer(0)
-	coord.SetToken("test-token")
+	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
+	coord.GetAppContext().Session.SetSelectedServer(0)
+	coord.GetAppContext().Session.SetToken("test-token")
 
 	page := NewLibraryPageWithAuth(coord, nil)
 	page.width = 120
@@ -2705,18 +2713,18 @@ func TestLibraryPage_QueueVisibleInterceptsUpDown(t *testing.T) {
 	page.recentlyAddedComponent.Select(0)
 
 	// Populate queue with 3 items and verify queue list sync
-	qTracks := []app.Track{
+	qTracks := []domain.Track{
 		{Title: "Q1", Artist: "Artist", Album: "Album", Key: "/q1"},
 		{Title: "Q2", Artist: "Artist", Album: "Album", Key: "/q2"},
 		{Title: "Q3", Artist: "Artist", Album: "Album", Key: "/q3"},
 	}
-	coord.SetQueue(qTracks)
-	coord.SetQueueIndex(0)
+	coord.GetAppContext().Content.SetQueue(qTracks)
+	coord.GetAppContext().Content.SetQueueIndex(0)
 	page.queueComponent.UpdateListFromCoordinator()
 	page.queueComponent.Select(0)
 
 	// Ensure default Home tab and that queue is visible as the right pane (no drawer or tracklist)
-	coord.SetActiveTab(app.HomeTab)
+	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 	page.drawerOpen = false
 	page.showingTracks = false
 

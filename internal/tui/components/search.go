@@ -14,15 +14,15 @@ import (
 
 // SearchComponent handles the search input and result rendering.
 type SearchComponent struct {
-	coordinator app.Coordinatorer
-	textInput   textinput.Model
-	results     []string
-	width       int
-	height      int
+	ctx       *app.AppContext
+	textInput textinput.Model
+	results   []string
+	width     int
+	height    int
 }
 
 // NewSearchComponent creates a new SearchComponent.
-func NewSearchComponent(coord app.Coordinatorer) *SearchComponent {
+func NewSearchComponent(ctx *app.AppContext) *SearchComponent {
 	ti := textinput.New()
 	ti.Placeholder = "Search albums, artists, playlists"
 	ti.CharLimit = 120
@@ -30,9 +30,9 @@ func NewSearchComponent(coord app.Coordinatorer) *SearchComponent {
 	ti.Blur() // Start blurred, focus when tab is active
 
 	return &SearchComponent{
-		coordinator: coord,
-		textInput:   ti,
-		results:     []string{},
+		ctx:       ctx,
+		textInput: ti,
+		results:   []string{},
 	}
 }
 
@@ -107,7 +107,7 @@ func (s *SearchComponent) PerformSearch() {
 		seen := make(map[string]bool)
 
 		// Search albums
-		for _, a := range s.coordinator.Albums() {
+		for _, a := range s.ctx.Content.Albums() {
 			if strings.Contains(strings.ToLower(a.Title), q) ||
 				strings.Contains(strings.ToLower(a.Artist), q) {
 				// Use centralized renderer for title+artist.
@@ -120,7 +120,7 @@ func (s *SearchComponent) PerformSearch() {
 		}
 
 		// Search playlists
-		for _, pl := range s.coordinator.Playlists() {
+		for _, pl := range s.ctx.Content.Playlists() {
 			if strings.Contains(strings.ToLower(pl.Title), q) {
 				str := styles.PrimaryTextStyle().Render(fmt.Sprintf("%s (playlist)", pl.Title))
 				if !seen[str] {
@@ -131,7 +131,7 @@ func (s *SearchComponent) PerformSearch() {
 		}
 
 		// Search tracks
-		for _, t := range s.coordinator.Tracks() {
+		for _, t := range s.ctx.Content.Tracks() {
 			if strings.Contains(strings.ToLower(t.Title), q) ||
 				strings.Contains(strings.ToLower(t.Artist), q) ||
 				strings.Contains(strings.ToLower(t.Album), q) {

@@ -121,14 +121,11 @@ func provideCoordinator(
 		services.AuthService,
 		services.LibraryService,
 		services.PlaybackService,
+		cfgMgr,
 		opts.ForceRenderer,
 		opts.RenderDebug,
 		opts.DumpView,
 	)
-	coord.SetPlaybackService(services.PlaybackService)
-	if cfgMgr != nil {
-		coord.SetConfigManager(cfgMgr)
-	}
 	return coord
 }
 
@@ -137,7 +134,7 @@ func provideOrchestrator(
 	coord *app.Coordinator,
 	playbackService *service.PlaybackService,
 ) *tui.Orchestrator {
-	return tui.NewOrchestrator(coord, nil, playbackService)
+	return tui.NewOrchestrator(coord.GetAppContext(), nil, playbackService)
 }
 
 // provideKeyMap provides the default key map
@@ -162,7 +159,7 @@ func provideRouter(
 	if token != "" {
 		initialPage = pages.NewServerSelectionPage(coord, authService, cfgMgr)
 		initialID = tui.ServerSelectionPageID
-		coord.SetToken(token)
+		coord.GetAppContext().Session.SetToken(token)
 	} else {
 		initialPage = pages.NewLoginPageWithConfig(coord, authService, cfgMgr)
 		initialID = tui.LoginPageID

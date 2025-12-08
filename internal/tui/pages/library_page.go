@@ -47,6 +47,7 @@ const retroLogoVertical = `
 // "Now Playing" panel (cover art + controls).
 type LibraryPage struct {
 	coordinator app.Coordinatorer
+	appCtx      *app.AppContext
 
 	width, height int
 
@@ -140,10 +141,11 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 	// make the spinner text appear with a black / wrong background.
 	s.Style = styles.BlurredStyle.Foreground(lipgloss.Color("205"))
 
-	orch := tui.NewOrchestrator(coord, nil, nil)
+	orch := tui.NewOrchestrator(coord.GetAppContext(), nil, nil)
 
 	p := &LibraryPage{
 		coordinator:   coord,
+		appCtx:        coord.GetAppContext(),
 		ctx:           ctx,
 		cancel:        cancel,
 		authSvc:       authSvc,
@@ -158,14 +160,14 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		lastSelectedTrackIndex:    -1,
 		help:                      help.New(),
 		keys:                      tui.DefaultLibraryKeyMap(),
-		homeComponent:             components.NewHomeComponent(coord),
-		recentlyAddedComponent:    components.NewRecentlyAddedComponent(coord),
-		playlistComponent:         components.NewPlaylistsComponent(coord),
-		trackComponent:            components.NewTracksComponent(coord),
-		queueComponent:            components.NewQueueComponent(coord, orch),
-		searchComponent:           components.NewSearchComponent(coord),
-		settingsComponent:         components.NewSettingsComponent(coord),
-		nowPlaying:                components.NewNowPlayingComponent(coord, nil),
+		homeComponent:             components.NewHomeComponent(coord.GetAppContext()),
+		recentlyAddedComponent:    components.NewRecentlyAddedComponent(coord.GetAppContext()),
+		playlistComponent:         components.NewPlaylistsComponent(coord.GetAppContext()),
+		trackComponent:            components.NewTracksComponent(coord.GetAppContext()),
+		queueComponent:            components.NewQueueComponent(coord.GetAppContext(), orch),
+		searchComponent:           components.NewSearchComponent(coord.GetAppContext()),
+		settingsComponent:         components.NewSettingsComponent(coord.GetAppContext()),
+		nowPlaying:                components.NewNowPlayingComponent(coord.GetAppContext(), nil),
 		orchestrator:              orch,
 	}
 
@@ -177,13 +179,13 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 
 // Init sets up services and triggers initial data fetches for the page.
 func (p *LibraryPage) Init() tea.Cmd {
-	server := p.coordinator.GetCurrentServer()
+	server := p.appCtx.Session.GetCurrentServer()
 	// Prefer server-specific token; otherwise fall back to coordinator token.
 	token := ""
 	if server != nil && server.AccessToken != "" {
 		token = server.AccessToken
 	} else {
-		token = p.coordinator.GetToken()
+		token = p.appCtx.Session.Token()
 	}
 
 	// Only initialize services when a server and token exist.
@@ -217,8 +219,8 @@ func (p *LibraryPage) Init() tea.Cmd {
 		p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token, http.NewFactory())
 		p.libEvtCh = p.libSvc.Subscribe(p.ctx)
 		// Store in coordinator so media control wrapper can access it
-		if p.coordinator != nil {
-			p.coordinator.SetLibraryService(p.libSvc)
+		if p.appCtx != nil {
+			p.appCtx.Services.SetLibraryService(p.libSvc)
 		}
 	} else {
 		// Update base URL and token to reflect current selected server.
@@ -230,55 +232,55 @@ func (p *LibraryPage) Init() tea.Cmd {
 		}
 	}
 	// Detect Plex Pass and sonic analysis availability and cache in coordinator
-	if p.coordinator != nil {
+	if p.appCtx != nil {
 		// Capture values locally to avoid data races when tests or other
 		// callers modify the page fields concurrently. Copy the pointers
 		// to local variables and pass them into the goroutine so it doesn't
 		// reference the page struct directly.
 		libSvc := p.libSvc
-		coord := p.coordinator
+		appCtx := p.appCtx
 		if libSvc != nil {
-			go func(ls service.LibraryServicer, c app.Coordinatorer) {
+			go func(ls service.LibraryServicer, c *app.AppContext) {
 				ctx, cancel := context.WithTimeout(p.ctx, 5*time.Second)
 				defer cancel()
 				if ok, _ := ls.HasPlexPass(ctx); ok {
-					c.SetPlexPass(true)
+					c.Content.SetPlexPass(true)
 				}
 				if ok, _ := ls.HasSonicAnalysis(ctx); ok {
-					c.SetSonicAvailable(true)
+					c.Content.SetSonicAvailable(true)
 				}
-			}(libSvc, coord)
+			}(libSvc, appCtx)
 		}
 	}
 
 	// Create (or reuse) playback service and subscribe to events.
 	// Initialize playback orchestrator using coordinator-provided service or creating a new one.
 	var pbSvc service.PlaybackServicer
-	if p.coordinator != nil && p.coordinator.PlaybackService() != nil {
-		pbSvc = p.coordinator.PlaybackService()
+	if p.appCtx != nil && p.appCtx.Services.PlaybackService() != nil {
+		pbSvc = p.appCtx.Services.PlaybackService()
 	} else {
 		pbSvcLocal := service.NewPlaybackService()
 		pbSvc = pbSvcLocal
-		if p.coordinator != nil {
-			p.coordinator.SetPlaybackService(pbSvcLocal)
+		if p.appCtx != nil {
+			p.appCtx.Services.SetPlaybackService(pbSvcLocal)
 		}
 	}
 	// create or update orchestrator and nowplaying component (pass orchestrator as PlaybackServicer)
-	p.orchestrator = tui.NewOrchestrator(p.coordinator, p.libSvc, pbSvc)
+	p.orchestrator = tui.NewOrchestrator(p.appCtx, p.libSvc, pbSvc)
 	p.queueComponent.SetOrchestrator(p.orchestrator)
 	p.pbEvtCh = p.orchestrator.Subscribe(p.ctx)
 	if p.nowPlaying == nil {
-		p.nowPlaying = components.NewNowPlayingComponent(p.coordinator, p.orchestrator)
+		p.nowPlaying = components.NewNowPlayingComponent(p.appCtx, p.orchestrator)
 	} else {
-		p.nowPlaying = components.NewNowPlayingComponent(p.coordinator, p.orchestrator)
+		p.nowPlaying = components.NewNowPlayingComponent(p.appCtx, p.orchestrator)
 	}
 
 	// Default to the Home tab and ensure selection indices are initialized so
 	// the initial view always starts with content focused when available.
-	p.coordinator.SetActiveTab(app.HomeTab)
-	p.coordinator.SetSelectedAlbum(0)
-	p.coordinator.SetSelectedPlaylist(0)
-	p.coordinator.SetSelectedTrack(0)
+	p.appCtx.View.SetActiveTab(app.HomeTab)
+	p.appCtx.View.SetSelectedAlbum(0)
+	p.appCtx.View.SetSelectedPlaylist(0)
+	p.appCtx.View.SetSelectedTrack(0)
 
 	// Set loading states
 	p.hubsLoading = true
@@ -353,8 +355,8 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			p.playbackInitCancel = nil
 		}
 		if msg.Err != nil {
-			p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", msg.Err), "error", 10*time.Second)
-			p.coordinator.SetPlaybackState(app.PlaybackStopped)
+			p.appCtx.View.SetNotification(fmt.Sprintf("Play failed: %v", msg.Err), "error", 10*time.Second)
+			p.appCtx.Playback.SetState(app.PlaybackStopped)
 		}
 		return p, nil
 
@@ -366,9 +368,9 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case LibraryStatsMsg:
-		p.coordinator.SetArtistsTotal(msg.Artists)
-		p.coordinator.SetAlbumsTotal(msg.Albums)
-		p.coordinator.SetTracksTotal(msg.Tracks)
+		p.appCtx.Content.SetArtistsTotal(msg.Artists)
+		p.appCtx.Content.SetAlbumsTotal(msg.Albums)
+		p.appCtx.Content.SetTracksTotal(msg.Tracks)
 		return p, nil
 
 	case LibraryHubsLoadedMsg:
@@ -384,7 +386,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// The server returns a window of tracks around the "center" (currently playing track)
 		// We need to find any NEW tracks that aren't already in our queue and append them
-		currentQueue := p.coordinator.Queue()
+		currentQueue := p.appCtx.Content.Queue()
 		serverTracks := msg.Tracks
 
 		log.Debug("PlayQueue refresh received",
@@ -413,18 +415,11 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				"serverTrackCount", len(serverTracks),
 				"newTracksCount", len(newTracks))
 
-			// Convert domain tracks to app tracks and append
-			var appTracks []app.Track
-			for _, t := range newTracks {
-				if at := util.DomainTrackToApp(&t); at != nil {
-					appTracks = append(appTracks, *at)
-				}
-			}
-			p.coordinator.AppendToQueue(appTracks)
+			p.appCtx.Content.AppendToQueue(newTracks)
 			p.queueComponent.UpdateListFromCoordinator()
 
 			// Update the playQueue version
-			if activeQueue := p.coordinator.ActivePlayQueue(); activeQueue != nil {
+			if activeQueue := p.appCtx.Content.ActivePlayQueue(); activeQueue != nil {
 				activeQueue.Version = msg.Version
 			}
 		} else {
@@ -449,21 +444,9 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, nil
 		}
 
-		// Convert domain tracks to app tracks
-		var appTracks []app.Track
-		for i, t := range msg.Tracks {
-			if at := util.DomainTrackToApp(&t); at != nil {
-				if i == 0 {
-					log.Debug("StationPlaybackStartedMsg: first domain track", "title", t.Title, "playQueueItemID", t.PlayQueueItemID)
-					log.Debug("StationPlaybackStartedMsg: first app track", "title", at.Title, "playQueueItemID", at.PlayQueueItemID)
-				}
-				appTracks = append(appTracks, *at)
-			}
-		}
-
 		// Set up the queue
-		p.coordinator.SetQueue(appTracks)
-		p.coordinator.SetQueueIndex(0)
+		p.appCtx.Content.SetQueue(msg.Tracks)
+		p.appCtx.Content.SetQueueIndex(0)
 		p.queueComponent.UpdateListFromCoordinator()
 
 		// Set the active playQueue for continuous playback
@@ -471,50 +454,39 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			log.Info("Station playback started",
 				"stationKey", msg.StationKey,
 				"playQueueID", msg.ActiveQueue.PlayQueueID,
-				"trackCount", len(appTracks))
-			p.coordinator.SetActivePlayQueue(msg.ActiveQueue)
+				"trackCount", len(msg.Tracks))
+			p.appCtx.Content.SetActivePlayQueue(msg.ActiveQueue)
 		} else {
 			log.Warn("Station playback started without activeQueue",
 				"stationKey", msg.StationKey,
-				"trackCount", len(appTracks))
-			p.coordinator.ClearActivePlayQueue()
+				"trackCount", len(msg.Tracks))
+			p.appCtx.Content.ClearActivePlayQueue()
 		}
 
 		// Start playing the first track
-		if len(appTracks) > 0 {
-			return p, p.playAppTrack(&appTracks[0])
+		if len(msg.Tracks) > 0 {
+			return p, p.playTrack(&msg.Tracks[0])
 		}
 		return p, nil
 
 	case CoverArtLoadedMsg:
 		// Only update the album art if the loaded path matches the current track's thumb
 		// This prevents stale art from a previous track overwriting the current track's art
-		currentTrack := p.coordinator.CurrentTrack()
-		// log.Debug("CoverArtLoadedMsg: received",
-		// 	"loadedPath", msg.Path,
-		// 	"currentTrackTitle", func() string {
-		// 		if currentTrack != nil {
-		// 			return currentTrack.Title
-		// 		}
-		// 		return "<nil>"
-		// 	}(),
-		// 	"currentTrackThumb", func() string {
-		// 		if currentTrack != nil {
-		// 			return currentTrack.Thumb
-		// 		}
-		// 		return "<nil>"
-		// 	}(),
-		// 	"currentArtThumb", p.coordinator.PlaybackAlbumArtThumb())
+		currentTrack := p.appCtx.Playback.CurrentTrack()
 		if currentTrack != nil && currentTrack.Thumb != msg.Path {
-			// log.Debug("CoverArtLoadedMsg: ignoring stale art",
-			// 	"loadedPath", msg.Path,
-			// 	"currentThumb", currentTrack.Thumb)
 			return p, nil
 		}
 		// Dump before/after views to assist in debugging VSCode terminal rendering
 		p.dumpPageView("before_art_load")
-		// log.Debug("CoverArtLoadedMsg: setting album art", "path", msg.Path)
-		p.coordinator.SetPlaybackAlbumArt(msg.Image, msg.Path)
+		p.appCtx.Playback.SetAlbumArt(msg.Image, msg.Path)
+		// Clear image renderer hash cache to prevent stale cache hits from pointer reuse
+		renderer := p.appCtx.Services.PlaybackImgRenderer()
+		if renderer != nil {
+			renderer.ClearHashCache()
+			renderer.Precompute(msg.Image, 36, 18)
+			renderer.Precompute(msg.Image, 48, 24)
+			renderer.Precompute(msg.Image, 80, 40)
+		}
 		p.dumpPageView("after_art_load")
 		// Notify media control daemon of artwork update
 		if p.orchestrator != nil {
@@ -530,8 +502,8 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.Err != nil {
 			// Show error
-			p.coordinator.SetNotification(fmt.Sprintf("Play failed: %v", msg.Err), "error", 10*time.Second)
-			p.coordinator.SetPlaybackState(app.PlaybackStopped)
+			p.appCtx.View.SetNotification(fmt.Sprintf("Play failed: %v", msg.Err), "error", 10*time.Second)
+			p.appCtx.Playback.SetState(app.PlaybackStopped)
 		}
 		return p, nil
 
@@ -556,7 +528,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case progressTickMsg:
 		// Schedule next tick if playback is active
-		if p.coordinator.IsPlaying() {
+		if p.appCtx.Playback.IsPlaying() {
 			return p, tea.Tick(progressTickInterval, func(t time.Time) tea.Msg {
 				return progressTickMsg{}
 			})
@@ -567,7 +539,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Update shimmer offset for animation
 		p.logoShimmerOffset = (p.logoShimmerOffset + 1) % 20
 		// Only animate when nothing is playing to avoid unnecessary redraws
-		if !p.coordinator.HasCurrentTrack() {
+		if !p.appCtx.Playback.HasCurrentTrack() {
 			return p, tea.Tick(logoShimmerInterval, func(t time.Time) tea.Msg {
 				return logoShimmerMsg{}
 			})
@@ -582,8 +554,8 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, tea.Batch(p.fetchMixesForYou(), p.fetchOnThisDay(), p.fetchMoodStations())
 		}
 		// Not found: notify user
-		if p.coordinator != nil {
-			p.coordinator.SetNotification("No sonic analysis detected", "error", 5*time.Second)
+		if p.appCtx != nil {
+			p.appCtx.View.SetNotification("No sonic analysis detected", "error", 5*time.Second)
 		}
 		return p, nil
 	}
@@ -593,7 +565,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // dumpPageView writes the raw Page.View to the debug dump file when
 // coordinator.DumpView() is enabled; useful for reproducing terminal render quirks.
 func (p *LibraryPage) dumpPageView(label string) {
-	if !p.coordinator.DumpView() {
+	if !p.appCtx.View.DumpView() {
 		return
 	}
 	f, err := os.OpenFile(
@@ -708,60 +680,29 @@ func (p *LibraryPage) fetchLibraryHubs() tea.Cmd {
 		log.Debug("fetchLibraryHubs success", "count", len(hubs))
 
 		// Convert and store in coordinator
-		if p.coordinator != nil {
-			var appHubs []app.Hub
-			for _, h := range hubs {
-				// Convert playlists
-				playlists := make([]app.Playlist, len(h.Playlists))
-				for j, pl := range h.Playlists {
-					playlists[j] = app.Playlist{
-						Title:        pl.Title,
-						Key:          pl.Key,
-						LeafCount:    pl.LeafCount,
-						Duration:     pl.Duration,
-						PlaylistType: pl.PlaylistType,
-					}
-				}
-				// Convert albums
-				albums := make([]app.Album, len(h.Albums))
-				for j, a := range h.Albums {
-					albums[j] = app.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb}
-				}
-				// Convert artists
-				artists := make([]app.Artist, len(h.Artists))
-				for j, a := range h.Artists {
-					artists[j] = app.Artist{Name: a.Title, Key: a.Key}
-				}
-				appHubs = append(appHubs, app.Hub{
-					HubIdentifier: h.HubIdentifier,
-					Title:         h.Title,
-					Type:          h.Type,
-					Context:       h.Context,
-					Size:          h.Size,
-					Playlists:     playlists,
-					Albums:        albums,
-					Artists:       artists,
-				})
-			}
-			p.coordinator.SetLibraryHubs(appHubs)
+		if p.appCtx != nil {
+			p.appCtx.Content.SetLibraryHubs(hubs)
 
 			// Also extract stations into MixesForYou for backward compatibility
-			var mixes []app.Playlist
-			for _, h := range appHubs {
+			var mixes []domain.Playlist
+			for _, h := range hubs {
 				if strings.Contains(strings.ToLower(h.Context), "station") {
 					mixes = append(mixes, h.Playlists...)
 				}
 			}
 			if len(mixes) > 0 {
-				p.coordinator.SetMixesForYou(mixes)
+				p.appCtx.Content.SetMixesForYou(mixes)
 			}
 
 			// Extract recently played artists from the "Recently Played Music" hub
-			for _, h := range appHubs {
+			for _, h := range hubs {
 				if strings.Contains(strings.ToLower(h.Context), "recent.played") && len(h.Artists) > 0 {
 					// Add artists to coordinator in reverse order so most recent is first
 					for i := len(h.Artists) - 1; i >= 0; i-- {
-						p.coordinator.AddRecentlyPlayedArtist(h.Artists[i])
+						// Convert domain.Artist to app.Artist for RecentlyPlayedArtists
+						da := h.Artists[i]
+						aa := app.Artist{Name: da.Title, Key: da.Key}
+						p.appCtx.Content.AddRecentlyPlayedArtist(aa)
 					}
 					log.Debug("Extracted recently played artists from hub", "count", len(h.Artists))
 					break
@@ -824,13 +765,13 @@ func (p *LibraryPage) fetchSessionHistory() tea.Cmd {
 		}
 
 		// Store in coordinator by adding each artist (maintains order)
-		if p.coordinator != nil {
+		if p.appCtx != nil {
 			// Clear existing list and add all artists in order
 			// We need to replace the entire list, not add one at a time
 			// Since we don't have a SetRecentlyPlayedArtists method, we'll add them in reverse order
 			// so the most recent ends up first
 			for i := len(artists) - 1; i >= 0; i-- {
-				p.coordinator.AddRecentlyPlayedArtist(artists[i])
+				p.appCtx.Content.AddRecentlyPlayedArtist(artists[i])
 			}
 			log.Debug("Stored recently played artists", "count", len(artists))
 		}
@@ -854,21 +795,8 @@ func (p *LibraryPage) fetchMixesForYou() tea.Cmd {
 			log.Debug("fetchMixesForYou success", "count", len(playlists))
 		}
 		// store results in coordinator for UI consumption
-		if p.coordinator != nil {
-			var out []app.Playlist
-			for _, pl := range playlists {
-				out = append(
-					out,
-					app.Playlist{
-						Title:        pl.Title,
-						Key:          pl.Key,
-						LeafCount:    pl.LeafCount,
-						Duration:     pl.Duration,
-						PlaylistType: pl.PlaylistType,
-					},
-				)
-			}
-			p.coordinator.SetMixesForYou(out)
+		if p.appCtx != nil {
+			p.appCtx.Content.SetMixesForYou(playlists)
 		}
 		return nil
 	}
@@ -888,12 +816,8 @@ func (p *LibraryPage) fetchOnThisDay() tea.Cmd {
 		} else {
 			log.Debug("fetchOnThisDay success", "count", len(albums))
 		}
-		if p.coordinator != nil {
-			var out []app.Album
-			for _, a := range albums {
-				out = append(out, app.Album{Title: a.Title, Artist: a.Artist, Year: a.Year, Key: a.Key, Thumb: a.Thumb})
-			}
-			p.coordinator.SetOnThisDay(out)
+		if p.appCtx != nil {
+			p.appCtx.Content.SetOnThisDay(albums)
 		}
 		return nil
 	}
@@ -916,24 +840,8 @@ func (p *LibraryPage) fetchMoodStations() tea.Cmd {
 		} else {
 			log.Debug("fetchMoodStations success", "count", len(tracks))
 		}
-		if p.coordinator != nil && len(tracks) > 0 {
-			var out []app.Track
-			for _, t := range tracks {
-				out = append(
-					out,
-					app.Track{
-						Title:       t.Title,
-						Artist:      t.Artist,
-						Album:       t.Album,
-						Duration:    t.Duration,
-						TrackNumber: t.TrackNumber,
-						Key:         t.Key,
-						RatingKey:   t.RatingKey,
-						Thumb:       t.Thumb,
-					},
-				)
-			}
-			p.coordinator.SetMoodStations(out)
+		if p.appCtx != nil && len(tracks) > 0 {
+			p.appCtx.Content.SetMoodStations(tracks)
 		}
 		return nil
 	}
@@ -1063,14 +971,14 @@ func (p *LibraryPage) fetchLibraryStats() tea.Cmd {
 		// We can access coordinator state here safely as it's read-only or thread-safe enough for this.
 		// But better to pass the key if we knew it.
 		// Let's try to get libraries from coordinator.
-		libs := p.coordinator.Libraries()
+		libs := p.appCtx.Session.Libraries()
 		if len(libs) == 0 {
 			log.Warn("fetchLibraryStats: No libraries available in coordinator")
 			return nil
 		}
 		// Use the first library for now (or selected if we had that concept fully wired)
 		// The coordinator sets selectedLibrary to 0 by default.
-		idx := p.coordinator.SelectedLibrary()
+		idx := p.appCtx.Session.SelectedLibrary()
 		if idx < 0 || idx >= len(libs) {
 			idx = 0
 		}
@@ -1113,10 +1021,8 @@ type CoverArtLoadedMsg struct {
 }
 
 func (p *LibraryPage) fetchCoverArtCmd(path string) tea.Cmd {
-	// log.Debug("fetchCoverArtCmd: starting fetch", "path", path)
 	return func() tea.Msg {
 		if p.libSvc == nil {
-			// log.Debug("fetchCoverArtCmd: no libSvc", "path", path)
 			return nil
 		}
 		img, err := p.libSvc.FetchImage(p.ctx, path)
@@ -1125,7 +1031,6 @@ func (p *LibraryPage) fetchCoverArtCmd(path string) tea.Cmd {
 			log.Error("failed to fetch cover art", "path", path, "err", err)
 			return nil
 		}
-		// log.Debug("fetchCoverArtCmd: fetch complete", "path", path)
 		return CoverArtLoadedMsg{Image: img, Path: path}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"plexmusic-tui/internal/app"
+	domain "plexmusic-tui/internal/domain"
 	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
@@ -20,15 +21,15 @@ func (p *LibraryPage) View() string {
 	// coordinator-provided dimensions or to pragmatic defaults so we can render
 	// the main UI immediately instead of returning an empty string.
 	if p.width == 0 {
-		if p.coordinator != nil && p.coordinator.Width() > 0 {
-			p.width = p.coordinator.Width()
+		if p.appCtx != nil && p.appCtx.View.Width() > 0 {
+			p.width = p.appCtx.View.Width()
 		} else {
 			p.width = 120 // reasonable default for layout calculations
 		}
 	}
 	if p.height == 0 {
-		if p.coordinator != nil && p.coordinator.Height() > 0 {
-			p.height = p.coordinator.Height()
+		if p.appCtx != nil && p.appCtx.View.Height() > 0 {
+			p.height = p.appCtx.View.Height()
 		} else {
 			p.height = 35 // reasonable default for layout calculations
 		}
@@ -37,11 +38,11 @@ func (p *LibraryPage) View() string {
 	// If no server is selected or the token is missing, show a helpful message
 	// (instead of a blank page) so the user knows why content is empty and how
 	// to proceed.
-	server := (*app.PlexServer)(nil)
+	server := (*domain.PlexServer)(nil)
 	token := ""
-	if p.coordinator != nil {
-		server = p.coordinator.GetCurrentServer()
-		token = p.coordinator.GetToken()
+	if p.appCtx != nil {
+		server = p.appCtx.Session.GetCurrentServer()
+		token = p.appCtx.Session.Token()
 	}
 	if server == nil || token == "" {
 		title := styles.TitleStyle.Render("Plex Music")
@@ -105,12 +106,12 @@ func (p *LibraryPage) View() string {
 	p.trackComponent.SetSize(leftWidth, listHeight)
 	p.queueComponent.SetSize(leftWidth, listHeight)
 
-	active := p.coordinator.ActiveTab()
+	active := p.appCtx.View.ActiveTab()
 	// Ensure active tab is valid. If it's out of the expected range, set Home
 	// as a safe default to ensure the UI renders content instead of an empty
 	// fallback state.
 	if active < app.HomeTab || active > app.SettingsTab {
-		p.coordinator.SetActiveTab(app.HomeTab)
+		p.appCtx.View.SetActiveTab(app.HomeTab)
 		active = app.HomeTab
 	}
 
@@ -165,14 +166,14 @@ func (p *LibraryPage) View() string {
 	// Decide on left/right roles based on configured position early so we
 	// can determine if drawerOpen should affect the left or right pane.
 	pos := "left"
-	if p.coordinator != nil && p.coordinator.ConfigManager() != nil {
-		pos = p.coordinator.ConfigManager().GetCoverArtPosition()
+	if p.appCtx != nil && p.appCtx.Services.ConfigManager() != nil {
+		pos = p.appCtx.Services.ConfigManager().GetCoverArtPosition()
 	}
 
 	// Build right-side content - Home by default when queue is empty, otherwise queue.
 	p.queueComponent.SetSize(rightWidth, listHeight)
 	var rightPaneContent string
-	if len(p.coordinator.Queue()) == 0 {
+	if len(p.appCtx.Content.Queue()) == 0 {
 		// Show home content when queue is empty
 		if p.hubsLoading {
 			rightPaneContent = p.renderLoadingHubs(rightWidth, listHeight)
@@ -213,9 +214,9 @@ func (p *LibraryPage) View() string {
 	// Render art if available, otherwise show the logo as fallback.
 	// Use lipgloss.Place to center content within the area.
 	artView := ""
-	if p.coordinator.PlaybackAlbumArt() != nil && p.coordinator.PlaybackImgRenderer() != nil {
-		art := p.coordinator.PlaybackImgRenderer().
-			Render(p.coordinator.PlaybackAlbumArt(), leftWidth, artHeight)
+	if p.appCtx.Playback.AlbumArt() != nil && p.appCtx.Services.PlaybackImgRenderer() != nil {
+		art := p.appCtx.Services.PlaybackImgRenderer().
+			Render(p.appCtx.Playback.AlbumArt(), leftWidth, artHeight)
 		art = strings.TrimRight(art, "\r\n ")
 		artView = lipgloss.Place(leftWidth, artHeight, lipgloss.Center, lipgloss.Center, art)
 	} else {
@@ -301,7 +302,7 @@ func (p *LibraryPage) View() string {
 	layout := panesRow
 
 	// If Queue modal is visible, overlay it
-	if p.coordinator.ShowQueueModal() {
+	if p.appCtx.View.ShowQueueModal() {
 		return p.renderWithModal(layout)
 	}
 
@@ -321,7 +322,7 @@ func (p *LibraryPage) View() string {
 
 	// Drawers removed; no overlay logic.
 
-	server = p.coordinator.GetCurrentServer()
+	server = p.appCtx.Session.GetCurrentServer()
 	// Build status line with server/content counts.
 	serverName := "none"
 	if server != nil && server.Name != "" {
@@ -331,10 +332,10 @@ func (p *LibraryPage) View() string {
 	// Compose sonic capability indicator to help users understand whether
 	// server supports sonic analysis and whether any analyzed tracks were detected
 	sonicStatus := ""
-	if p.coordinator != nil {
-		if p.coordinator.HasSonicAvailable() {
+	if p.appCtx != nil {
+		if p.appCtx.Content.HasSonicAvailable() {
 			sonicStatus = styles.SuccessStyle.Render("Sonic: enabled")
-		} else if p.coordinator.HasPlexPass() {
+		} else if p.appCtx.Content.HasPlexPass() {
 			sonicStatus = styles.InfoStyle.Render("Sonic: no analyzed tracks (Plex Pass present)")
 		} else {
 			sonicStatus = styles.BlurredStyle.Render("Sonic: unavailable")
@@ -368,8 +369,8 @@ func (p *LibraryPage) View() string {
 	// toast overlay instead of reserving a top layout line.
 	notifStr := ""
 	notifSeverity := ""
-	if p.coordinator != nil && p.coordinator.NotificationActive() {
-		msg, sev, _ := p.coordinator.Notification()
+	if p.appCtx != nil && p.appCtx.View.NotificationActive() {
+		msg, sev, _ := p.appCtx.View.Notification()
 		notifSeverity = sev
 		switch sev {
 		case "error":
@@ -462,7 +463,7 @@ func (p *LibraryPage) renderRecentlyAdded(width int) string {
 	var b strings.Builder
 
 	// Only show radio stations from hubs - keep home screen clean
-	hubs := p.coordinator.LibraryHubs()
+	hubs := p.appCtx.Content.LibraryHubs()
 	for _, hub := range hubs {
 		// Only render station hubs (radio stations)
 		if strings.Contains(strings.ToLower(hub.Context), "station") && len(hub.Playlists) > 0 {

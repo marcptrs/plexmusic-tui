@@ -18,7 +18,7 @@ import (
 )
 
 type QueueComponent struct {
-	coordinator  app.Coordinatorer
+	ctx          *app.AppContext
 	list         list.Model
 	keys         tui.LibraryKeyMap
 	orchestrator *tui.Orchestrator
@@ -29,7 +29,7 @@ type QueueComponent struct {
 // the caller (page) about the result of starting playback.
 type PlayResultMsg struct{ Err error }
 
-func NewQueueComponent(coord app.Coordinatorer, orch *tui.Orchestrator) *QueueComponent {
+func NewQueueComponent(ctx *app.AppContext, orch *tui.Orchestrator) *QueueComponent {
 	delegate := styles.NewCustomDelegate()
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = "Queue"
@@ -38,7 +38,7 @@ func NewQueueComponent(coord app.Coordinatorer, orch *tui.Orchestrator) *QueueCo
 	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	return &QueueComponent{
-		coordinator:  coord,
+		ctx:          ctx,
 		list:         l,
 		keys:         tui.DefaultLibraryKeyMap(),
 		orchestrator: orch,
@@ -130,9 +130,9 @@ func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
 	// Move the selected queue item up
 	if key.Matches(msg, c.keys.QueueMoveUp) {
 		sel := c.list.Index()
-		q := c.coordinator.Queue()
+		q := c.ctx.Content.Queue()
 		if sel > 0 && sel < len(q) {
-			c.coordinator.MoveQueueItem(sel, sel-1)
+			c.ctx.Content.MoveQueueItem(sel, sel-1)
 			c.UpdateListFromCoordinator()
 			// Select the item at its new position
 			c.list.Select(sel - 1)
@@ -143,9 +143,9 @@ func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
 	// Move the selected queue item down
 	if key.Matches(msg, c.keys.QueueMoveDown) {
 		sel := c.list.Index()
-		q := c.coordinator.Queue()
+		q := c.ctx.Content.Queue()
 		if sel >= 0 && sel < len(q)-1 {
-			c.coordinator.MoveQueueItem(sel, sel+1)
+			c.ctx.Content.MoveQueueItem(sel, sel+1)
 			c.UpdateListFromCoordinator()
 			c.list.Select(sel + 1)
 		}
@@ -155,24 +155,27 @@ func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
 	// Remove the selected queue item
 	if key.Matches(msg, c.keys.QueueRemove) {
 		sel := c.list.Index()
-		q := c.coordinator.Queue()
+		q := c.ctx.Content.Queue()
 		if sel >= 0 && sel < len(q) {
 			// Check if we are removing the playing item
-			playingIdx := c.coordinator.QueueIndex()
+			playingIdx := c.ctx.Content.QueueIndex()
 			wasPlaying := (sel == playingIdx)
 
-			c.coordinator.RemoveQueueItem(sel)
+			c.ctx.Content.RemoveQueueItem(sel)
 
 			if wasPlaying {
 				if c.orchestrator != nil {
 					_ = c.orchestrator.Stop()
 				}
+				// Also update playback state directly
+				c.ctx.Playback.SetState(app.PlaybackStopped)
+				c.ctx.Playback.SetCurrentTrack(nil)
 			}
 
 			c.UpdateListFromCoordinator()
 
 			// Adjust selection
-			newLen := len(c.coordinator.Queue())
+			newLen := len(c.ctx.Content.Queue())
 			if sel < newLen {
 				c.list.Select(sel)
 			} else if newLen > 0 {
@@ -185,7 +188,7 @@ func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
 	// Play selected queue item
 	if key.Matches(msg, c.keys.PlaySelected) || key.Matches(msg, c.keys.Enter) {
 		sel := c.list.Index()
-		q := c.coordinator.Queue()
+		q := c.ctx.Content.Queue()
 		if len(q) == 0 || sel < 0 || sel >= len(q) {
 			return true, nil
 		}
@@ -194,20 +197,20 @@ func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
 		if sel > 0 {
 			// We can't use Move/Remove for this easily.
 			// We need to set the queue.
-			newQ := make([]app.Track, len(q)-sel)
+			newQ := make([]domain.Track, len(q)-sel)
 			copy(newQ, q[sel:])
-			c.coordinator.SetQueue(newQ)
-			c.coordinator.SetQueueIndex(0)
+			c.ctx.Content.SetQueue(newQ)
+			c.ctx.Content.SetQueueIndex(0)
 			c.UpdateListFromCoordinator()
 			c.list.Select(0)
 
-			c.coordinator.SetShowQueueModal(false)
+			c.ctx.View.SetShowQueueModal(false)
 			return true, c.playAppTrack(&newQ[0])
 		}
 
 		// Selected item is already first
 		at := &q[sel]
-		c.coordinator.SetShowQueueModal(false)
+		c.ctx.View.SetShowQueueModal(false)
 		return true, c.playAppTrack(at)
 	}
 
@@ -215,35 +218,19 @@ func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
 }
 
 func (c *QueueComponent) UpdateListFromCoordinator() {
-	q := c.coordinator.Queue()
+	q := c.ctx.Content.Queue()
 	qItems := make([]list.Item, len(q))
 	for i, t := range q {
-		if dt := util.AppTrackToDomain(&t); dt != nil {
-			qi := util.QueueItem{Track: *dt, Index: i}
-			if c.coordinator.QueueIndex() == i {
-				qi.Playing = true
-			}
-			qItems[i] = qi
-		} else {
-			qi := util.QueueItem{
-				Track: domain.Track{
-					Title:    t.Title,
-					Artist:   t.Artist,
-					Album:    t.Album,
-					Duration: t.Duration,
-				},
-				Index: i,
-			}
-			if c.coordinator.QueueIndex() == i {
-				qi.Playing = true
-			}
-			qItems[i] = qi
+		qi := util.QueueItem{Track: t, Index: i}
+		if c.ctx.Content.QueueIndex() == i {
+			qi.Playing = true
 		}
+		qItems[i] = qi
 	}
 	c.list.SetItems(qItems)
 
 	// Sync selection with playing track
-	sel := c.coordinator.QueueIndex()
+	sel := c.ctx.Content.QueueIndex()
 	if len(q) == 0 {
 		c.list.Select(0)
 		return
@@ -257,23 +244,25 @@ func (c *QueueComponent) UpdateListFromCoordinator() {
 	c.list.Select(sel)
 }
 
-func (c *QueueComponent) playAppTrack(at *app.Track) tea.Cmd {
+func (c *QueueComponent) playAppTrack(at *domain.Track) tea.Cmd {
 	if at == nil {
 		return nil
 	}
 	// Update UI coordinator state preemptively
-	c.coordinator.SetCurrentTrack(at)
-	c.coordinator.SetPlaybackState(app.PlaybackPlaying)
+	// Convert domain track to app track for PlaybackContext
+	appTrack := util.DomainTrackToApp(at)
+	c.ctx.Playback.SetCurrentTrack(appTrack)
+	c.ctx.Playback.SetState(app.PlaybackPlaying)
 
 	// Orchestrator is required
 	if c.orchestrator != nil {
 		// Use a background command to call PlayAppTrack to avoid blocking caller.
 		return func() tea.Msg {
-			err := c.orchestrator.PlayAppTrack(context.TODO(), at)
+			err := c.orchestrator.PlayAppTrack(context.TODO(), appTrack)
 			return PlayResultMsg{Err: err}
 		}
 	}
-	c.coordinator.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
+	c.ctx.View.SetNotification("Play failed: playback orchestrator unavailable", "error", 10*time.Second)
 	return nil
 
 	// We also need to fetch cover art. LibraryPage did this.
