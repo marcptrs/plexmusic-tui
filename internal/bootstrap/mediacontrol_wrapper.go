@@ -18,7 +18,6 @@ import (
 type MediaControlWrapper struct {
 	daemonClient     *mediacontrol.DaemonClient
 	pbService        *service.PlaybackService
-	orchestrator     *tui.Orchestrator
 	appCtx           *app.AppContext
 	ctx              context.Context
 	lastPositionSent time.Time
@@ -246,43 +245,6 @@ func (w *MediaControlWrapper) handleDaemonCommand(cmd mediacontrol.DaemonCommand
 	}
 }
 
-func convertAppTracksToDomain(tracks []app.Track) []domain.Track {
-	result := make([]domain.Track, len(tracks))
-	for i, t := range tracks {
-		dt := domain.Track{
-			Title:           t.Title,
-			Artist:          t.Artist,
-			Album:           t.Album,
-			Duration:        t.Duration,
-			TrackNumber:     t.TrackNumber,
-			PlaylistItemID:  t.PlaylistItemID,
-			PlayQueueItemID: t.PlayQueueItemID,
-			Key:             t.Key,
-			RatingKey:       t.RatingKey,
-			Thumb:           t.Thumb,
-		}
-		if len(t.Media) > 0 {
-			dt.Media = make([]struct {
-				Part []struct {
-					Key string `json:"key"`
-				} `json:"Part"`
-			}, len(t.Media))
-			for j, m := range t.Media {
-				if len(m.Part) > 0 {
-					dt.Media[j].Part = make([]struct {
-						Key string `json:"key"`
-					}, len(m.Part))
-					for k, p := range m.Part {
-						dt.Media[j].Part[k].Key = p.Key
-					}
-				}
-			}
-		}
-		result[i] = dt
-	}
-	return result
-}
-
 // provideMediaControlWrapper creates the media control wrapper with daemon client
 func provideMediaControlWrapper(
 	playbackService *service.PlaybackService,
@@ -294,7 +256,6 @@ func provideMediaControlWrapper(
 	return &MediaControlWrapper{
 		daemonClient: daemonClient,
 		pbService:    playbackService,
-		orchestrator: orchestrator,
 		appCtx:       coordinator.GetAppContext(),
 	}
 }

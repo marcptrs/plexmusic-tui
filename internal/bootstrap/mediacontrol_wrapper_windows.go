@@ -20,8 +20,6 @@ import (
 type MediaControlWrapper struct {
 	controller       mediacontrol.MediaController
 	pbService        *service.PlaybackService
-	orchestrator     *tui.Orchestrator
-	coordinator      *app.Coordinator
 	appCtx           *app.AppContext
 	ctx              context.Context
 	lastPositionSent time.Time
@@ -274,10 +272,8 @@ func NewInProcessMediaControl(
 	coordinator *app.Coordinator,
 ) (*InProcessMediaControl, error) {
 	return &MediaControlWrapper{
-		pbService:    playbackService,
-		orchestrator: orchestrator,
-		coordinator:  coordinator,
-		appCtx:       coordinator.GetAppContext(),
+		pbService: playbackService,
+		appCtx:    coordinator.GetAppContext(),
 	}, nil
 }
 
@@ -288,9 +284,7 @@ func provideMediaControlWrapper(
 	coordinator *app.Coordinator,
 ) *MediaControlWrapper {
 	return &MediaControlWrapper{
-		pbService:    playbackService,
-		orchestrator: orchestrator,
-		coordinator:  coordinator,
-		appCtx:       coordinator.GetAppContext(),
+		pbService: playbackService,
+		appCtx:    coordinator.GetAppContext(),
 	}
 }
