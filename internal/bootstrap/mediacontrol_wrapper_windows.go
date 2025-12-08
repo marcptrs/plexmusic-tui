@@ -22,6 +22,7 @@ type MediaControlWrapper struct {
 	pbService        *service.PlaybackService
 	orchestrator     *tui.Orchestrator
 	coordinator      *app.Coordinator
+	appCtx           *app.AppContext
 	ctx              context.Context
 	lastPositionSent time.Time
 }
@@ -88,24 +89,24 @@ func (h *commandHandler) HandleSeek(position time.Duration) {
 }
 
 func (w *MediaControlWrapper) playNext() {
-	if w.coordinator == nil || w.pbService == nil {
+	if w.appCtx == nil || w.pbService == nil {
 		return
 	}
 
-	libSvc := w.coordinator.LibraryService()
+	libSvc := w.appCtx.Services.LibraryService()
 	if libSvc == nil {
 		log.Warn("Cannot play next: library service not available")
 		return
 	}
 
 	pc := service.NewPlaybackController(nil)
-	queue := w.coordinator.Queue()
-	queueIdx := w.coordinator.QueueIndex()
-	tracks := w.coordinator.Tracks()
-	selected := w.coordinator.SelectedTrack()
+	queue := w.appCtx.Content.Queue()
+	queueIdx := w.appCtx.Content.QueueIndex()
+	tracks := w.appCtx.Content.Tracks()
+	selected := w.appCtx.View.SelectedTrack()
 
-	dq := convertAppTracksToDomain(queue)
-	dtracks := convertAppTracksToDomain(tracks)
+	dq := queue
+	dtracks := tracks
 
 	isQueue, newQueueIdx, newSelected, next, err := pc.PlayNext(
 		w.ctx, dq, queueIdx, dtracks, selected, libSvc,
@@ -121,32 +122,32 @@ func (w *MediaControlWrapper) playNext() {
 			return
 		}
 		if isQueue {
-			w.coordinator.SetQueueIndex(newQueueIdx)
+			w.appCtx.Content.SetQueueIndex(newQueueIdx)
 		} else {
-			w.coordinator.SetSelectedTrack(newSelected)
+			w.appCtx.View.SetSelectedTrack(newSelected)
 		}
 	}
 }
 
 func (w *MediaControlWrapper) playPrev() {
-	if w.coordinator == nil || w.pbService == nil {
+	if w.appCtx == nil || w.pbService == nil {
 		return
 	}
 
-	libSvc := w.coordinator.LibraryService()
+	libSvc := w.appCtx.Services.LibraryService()
 	if libSvc == nil {
 		log.Warn("Cannot play previous: library service not available")
 		return
 	}
 
 	pc := service.NewPlaybackController(nil)
-	queue := w.coordinator.Queue()
-	queueIdx := w.coordinator.QueueIndex()
-	tracks := w.coordinator.Tracks()
-	selected := w.coordinator.SelectedTrack()
+	queue := w.appCtx.Content.Queue()
+	queueIdx := w.appCtx.Content.QueueIndex()
+	tracks := w.appCtx.Content.Tracks()
+	selected := w.appCtx.View.SelectedTrack()
 
-	dq := convertAppTracksToDomain(queue)
-	dtracks := convertAppTracksToDomain(tracks)
+	dq := queue
+	dtracks := tracks
 
 	isQueue, newQueueIdx, newSelected, prev, err := pc.PlayPrev(
 		w.ctx, dq, queueIdx, dtracks, selected, libSvc,
@@ -162,9 +163,9 @@ func (w *MediaControlWrapper) playPrev() {
 			return
 		}
 		if isQueue {
-			w.coordinator.SetQueueIndex(newQueueIdx)
+			w.appCtx.Content.SetQueueIndex(newQueueIdx)
 		} else {
-			w.coordinator.SetSelectedTrack(newSelected)
+			w.appCtx.View.SetSelectedTrack(newSelected)
 		}
 	}
 }
@@ -227,7 +228,7 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 			w.controller.UpdatePlaybackState(mediacontrol.StatePlaying)
 
 			// Set artwork if available
-			artwork := w.coordinator.PlaybackAlbumArt()
+			artwork := w.appCtx.Playback.AlbumArt()
 			if artwork != nil {
 				w.controller.SetArtwork(artwork)
 			}
@@ -276,6 +277,7 @@ func NewInProcessMediaControl(
 		pbService:    playbackService,
 		orchestrator: orchestrator,
 		coordinator:  coordinator,
+		appCtx:       coordinator.GetAppContext(),
 	}, nil
 }
 
@@ -289,43 +291,6 @@ func provideMediaControlWrapper(
 		pbService:    playbackService,
 		orchestrator: orchestrator,
 		coordinator:  coordinator,
+		appCtx:       coordinator.GetAppContext(),
 	}
-}
-
-// convertAppTracksToDomain converts app tracks to domain tracks
-func convertAppTracksToDomain(tracks []app.Track) []domain.Track {
-	result := make([]domain.Track, len(tracks))
-	for i, t := range tracks {
-		dt := domain.Track{
-			Title:           t.Title,
-			Artist:          t.Artist,
-			Album:           t.Album,
-			Duration:        t.Duration,
-			TrackNumber:     t.TrackNumber,
-			PlaylistItemID:  t.PlaylistItemID,
-			PlayQueueItemID: t.PlayQueueItemID,
-			Key:             t.Key,
-			RatingKey:       t.RatingKey,
-			Thumb:           t.Thumb,
-		}
-		if len(t.Media) > 0 {
-			dt.Media = make([]struct {
-				Part []struct {
-					Key string `json:"key"`
-				} `json:"Part"`
-			}, len(t.Media))
-			for j, m := range t.Media {
-				if len(m.Part) > 0 {
-					dt.Media[j].Part = make([]struct {
-						Key string `json:"key"`
-					}, len(m.Part))
-					for k, p := range m.Part {
-						dt.Media[j].Part[k].Key = p.Key
-					}
-				}
-			}
-		}
-		result[i] = dt
-	}
-	return result
 }
