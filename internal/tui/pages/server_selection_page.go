@@ -32,7 +32,6 @@ func (i serverItem) Description() string { return fmt.Sprintf("%s:%s", i.Host, i
 func (i serverItem) FilterValue() string { return i.Name }
 
 type ServerSelectionPage struct {
-	coordinator app.Coordinatorer
 	appCtx      *app.AppContext
 	authService service.AuthServicer
 	configMgr   *config.Manager
@@ -54,7 +53,7 @@ type ServerSelectionPage struct {
 
 // NewServerSelectionPage creates a new server selection page
 func NewServerSelectionPage(
-	coord app.Coordinatorer,
+	appCtx *app.AppContext,
 	authSvc service.AuthServicer,
 	cfgMgr *config.Manager,
 ) *ServerSelectionPage {
@@ -84,8 +83,7 @@ func NewServerSelectionPage(
 	}
 
 	return &ServerSelectionPage{
-		coordinator:    coord,
-		appCtx:         coord.GetAppContext(),
+		appCtx:         appCtx,
 		authService:    authSvc,
 		configMgr:      cfgMgr,
 		ctx:            ctx,

@@ -67,13 +67,6 @@ func (c *Coordinator) Context() context.Context {
 	return c.Services.Context()
 }
 
-// Additional compat accessors required by Coordinatorer interface
-var _ Coordinatorer = (*Coordinator)(nil)
-
-func (c *Coordinator) SetConfigManager(cfg *config.Manager) {
-	c.Services.SetConfigManager(cfg)
-}
-
 // GetAppContext returns the underlying AppContext
 func (c *Coordinator) GetAppContext() *AppContext {
 	return c.AppContext

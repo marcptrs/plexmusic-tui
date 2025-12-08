@@ -21,7 +21,6 @@ type InProcessMediaControl struct {
 	controller       mediacontrol.MediaController
 	pbService        *service.PlaybackService
 	orchestrator     *tui.Orchestrator
-	coordinator      *app.Coordinator
 	appCtx           *app.AppContext
 	ctx              context.Context
 	lastPositionSent time.Time
@@ -42,7 +41,6 @@ func NewInProcessMediaControl(
 		controller:   controller,
 		pbService:    playbackService,
 		orchestrator: orchestrator,
-		coordinator:  coordinator,
 		appCtx:       coordinator.GetAppContext(),
 	}, nil
 }

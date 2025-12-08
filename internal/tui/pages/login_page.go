@@ -22,7 +22,6 @@ import (
 
 // LoginPage handles authentication UI
 type LoginPage struct {
-	coordinator app.Coordinatorer
 	appCtx      *app.AppContext
 	authService service.AuthServicer
 	configMgr   *config.Manager
@@ -45,13 +44,13 @@ type LoginPage struct {
 }
 
 // NewLoginPage creates a new login page
-func NewLoginPage(coord app.Coordinatorer, authSvc service.AuthServicer) *LoginPage {
+func NewLoginPage(appCtx *app.AppContext, authSvc service.AuthServicer) *LoginPage {
 	// Backward-compatible wrapper, creating login page without config manager
-	return NewLoginPageWithConfig(coord, authSvc, nil)
+	return NewLoginPageWithConfig(appCtx, authSvc, nil)
 }
 
 func NewLoginPageWithConfig(
-	coord app.Coordinatorer,
+	appCtx *app.AppContext,
 	authSvc service.AuthServicer,
 	cfgMgr *config.Manager,
 ) *LoginPage {
@@ -71,8 +70,7 @@ func NewLoginPageWithConfig(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &LoginPage{
-		coordinator:   coord,
-		appCtx:        coord.GetAppContext(),
+		appCtx:        appCtx,
 		authService:   authSvc,
 		configMgr:     cfgMgr,
 		usernameInput: usernameInput,

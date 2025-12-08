@@ -46,8 +46,7 @@ const retroLogoVertical = `
 // list rendering (Recently Added, Playlists), modal dialogs, and the
 // "Now Playing" panel (cover art + controls).
 type LibraryPage struct {
-	coordinator app.Coordinatorer
-	appCtx      *app.AppContext
+	appCtx *app.AppContext
 
 	width, height int
 
@@ -127,11 +126,11 @@ type sonicDetectResultMsg struct{ ok bool }
 type playResultMsg struct{ Err error }
 
 // NewLibraryPage creates a library page and its cancellable event context.
-func NewLibraryPage(coord app.Coordinatorer) *LibraryPage {
-	return NewLibraryPageWithAuth(coord, nil)
+func NewLibraryPage(appCtx *app.AppContext) *LibraryPage {
+	return NewLibraryPageWithAuth(appCtx, nil)
 }
 
-func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthServicer) *LibraryPage {
+func NewLibraryPageWithAuth(appCtx *app.AppContext, authSvc service.AuthServicer) *LibraryPage {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := spinner.New()
@@ -141,11 +140,10 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 	// make the spinner text appear with a black / wrong background.
 	s.Style = styles.BlurredStyle.Foreground(lipgloss.Color("205"))
 
-	orch := tui.NewOrchestrator(coord.GetAppContext(), nil, nil)
+	orch := tui.NewOrchestrator(appCtx, nil, nil)
 
 	p := &LibraryPage{
-		coordinator:   coord,
-		appCtx:        coord.GetAppContext(),
+		appCtx:        appCtx,
 		ctx:           ctx,
 		cancel:        cancel,
 		authSvc:       authSvc,
@@ -160,14 +158,14 @@ func NewLibraryPageWithAuth(coord app.Coordinatorer, authSvc service.AuthService
 		lastSelectedTrackIndex:    -1,
 		help:                      help.New(),
 		keys:                      tui.DefaultLibraryKeyMap(),
-		homeComponent:             components.NewHomeComponent(coord.GetAppContext()),
-		recentlyAddedComponent:    components.NewRecentlyAddedComponent(coord.GetAppContext()),
-		playlistComponent:         components.NewPlaylistsComponent(coord.GetAppContext()),
-		trackComponent:            components.NewTracksComponent(coord.GetAppContext()),
-		queueComponent:            components.NewQueueComponent(coord.GetAppContext(), orch),
-		searchComponent:           components.NewSearchComponent(coord.GetAppContext()),
-		settingsComponent:         components.NewSettingsComponent(coord.GetAppContext()),
-		nowPlaying:                components.NewNowPlayingComponent(coord.GetAppContext(), nil),
+		homeComponent:             components.NewHomeComponent(appCtx),
+		recentlyAddedComponent:    components.NewRecentlyAddedComponent(appCtx),
+		playlistComponent:         components.NewPlaylistsComponent(appCtx),
+		trackComponent:            components.NewTracksComponent(appCtx),
+		queueComponent:            components.NewQueueComponent(appCtx, orch),
+		searchComponent:           components.NewSearchComponent(appCtx),
+		settingsComponent:         components.NewSettingsComponent(appCtx),
+		nowPlaying:                components.NewNowPlayingComponent(appCtx, nil),
 		orchestrator:              orch,
 	}
 

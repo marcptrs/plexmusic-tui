@@ -69,7 +69,7 @@ func TestLibraryPage_ViewHome_RendersRecentlyAdded(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPage(coord)
+	page := NewLibraryPage(coord.GetAppContext())
 
 	// Ensure the page has a size to render its layout
 	page.width = 120
@@ -131,7 +131,7 @@ func TestLibraryPage_ViewPlaylists_RendersPlaylists(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPage(coord)
+	page := NewLibraryPage(coord.GetAppContext())
 	page.width = 120
 	page.height = 40
 
@@ -166,7 +166,7 @@ func TestLibraryPage_DefaultLayout_ShowsNowPlayingAndQueue(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.appCtx.View.SetActiveTab(app.HomeTab)
 	page.width = 120
 	page.height = 30
@@ -196,7 +196,7 @@ func TestLibraryPage_View_ToastOverlay(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.appCtx.View.SetActiveTab(app.HomeTab)
 	page.width = 80
 	page.height = 24
@@ -254,7 +254,7 @@ func TestLibraryPage_ViewHome_RendersSonicSections(t *testing.T) {
 		},
 	})
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -332,7 +332,7 @@ func TestLibraryPage_DetectKeyTriggersSonic(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	// Inject a LibraryService wired to test server so the 'd' key will trigger detection
@@ -457,7 +457,7 @@ func TestLibraryPage_DrawerOnRight_KeepsNowPlayingVisible(t *testing.T) {
 	coord.GetAppContext().Content.SetLibraryHubs(hubs)
 	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 30
 
@@ -494,7 +494,7 @@ func TestLibraryPage_Settings_ToggleCoverArtPosition(t *testing.T) {
 	}
 
 	coord := app.NewCoordinator()
-	coord.SetConfigManager(cfgMgr)
+	coord.GetAppContext().Services.SetConfigManager(cfgMgr)
 	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
@@ -506,7 +506,7 @@ func TestLibraryPage_Settings_ToggleCoverArtPosition(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -570,7 +570,7 @@ func TestLibraryPage_SwitchView_PressesOpenDrawer(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -599,7 +599,7 @@ func TestLibraryPage_LineCountStableOnSwitchView(t *testing.T) {
 	albums := []domain.Album{{Title: "Test Album", Artist: "X", Key: "/library/metadata/1"}}
 	coord.GetAppContext().Content.SetAlbums(albums)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -642,7 +642,7 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_LeftArt(t *testing.T)
 	coord.GetAppContext().View.SetSelectedAlbum(0)
 	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -679,7 +679,7 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_RightArt(t *testing.T
 	cfgMgr.SetCoverArtPosition("right")
 
 	coord := app.NewCoordinator()
-	coord.SetConfigManager(cfgMgr)
+	coord.GetAppContext().Services.SetConfigManager(cfgMgr)
 	server := domain.PlexServer{
 		Name:        "Local Server",
 		Host:        "127.0.0.1",
@@ -696,7 +696,7 @@ func TestLibraryPage_SelectTrack_DoesNotDuplicateTrackList_RightArt(t *testing.T
 	coord.GetAppContext().View.SetSelectedAlbum(0)
 	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -736,7 +736,7 @@ func TestLibraryPage_ArtLoad_NoExtraLine(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -777,7 +777,7 @@ func TestLibraryPage_ArtLoad_LineDiff(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -865,7 +865,7 @@ func TestLibraryPage_FetchesLibraryDataFromServer(t *testing.T) {
 	)
 	coord.GetAppContext().Session.SetSelectedServer(0)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -984,7 +984,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelection(t *testing.T) {
 	)
 	coord.GetAppContext().Session.SetSelectedServer(0)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -1139,7 +1139,7 @@ func TestLibraryPage_FetchTracksOnAlbumSelectionAbsoluteKey(t *testing.T) {
 	)
 	coord.GetAppContext().Session.SetSelectedServer(0)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -1282,7 +1282,7 @@ func TestLibraryPage_FetchTracksOnPlaylistSelection(t *testing.T) {
 	)
 	coord.GetAppContext().Session.SetSelectedServer(0)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	// Send WindowSizeMsg to ensure components are sized correctly
@@ -1412,7 +1412,7 @@ func TestLibraryPage_EnterOpensTrackList_RecentlyAdded(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -1516,7 +1516,7 @@ func TestLibraryPage_EnterOpensTrackList_Playlist(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().View.SetActiveTab(app.PlaylistsTab)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -1614,7 +1614,7 @@ func TestLibraryPage_Init_UsesServerAccessTokenOverCoordinatorToken(t *testing.T
 	coord.GetAppContext().Session.SetServers([]domain.PlexServer{server})
 	coord.GetAppContext().Session.SetSelectedServer(0)
 
-	page := NewLibraryPage(coord)
+	page := NewLibraryPage(coord.GetAppContext())
 	page.width = 120
 	page.height = 40
 
@@ -1738,7 +1738,7 @@ func TestLibraryPage_QueueSelectionDoesNotUpdateCoverArt(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -1797,7 +1797,7 @@ func TestLibraryPage_PlaybackStartedUpdatesCoverArt(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -1859,7 +1859,7 @@ func TestLibraryPage_RenderSearch_IncludesTracks(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 100
 	page.height = 30
 
@@ -1969,7 +1969,7 @@ func TestLibraryPage_PPlaysAlbumAndQueuesTracks(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().View.SetActiveTab(app.HomeTab)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -2092,7 +2092,7 @@ func TestLibraryPage_PlayPauseToggle(t *testing.T) {
 	mockPb := &mockPbSvcOK{}
 	coord.GetAppContext().Services.SetPlaybackService(mockPb)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	cmd := page.Init()
@@ -2259,7 +2259,7 @@ func TestLibraryPage_PlaySelected_QueuesTracksFromSelection(t *testing.T) {
 	)
 	coord.GetAppContext().Session.SetSelectedServer(0)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -2327,7 +2327,7 @@ func TestLibraryPage_AutoAdvance_QueuePlaysNext(t *testing.T) {
 	)
 	coord.GetAppContext().Session.SetSelectedServer(0)
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -2399,7 +2399,7 @@ func TestLibraryPage_PlayQueueRefresh_AppendsNewTracks(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 
@@ -2475,7 +2475,7 @@ func TestLibraryPage_StationPlaybackStartedMsg_SetsUpQueue(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	_ = page.Init()
@@ -2541,7 +2541,7 @@ func TestLibraryPage_QueueModalInterceptsUpDown(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -2610,7 +2610,7 @@ func TestLibraryPage_QueueFocusTogglesWithKeyOnQueueTab(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {
@@ -2682,7 +2682,7 @@ func TestLibraryPage_QueueVisibleInterceptsUpDown(t *testing.T) {
 	coord.GetAppContext().Session.SetSelectedServer(0)
 	coord.GetAppContext().Session.SetToken("test-token")
 
-	page := NewLibraryPageWithAuth(coord, nil)
+	page := NewLibraryPageWithAuth(coord.GetAppContext(), nil)
 	page.width = 120
 	page.height = 40
 	if page.Init() == nil {

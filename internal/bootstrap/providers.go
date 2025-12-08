@@ -156,12 +156,14 @@ func provideRouter(
 		token = cfgMgr.GetAuthToken()
 	}
 
+	appCtx := coord.GetAppContext()
+
 	if token != "" {
-		initialPage = pages.NewServerSelectionPage(coord, authService, cfgMgr)
+		initialPage = pages.NewServerSelectionPage(appCtx, authService, cfgMgr)
 		initialID = tui.ServerSelectionPageID
-		coord.GetAppContext().Session.SetToken(token)
+		appCtx.Session.SetToken(token)
 	} else {
-		initialPage = pages.NewLoginPageWithConfig(coord, authService, cfgMgr)
+		initialPage = pages.NewLoginPageWithConfig(appCtx, authService, cfgMgr)
 		initialID = tui.LoginPageID
 	}
 
@@ -175,13 +177,14 @@ func providePageFactory(
 	cfgMgr *config.Manager,
 ) tui.PageFactoryFn {
 	return func(id tui.PageID) tui.Page {
+		appCtx := coord.GetAppContext()
 		switch id {
 		case tui.LoginPageID:
-			return pages.NewLoginPageWithConfig(coord, authService, cfgMgr)
+			return pages.NewLoginPageWithConfig(appCtx, authService, cfgMgr)
 		case tui.ServerSelectionPageID:
-			return pages.NewServerSelectionPage(coord, authService, cfgMgr)
+			return pages.NewServerSelectionPage(appCtx, authService, cfgMgr)
 		case tui.LibraryPageID:
-			return pages.NewLibraryPageWithAuth(coord, authService)
+			return pages.NewLibraryPageWithAuth(appCtx, authService)
 		default:
 			return nil
 		}
@@ -197,7 +200,7 @@ func provideAppModel(
 	keyMap tui.KeyMap,
 	pageFactory tui.PageFactoryFn,
 ) *tui.AppModel {
-	return tui.NewAppModel(router, coord, authService, cfgMgr, keyMap, pageFactory)
+	return tui.NewAppModel(router, coord.GetAppContext(), authService, cfgMgr, keyMap, pageFactory)
 }
 
 // provideApp bundles the application components into a single App struct

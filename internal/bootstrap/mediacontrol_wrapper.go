@@ -19,7 +19,6 @@ type MediaControlWrapper struct {
 	daemonClient     *mediacontrol.DaemonClient
 	pbService        *service.PlaybackService
 	orchestrator     *tui.Orchestrator
-	coordinator      *app.Coordinator
 	appCtx           *app.AppContext
 	ctx              context.Context
 	lastPositionSent time.Time
@@ -296,7 +295,6 @@ func provideMediaControlWrapper(
 		daemonClient: daemonClient,
 		pbService:    playbackService,
 		orchestrator: orchestrator,
-		coordinator:  coordinator,
 		appCtx:       coordinator.GetAppContext(),
 	}
 }

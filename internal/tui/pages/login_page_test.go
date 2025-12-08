@@ -35,7 +35,7 @@ func (m *MockAuthService) FetchServers(
 func TestLoginPage_View_RendersHelp(t *testing.T) {
 	coord := app.NewCoordinator()
 	mockAuth := &MockAuthService{}
-	page := NewLoginPage(coord, mockAuth)
+	page := NewLoginPage(coord.GetAppContext(), mockAuth)
 
 	// Initialize the model (this sets up the help keys)
 	page.Init()

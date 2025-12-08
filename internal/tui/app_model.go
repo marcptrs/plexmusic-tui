@@ -15,7 +15,6 @@ import (
 // delegating to the Router and pages.
 type AppModel struct {
 	router      *Router
-	coord       *app.Coordinator
 	appCtx      *app.AppContext
 	authService service.AuthServicer
 	configMgr   *config.Manager
@@ -32,7 +31,7 @@ type AppModel struct {
 // pageFactory is required for creating pages when PageChangeMsg is received.
 func NewAppModel(
 	router *Router,
-	coord *app.Coordinator,
+	appCtx *app.AppContext,
 	authSvc service.AuthServicer,
 	cfgMgr *config.Manager,
 	keyMap KeyMap,
@@ -40,8 +39,7 @@ func NewAppModel(
 ) *AppModel {
 	return &AppModel{
 		router:      router,
-		coord:       coord,
-		appCtx:      coord.GetAppContext(),
+		appCtx:      appCtx,
 		authService: authSvc,
 		configMgr:   cfgMgr,
 		keyMap:      keyMap,
