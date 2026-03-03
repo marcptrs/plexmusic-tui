@@ -3,9 +3,9 @@ package components
 import (
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/tui/styles"
@@ -48,7 +48,7 @@ func (s *SettingsComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// Handle shortcuts
 		switch msg.String() {
 		case "c":
@@ -94,9 +94,9 @@ func (s *SettingsComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the settings component.
-func (s *SettingsComponent) View() string {
+func (s *SettingsComponent) View() tea.View {
 	title := styles.TitleStyle.Render("Settings")
-	return lipgloss.JoinVertical(lipgloss.Left, title, "", s.list.View())
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, title, "", s.list.View()))
 }
 
 // SetSize sets the component's size.

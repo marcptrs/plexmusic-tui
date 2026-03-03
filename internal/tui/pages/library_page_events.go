@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	log "github.com/charmbracelet/log/v2"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 	"github.com/faiface/beep"
 
 	"plexmusic-tui/internal/app"
@@ -44,7 +43,6 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			p.subscribeToPlaybackEvents(),
 		)
 	case "libraries.loaded":
-		log.Debug("LibraryPage: libraries.loaded", "count", len(msg.Libraries))
 		p.appCtx.Session.SetLibraries(msg.Libraries)
 		if len(msg.Libraries) > 0 {
 			p.appCtx.Session.SetSelectedLibrary(0)
@@ -54,7 +52,7 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 				p.subscribeToPlaybackEvents(),
 			)
 		} else {
-			log.Warn("LibraryPage: No libraries found")
+			// TODO: Add logging
 		}
 	case "recently_added.loaded":
 		// Update the coordinator with domain albums directly
@@ -132,16 +130,8 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 		}
 
 		// If playback was requested immediately after a fetch, set queue and
-		log.Debug(
-			"tracks.loaded: payload",
-			"autoPlayOnTracksLoaded",
-			p.autoPlayOnTracksLoaded,
-			"trackCount",
-			len(msg.Tracks),
-		)
 		// kick off playback of the first track.
 		if p.autoPlayOnTracksLoaded {
-			log.Info("tracks.loaded: autoPlayOnTracksLoaded triggered - this is the WRONG path for stations!")
 			p.autoPlayOnTracksLoaded = false
 			// Build queue and queue items
 			q := make([]domain.Track, len(msg.Tracks))
@@ -153,13 +143,6 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			p.appCtx.View.SetActiveTab(app.QueueTab)
 			// Play first track asynchronously
 			if len(q) > 0 {
-				log.Info(
-					"tracks.loaded: playing first track",
-					"title",
-					q[0].Title,
-					"playQueueItemID",
-					q[0].PlayQueueItemID,
-				)
 				// Include postCmd (fetch cover art) alongside subscription/setup
 				if postCmd != nil {
 					return p, tea.Batch(
@@ -187,8 +170,6 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			}
 			// Show truncated message in UI
 			p.appCtx.View.SetNotification(fmt.Sprintf("Library fetch error: %s", errMsg), "error", 10*time.Second)
-			// Log full details including event type for debugging
-			log.Error("Library fetch failed", "event_type", msg.Type, "full_error", msg.Error.Error())
 		}
 	}
 	// Re-subscribe to continue receiving library/playback events
@@ -253,10 +234,8 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		p.lastLoadFailed = true
 		if msg.Error != nil {
 			p.appCtx.View.SetNotification(fmt.Sprintf("Load failed: %v", msg.Error), "error", 10*time.Second)
-			log.Debug("LibraryPage: set load_failed notification", "err", msg.Error)
 		} else {
 			p.appCtx.View.SetNotification("Load failed", "error", 10*time.Second)
-			log.Debug("LibraryPage: set load_failed notification", "no err")
 		}
 	case "playback.play_failed":
 		p.lastLoadFailed = true
@@ -275,10 +254,6 @@ func (p *LibraryPage) handlePlaybackEvent(msg domain.PlaybackEvent) (tea.Model, 
 		if msg.Track != nil {
 			track := util.DomainTrackToApp(msg.Track)
 			p.appCtx.Playback.SetCurrentTrack(track)
-			log.Debug("playback.started: track set",
-				"title", track.Title,
-				"thumb", track.Thumb,
-				"currentArtThumb", p.appCtx.Playback.AlbumArtThumb())
 			// Fetch the album art for the track now that playback started
 			if track.Thumb != "" && p.appCtx.Playback.AlbumArtThumb() != track.Thumb {
 				postCmd = p.fetchCoverArtCmd(track.Thumb)

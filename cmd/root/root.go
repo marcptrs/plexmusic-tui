@@ -1,17 +1,13 @@
 package root
 
 import (
-	"fmt"
-	"os"
 	"strings"
 
-	clog "github.com/charmbracelet/log/v2"
 	"github.com/spf13/cobra"
 
 	"plexmusic-tui/cmd/logs"
 	"plexmusic-tui/cmd/run"
 	"plexmusic-tui/internal/domain"
-	"plexmusic-tui/internal/logging"
 )
 
 var (
@@ -34,21 +30,6 @@ Use 'plexmusic-tui run' to start the interactive TUI, or 'plexmusic-tui logs'
 to view recent log entries.`,
 	Version: "1.0.0",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// Initialize logging
-		logLevel := clog.InfoLevel
-		if debugFlag {
-			logLevel = clog.DebugLevel
-		}
-
-		logPath := logging.GetLogFilePath()
-		logger, err := logging.InitFileLogger(logPath, logLevel)
-		if err != nil {
-			fmt.Fprintf(os.Stderr,
-				"Warning: Failed to initialize logger: %v\n", err)
-		} else {
-			logging.SetDefaultLogger(logger)
-		}
-
 		// Parse force-renderer flag
 		if forceRenderer != "" {
 			p := parseRendererFlag(forceRenderer)

@@ -4,10 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
-
-	"plexmusic-tui/internal/logging"
 )
 
 // NewLogsCommand creates the 'logs' subcommand for viewing log entries
@@ -19,7 +18,9 @@ func NewLogsCommand() *cobra.Command {
 		Short: "Show recent log entries",
 		Long:  "Display the last N log entries from the application log file.",
 		Run: func(cmd *cobra.Command, args []string) {
-			DisplayLogs(logging.GetLogFilePath(), tailLines)
+			// Get the log file path
+			logFile := getLogFilePath()
+			DisplayLogs(logFile, tailLines)
 		},
 	}
 
@@ -27,6 +28,16 @@ func NewLogsCommand() *cobra.Command {
 		"Number of log lines to show (default: 50)")
 
 	return cmd
+}
+
+// getLogFilePath returns the path to the application log file
+func getLogFilePath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	logDir := filepath.Join(homeDir, ".config", "plexmusic-tui", "logs")
+	return filepath.Join(logDir, "app.log")
 }
 
 // DisplayLogs reads and displays the last N lines from the log file

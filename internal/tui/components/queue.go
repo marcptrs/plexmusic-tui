@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/domain"
@@ -84,7 +84,7 @@ func (c *QueueComponent) IsFocused() bool {
 func (c *QueueComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		if c.focused {
 			// Handle queue-specific keys
 			if handled, cmd := c.handleKeyMsg(msg); handled {
@@ -101,7 +101,7 @@ func (c *QueueComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return c, cmd
 }
 
-func (c *QueueComponent) View() string {
+func (c *QueueComponent) View() tea.View {
 	v := c.list.View()
 
 	var total int
@@ -115,10 +115,10 @@ func (c *QueueComponent) View() string {
 	summary := fmt.Sprintf("%d items • %s", len(items), util.FormatTrackDuration(total))
 	summaryView := styles.MutedStyle.Padding(0, 1).Render(summary)
 
-	return lipgloss.JoinVertical(lipgloss.Left, v, summaryView)
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, v, summaryView))
 }
 
-func (c *QueueComponent) handleKeyMsg(msg tea.KeyMsg) (bool, tea.Cmd) {
+func (c *QueueComponent) handleKeyMsg(msg tea.KeyPressMsg) (bool, tea.Cmd) {
 	// Navigation keys (up/down/k/j or rune fallback) are handled by the list component.
 	if key.Matches(msg, c.keys.Up) || key.Matches(msg, c.keys.Down) || isRuneKey(msg, 'k') ||
 		isRuneKey(msg, 'j') {
@@ -303,15 +303,15 @@ func (c *QueueComponent) playAppTrack(at *domain.Track) tea.Cmd {
 }
 
 // Helper to detect rune keypresses
-func isRuneKey(msg tea.KeyMsg, r rune) bool {
-	if len(msg.Runes) == 0 {
+func isRuneKey(msg tea.KeyPressMsg, r rune) bool {
+	if len(msg.Text) == 0 {
 		return false
 	}
-	return len(msg.Runes) == 1 && msg.Runes[0] == r
+	return len(msg.Text) == 1 && rune(msg.Text[0]) == r
 }
 
 // RenderWithModal composes the base view layout with the queue modal overlay.
-func (c *QueueComponent) RenderWithModal(base string, width, height int) string {
+func (c *QueueComponent) RenderWithModal(base tea.View, width, height int) tea.View {
 	// Calculate modal dimensions
 	modalWidth := 60
 	modalHeight := 20
@@ -334,16 +334,16 @@ func (c *QueueComponent) RenderWithModal(base string, width, height int) string 
 		Padding(0, 1).
 		Width(modalWidth).
 		Height(modalHeight).
-		Render(listView)
+		Render(listView.Content)
 
 	// Place centered
-	return lipgloss.Place(
+	return tea.NewView(lipgloss.Place(
 		width,
 		height,
 		lipgloss.Center,
 		lipgloss.Center,
 		modal,
-	)
+	))
 }
 
 // SetOrchestrator updates the orchestrator instance

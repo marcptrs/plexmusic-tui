@@ -5,8 +5,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/progress"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/service"
@@ -38,8 +38,8 @@ func NewNowPlayingComponent(
 		progress.WithFillCharacters('█', ' '),
 	)
 	// Apply custom colors from styles
-	prog.FullColor = string(styles.ColorPrimary)
-	prog.EmptyColor = string(styles.ColorMuted)
+	prog.FullColor = styles.ColorPrimary
+	prog.EmptyColor = styles.ColorMuted
 
 	return &NowPlayingComponent{
 		ctx:      ctx,
@@ -244,7 +244,7 @@ func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDurat
 	}
 
 	// Set progress bar width and calculate percentage
-	np.progress.Width = barWidth
+	np.progress.SetWidth(barWidth)
 	var pct float64
 	if lenMs > 0 {
 		pct = float64(posMs) / float64(lenMs)
@@ -401,7 +401,7 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 	}
 
 	// Use Bubbles progress bar
-	np.progress.Width = barWidth
+	np.progress.SetWidth(barWidth)
 	var pct float64
 	if lenMs > 0 {
 		pct = float64(posMs) / float64(lenMs)

@@ -1,7 +1,7 @@
 package tui
 
 import (
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // QuitRequestedMsg is sent when a global quit key is detected
@@ -71,7 +71,8 @@ func (r *Router) View() string {
 	if r.currentPage == nil {
 		return ""
 	}
-	return r.currentPage.View()
+	view := r.currentPage.View()
+	return view.Content
 }
 
 // Close cleans up the current page
