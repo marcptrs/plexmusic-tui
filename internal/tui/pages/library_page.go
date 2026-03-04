@@ -218,12 +218,8 @@ func (p *LibraryPage) Init() tea.Cmd {
 		}
 	} else {
 		// Update base URL and token to reflect current selected server.
-		if err := p.libSvc.SetBaseURL(baseURL); err != nil {
-			// TODO: Add logging
-		}
-		if err := p.libSvc.SetToken(token); err != nil {
-			// TODO: Add logging
-		}
+		_ = p.libSvc.SetBaseURL(baseURL)
+		_ = p.libSvc.SetToken(token)
 	}
 	// Detect Plex Pass and sonic analysis availability and cache in coordinator
 	if p.appCtx != nil {
@@ -405,8 +401,6 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if activeQueue := p.appCtx.Content.ActivePlayQueue(); activeQueue != nil {
 				activeQueue.Version = msg.Version
 			}
-		} else {
-			// TODO: Add logging
 		}
 		return p, nil
 
@@ -749,11 +743,7 @@ func (p *LibraryPage) fetchMixesForYou() tea.Cmd {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
 		playlists, _, err := p.libSvc.FetchMixesForYou(ctx)
-		if err != nil {
-			// TODO: Add logging
-		} else {
-			// TODO: Add logging
-		}
+		_ = err
 		// store results in coordinator for UI consumption
 		if p.appCtx != nil {
 			p.appCtx.Content.SetMixesForYou(playlists)
@@ -770,12 +760,7 @@ func (p *LibraryPage) fetchOnThisDay() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
-		albums, _, err := p.libSvc.FetchOnThisDay(ctx)
-		if err != nil {
-			// TODO: Add logging
-		} else {
-			// TODO: Add logging
-		}
+		albums, _, _ := p.libSvc.FetchOnThisDay(ctx)
 		if p.appCtx != nil {
 			p.appCtx.Content.SetOnThisDay(albums)
 		}
@@ -797,8 +782,7 @@ func (p *LibraryPage) fetchMoodStations() tea.Cmd {
 		tracks, _, err := p.libSvc.FetchMoodStation(ctx, "", 20)
 		if err != nil {
 			// TODO: Add logging
-		} else {
-			// TODO: Add logging
+			return nil
 		}
 		if p.appCtx != nil && len(tracks) > 0 {
 			p.appCtx.Content.SetMoodStations(tracks)

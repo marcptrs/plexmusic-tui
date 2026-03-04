@@ -11,7 +11,6 @@ import (
 	"time"
 	"unsafe"
 
-	log "github.com/charmbracelet/log/v2"
 	"github.com/go-ole/go-ole"
 	"github.com/saltosystems/winrt-go/windows/foundation"
 	"github.com/saltosystems/winrt-go/windows/media"
@@ -41,13 +40,11 @@ type windowsController struct {
 
 // newPlatformController creates a new Windows media controller
 func newPlatformController() (MediaController, error) {
-	log.Info("Creating Windows media controller (SMTC)")
-
 	// Initialize Windows Runtime
 	if err := ole.RoInitialize(1); err != nil {
 		// RoInitialize may return S_FALSE (1) if already initialized, which is fine
 		if err.(*ole.OleError).Code() != 1 {
-			log.Warn("Windows Runtime initialization warning", "error", err)
+			// TODO: Add logging
 		}
 	}
 
@@ -80,28 +77,26 @@ func (c *windowsController) Start(ctx context.Context) error {
 		return nil
 	}
 
-	log.Info("Starting Windows SMTC controller")
-
 	// Enable SMTC
 	if err := c.smtc.SetIsEnabled(true); err != nil {
-		log.Warn("Failed to enable SMTC", "error", err)
+		// TODO: Add logging
 	}
 
 	// Enable control buttons
 	if err := c.smtc.SetIsPlayEnabled(true); err != nil {
-		log.Warn("Failed to enable play button", "error", err)
+		// TODO: Add logging
 	}
 	if err := c.smtc.SetIsPauseEnabled(true); err != nil {
-		log.Warn("Failed to enable pause button", "error", err)
+		// TODO: Add logging
 	}
 	if err := c.smtc.SetIsNextEnabled(true); err != nil {
-		log.Warn("Failed to enable next button", "error", err)
+		// TODO: Add logging
 	}
 	if err := c.smtc.SetIsPreviousEnabled(true); err != nil {
-		log.Warn("Failed to enable previous button", "error", err)
+		// TODO: Add logging
 	}
 	if err := c.smtc.SetIsStopEnabled(true); err != nil {
-		log.Warn("Failed to enable stop button", "error", err)
+		// TODO: Add logging
 	}
 
 	// Register button press handler
@@ -112,7 +107,7 @@ func (c *windowsController) Start(ctx context.Context) error {
 
 	token, err := c.smtc.AddButtonPressed(handler)
 	if err != nil {
-		log.Warn("Failed to register button handler", "error", err)
+		// TODO: Add logging
 	} else {
 		c.buttonPressedToken = token
 	}
@@ -146,11 +141,9 @@ func (c *windowsController) handleButtonPressed(
 	eventArgs := (*media.SystemMediaTransportControlsButtonPressedEventArgs)(args)
 	button, err := eventArgs.GetButton()
 	if err != nil {
-		log.Warn("Failed to get pressed button", "error", err)
+		// TODO: Add logging
 		return
 	}
-
-	log.Debug("SMTC button pressed", "button", button)
 
 	switch button {
 	case media.SystemMediaTransportControlsButtonPlay:
@@ -175,12 +168,10 @@ func (c *windowsController) Stop() error {
 		return nil
 	}
 
-	log.Info("Stopping Windows SMTC controller")
-
 	// Remove button handler
 	if c.buttonPressedToken.Value != 0 {
 		if err := c.smtc.RemoveButtonPressed(c.buttonPressedToken); err != nil {
-			log.Warn("Failed to remove button handler", "error", err)
+			// TODO: Add logging
 		}
 	}
 
@@ -212,11 +203,6 @@ func (c *windowsController) UpdateMetadata(metadata Metadata) error {
 		return nil
 	}
 
-	log.Debug("Windows SMTC: Updating metadata",
-		"title", metadata.Title,
-		"artist", metadata.Artist,
-		"album", metadata.Album)
-
 	// Get display updater
 	updater, err := c.smtc.GetDisplayUpdater()
 	if err != nil {
@@ -226,7 +212,7 @@ func (c *windowsController) UpdateMetadata(metadata Metadata) error {
 
 	// Set type to music
 	if err := updater.SetType(media.MediaPlaybackTypeMusic); err != nil {
-		log.Warn("Failed to set media type", "error", err)
+		// TODO: Add logging
 	}
 
 	// Get music properties
@@ -238,17 +224,17 @@ func (c *windowsController) UpdateMetadata(metadata Metadata) error {
 
 	// Set metadata
 	if err := musicProps.SetTitle(metadata.Title); err != nil {
-		log.Warn("Failed to set title", "error", err)
+		// TODO: Add logging
 	}
 	if err := musicProps.SetArtist(metadata.Artist); err != nil {
-		log.Warn("Failed to set artist", "error", err)
+		// TODO: Add logging
 	}
 	if err := musicProps.SetAlbumTitle(metadata.Album); err != nil {
-		log.Warn("Failed to set album", "error", err)
+		// TODO: Add logging
 	}
 	if metadata.AlbumArtist != "" {
 		if err := musicProps.SetAlbumArtist(metadata.AlbumArtist); err != nil {
-			log.Warn("Failed to set album artist", "error", err)
+			// TODO: Add logging
 		}
 	}
 
@@ -270,8 +256,6 @@ func (c *windowsController) UpdatePlaybackState(state PlaybackState) error {
 	if c.smtc == nil {
 		return nil
 	}
-
-	log.Debug("Windows SMTC: Updating playback state", "state", state)
 
 	var smtcState media.MediaPlaybackStatus
 	switch state {
@@ -316,19 +300,19 @@ func (c *windowsController) UpdatePosition(position, duration time.Duration) err
 
 	// Set timeline properties
 	if err := timelineProps.SetStartTime(foundation.TimeSpan{Duration: 0}); err != nil {
-		log.Warn("Failed to set start time", "error", err)
+		// TODO: Add logging
 	}
 	if err := timelineProps.SetEndTime(foundation.TimeSpan{Duration: durationTicks}); err != nil {
-		log.Warn("Failed to set end time", "error", err)
+		// TODO: Add logging
 	}
 	if err := timelineProps.SetMinSeekTime(foundation.TimeSpan{Duration: 0}); err != nil {
-		log.Warn("Failed to set min seek time", "error", err)
+		// TODO: Add logging
 	}
 	if err := timelineProps.SetMaxSeekTime(foundation.TimeSpan{Duration: durationTicks}); err != nil {
-		log.Warn("Failed to set max seek time", "error", err)
+		// TODO: Add logging
 	}
 	if err := timelineProps.SetPosition(foundation.TimeSpan{Duration: positionTicks}); err != nil {
-		log.Warn("Failed to set position", "error", err)
+		// TODO: Add logging
 	}
 
 	// Update timeline
@@ -344,8 +328,6 @@ func (c *windowsController) SetArtwork(img image.Image) error {
 	if img == nil || smtc == nil {
 		return nil
 	}
-
-	log.Debug("Windows SMTC: Setting artwork")
 
 	// For now, we'll skip artwork implementation as it requires
 	// creating an InMemoryRandomAccessStream which is more complex.
@@ -370,8 +352,6 @@ func (c *windowsController) SetArtworkFromURL(url string) error {
 	if url == "" || smtc == nil {
 		return nil
 	}
-
-	log.Debug("Windows SMTC: Setting artwork from URL", "url", url)
 
 	// Create URI from URL string
 	uri, err := foundation.UriCreateUri(url)
@@ -408,7 +388,6 @@ func (c *windowsController) SetCommandHandler(handler CommandHandler) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	log.Info("Windows SMTC: Setting command handler")
 	c.handler = handler
 
 	return nil

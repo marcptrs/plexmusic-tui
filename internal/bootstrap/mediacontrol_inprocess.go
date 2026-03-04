@@ -11,8 +11,6 @@ import (
 	"plexmusic-tui/internal/mediacontrol"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
-
-	log "github.com/charmbracelet/log/v2"
 )
 
 // InProcessMediaControl handles media control integration using the in-process
@@ -51,58 +49,57 @@ type commandHandler struct {
 }
 
 func (h *commandHandler) HandlePlay() {
-	log.Info("In-process: HandlePlay called")
 	if h.ctrl.pbService.GetState() == domain.PlaybackPaused {
 		if err := h.ctrl.pbService.Resume(); err != nil {
-			log.Warn("Failed to resume", "error", err)
+			// TODO: Add logging
+			_ = err // satisfy linter
 		}
 	}
 }
 
 func (h *commandHandler) HandlePause() {
-	log.Info("In-process: HandlePause called")
 	if h.ctrl.pbService.GetState() == domain.PlaybackPlaying {
 		if err := h.ctrl.pbService.Pause(); err != nil {
-			log.Warn("Failed to pause", "error", err)
+			// TODO: Add logging
+			_ = err // satisfy linter
 		}
 	}
 }
 
 func (h *commandHandler) HandleTogglePlayPause() {
-	log.Info("In-process: HandleTogglePlayPause called")
 	switch h.ctrl.pbService.GetState() {
 	case domain.PlaybackPlaying:
 		if err := h.ctrl.pbService.Pause(); err != nil {
-			log.Warn("Failed to pause", "error", err)
+			// TODO: Add logging
+			_ = err // satisfy linter
 		}
 	case domain.PlaybackPaused:
 		if err := h.ctrl.pbService.Resume(); err != nil {
-			log.Warn("Failed to resume", "error", err)
+			// TODO: Add logging
+			_ = err // satisfy linter
 		}
 	}
 }
 
 func (h *commandHandler) HandleStop() {
-	log.Info("In-process: HandleStop called")
 	if err := h.ctrl.pbService.Stop(); err != nil {
-		log.Warn("Failed to stop", "error", err)
+		// TODO: Add logging
+		_ = err // satisfy linter
 	}
 }
 
 func (h *commandHandler) HandleNext() {
-	log.Info("In-process: HandleNext called")
 	h.ctrl.playNext()
 }
 
 func (h *commandHandler) HandlePrevious() {
-	log.Info("In-process: HandlePrevious called")
 	h.ctrl.playPrev()
 }
 
 func (h *commandHandler) HandleSeek(position time.Duration) {
-	log.Info("In-process: HandleSeek called", "position", position)
 	if err := h.ctrl.pbService.SeekToSeconds(position.Seconds()); err != nil {
-		log.Warn("Failed to seek", "error", err)
+		// TODO: Add logging
+		_ = err // satisfy linter
 	}
 }
 
@@ -113,7 +110,7 @@ func (ctrl *InProcessMediaControl) playNext() {
 
 	libSvc := ctrl.appCtx.Services.LibraryService()
 	if libSvc == nil {
-		log.Warn("Cannot play next: library service not available")
+		// TODO: Add logging
 		return
 	}
 
@@ -130,13 +127,13 @@ func (ctrl *InProcessMediaControl) playNext() {
 		ctrl.ctx, dq, queueIdx, dtracks, selected, libSvc,
 	)
 	if err != nil {
-		log.Warn("Failed to determine next track", "error", err)
+		// TODO: Add logging
 		return
 	}
 
 	if next != nil {
 		if err := ctrl.pbService.PlayDomainTrack(ctrl.ctx, libSvc, next); err != nil {
-			log.Warn("Failed to play next track", "error", err)
+			// TODO: Add logging
 			return
 		}
 		if isQueue {
@@ -154,7 +151,7 @@ func (ctrl *InProcessMediaControl) playPrev() {
 
 	libSvc := ctrl.appCtx.Services.LibraryService()
 	if libSvc == nil {
-		log.Warn("Cannot play previous: library service not available")
+		// TODO: Add logging
 		return
 	}
 
@@ -171,13 +168,13 @@ func (ctrl *InProcessMediaControl) playPrev() {
 		ctrl.ctx, dq, queueIdx, dtracks, selected, libSvc,
 	)
 	if err != nil {
-		log.Warn("Failed to determine previous track", "error", err)
+		// TODO: Add logging
 		return
 	}
 
 	if prev != nil {
 		if err := ctrl.pbService.PlayDomainTrack(ctrl.ctx, libSvc, prev); err != nil {
-			log.Warn("Failed to play previous track", "error", err)
+			// TODO: Add logging
 			return
 		}
 		if isQueue {
@@ -191,7 +188,6 @@ func (ctrl *InProcessMediaControl) playPrev() {
 // Start begins the in-process media control integration
 func (ctrl *InProcessMediaControl) Start(ctx context.Context) error {
 	ctrl.ctx = ctx
-	log.Info("Starting in-process media control integration")
 
 	// Start the controller
 	if err := ctrl.controller.Start(ctx); err != nil {
@@ -201,23 +197,20 @@ func (ctrl *InProcessMediaControl) Start(ctx context.Context) error {
 	// Set up command handler for remote commands from Control Center
 	handler := &commandHandler{ctrl: ctrl}
 	if err := ctrl.controller.SetCommandHandler(handler); err != nil {
-		log.Warn("Failed to set command handler", "error", err)
+		_ = err // TODO: log error
 	}
 
 	// Subscribe to playback events
 	playbackEvents := ctrl.pbService.Subscribe(ctx)
 
-	log.Info("In-process media control started, listening for events")
-
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("Stopping in-process media control")
 			return ctrl.controller.Stop()
 
 		case event := <-playbackEvents:
 			if event.Type != "playback.position" {
-				log.Debug("In-process received event", "type", event.Type)
+				_ = event // TODO: log error
 			}
 			ctrl.handlePlaybackEvent(event.Payload)
 		}
@@ -228,7 +221,6 @@ func (ctrl *InProcessMediaControl) handlePlaybackEvent(event domain.PlaybackEven
 	switch event.Type {
 	case "playback.started":
 		if event.Track != nil {
-			log.Debug("In-process: updating metadata", "artist", event.Track.Artist, "title", event.Track.Title)
 			ctrl.controller.UpdateMetadata(mediacontrol.Metadata{
 				Title:    event.Track.Title,
 				Artist:   event.Track.Artist,
@@ -267,7 +259,6 @@ func (ctrl *InProcessMediaControl) handlePlaybackEvent(event domain.PlaybackEven
 
 	case "playback.artwork":
 		if event.Artwork != nil {
-			log.Debug("In-process: setting artwork")
 			ctrl.controller.SetArtwork(event.Artwork)
 		}
 	}

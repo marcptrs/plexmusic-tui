@@ -11,8 +11,6 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/godbus/dbus/v5/prop"
-
-	log "github.com/charmbracelet/log/v2"
 )
 
 const (
@@ -44,8 +42,6 @@ type linuxController struct {
 
 // newPlatformController creates a new Linux MPRIS media controller
 func newPlatformController() (MediaController, error) {
-	log.Info("Creating Linux MPRIS media controller")
-
 	conn, err := dbus.ConnectSessionBus()
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to session bus: %w", err)
@@ -66,8 +62,6 @@ func (c *linuxController) Start(ctx context.Context) error {
 	if c.started {
 		return nil
 	}
-
-	log.Info("Starting Linux MPRIS controller")
 
 	// Request bus name
 	busName := fmt.Sprintf("%s.plexmusic", mprisBusPrefix)
@@ -140,16 +134,14 @@ func (c *linuxController) Stop() error {
 		return nil
 	}
 
-	log.Info("Stopping Linux MPRIS controller")
-
 	// Release bus name
 	busName := fmt.Sprintf("%s.plexmusic", mprisBusPrefix)
 	if _, err := c.conn.ReleaseName(busName); err != nil {
-		log.Warn("Failed to release bus name", "error", err)
+		// TODO: Add logging
 	}
 
 	if err := c.conn.Close(); err != nil {
-		log.Warn("Failed to close D-Bus connection", "error", err)
+		// TODO: Add logging
 	}
 
 	c.started = false
@@ -164,11 +156,6 @@ func (c *linuxController) UpdateMetadata(metadata Metadata) error {
 	if !c.started {
 		return nil
 	}
-
-	log.Debug("Linux MPRIS: Updating metadata",
-		"title", metadata.Title,
-		"artist", metadata.Artist,
-		"album", metadata.Album)
 
 	// Build MPRIS metadata
 	mprisMetadata := make(map[string]dbus.Variant)
@@ -224,8 +211,6 @@ func (c *linuxController) UpdatePlaybackState(state PlaybackState) error {
 	}
 
 	c.state = state
-
-	log.Debug("Linux MPRIS: Updating playback state", "state", state)
 
 	var mprisStatus string
 	switch state {
@@ -284,8 +269,6 @@ func (c *linuxController) SetArtworkFromURL(url string) error {
 
 	c.artworkURL = url
 
-	log.Debug("Linux MPRIS: Setting artwork from URL", "url", url)
-
 	// Update metadata with artwork URL
 	if len(c.metadata) > 0 {
 		c.metadata["mpris:artUrl"] = dbus.MakeVariant(url)
@@ -302,7 +285,6 @@ func (c *linuxController) SetCommandHandler(handler CommandHandler) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	log.Info("Linux MPRIS: Setting command handler")
 	c.handler = handler
 
 	return nil

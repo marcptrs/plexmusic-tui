@@ -51,9 +51,12 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 				p.subscribeToLibraryEvents(),
 				p.subscribeToPlaybackEvents(),
 			)
-		} else {
-			// TODO: Add logging
 		}
+		// If no libraries, just subscribe to events
+		return p, tea.Batch(
+			p.subscribeToLibraryEvents(),
+			p.subscribeToPlaybackEvents(),
+		)
 	case "recently_added.loaded":
 		// Update the coordinator with domain albums directly
 		p.appCtx.Content.SetAlbums(msg.Albums)
