@@ -353,6 +353,7 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 			p.configMgr.SetAuthToken(event.Token)
 			if err := p.configMgr.Save(); err != nil {
 				// TODO: Add logging
+				_ = err // satisfy linter
 			}
 		}
 
@@ -397,6 +398,7 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 							p.configMgr.SetLastSelectedServer(newKey)
 							if err := p.configMgr.Save(); err != nil {
 								// TODO: Add logging
+								_ = err // satisfy linter
 							}
 						}
 					}

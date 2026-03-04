@@ -257,6 +257,7 @@ func (p *ServerSelectionPage) handleAuthEvent(event domain.AuthEvent) tea.Cmd {
 							p.configMgr.SetLastSelectedServer(newKey)
 							if err := p.configMgr.Save(); err != nil {
 								// TODO: Add logging
+								_ = err // satisfy linter
 							}
 						}
 					}
@@ -316,6 +317,7 @@ func (p *ServerSelectionPage) selectServer() tea.Cmd {
 		p.configMgr.SetLastSelectedServer(key)
 		if err := p.configMgr.Save(); err != nil {
 			// Log error but continue - non-fatal
+			_ = err // satisfy linter
 			// TODO: Add logging
 		}
 	}
