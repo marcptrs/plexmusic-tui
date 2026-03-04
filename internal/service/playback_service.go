@@ -9,8 +9,6 @@ import (
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/playback"
 	"plexmusic-tui/internal/pubsub"
-
-	log "github.com/charmbracelet/log/v2"
 )
 
 // PlaybackService manages audio playback and publishes events
@@ -34,7 +32,6 @@ func NewPlaybackService() *PlaybackService {
 				Type: "playback.finished",
 			},
 		})
-		log.Debug("playback.finished")
 	})
 
 	return s
@@ -56,8 +53,7 @@ func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string) err
 				Error: err,
 			},
 		})
-		// Log debug info to the file so we can triage runtime decode issues
-		log.Debug("playback.load_failed", "error", err)
+
 		return err
 	}
 
@@ -67,7 +63,6 @@ func (s *PlaybackService) LoadStream(body io.ReadCloser, contentType string) err
 			Type: "playback.loaded",
 		},
 	})
-	log.Debug("playback.loaded")
 
 	return nil
 }
@@ -83,7 +78,7 @@ func (s *PlaybackService) Initialize() error {
 				Error: err,
 			},
 		})
-		log.Debug("playback.init_failed", "error", err)
+
 		return err
 	}
 
@@ -93,7 +88,6 @@ func (s *PlaybackService) Initialize() error {
 			Type: "playback.initialized",
 		},
 	})
-	log.Debug("playback.initialized")
 
 	return nil
 }
@@ -110,8 +104,7 @@ func (s *PlaybackService) Play(track *domain.Track) error {
 				Error: err,
 			},
 		})
-		// Add a debug log to help trace practical failures in real runs
-		log.Debug("playback.play_failed", "error", err, "track", track)
+
 		return err
 	}
 
@@ -123,7 +116,6 @@ func (s *PlaybackService) Play(track *domain.Track) error {
 			State: domain.PlaybackPlaying,
 		},
 	})
-	log.Debug("playback.started", "track", track)
 
 	return nil
 }
@@ -134,14 +126,12 @@ func (s *PlaybackService) Pause() error {
 	s.player.UpdatePosition()
 	pos := s.player.Position()
 	rate := s.player.SampleRate()
-	log.Debug("PlaybackService.Pause", "position", pos, "sampleRate", rate)
 
 	err := s.player.Pause()
 	if err != nil {
 		return err
 	}
 
-	log.Debug("PlaybackService.Pause success")
 	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.paused",
 		Payload: domain.PlaybackEvent{
@@ -165,7 +155,6 @@ func (s *PlaybackService) Resume() error {
 	// Update position immediately after resume
 	s.player.UpdatePosition()
 
-	log.Debug("PlaybackService.Resume success")
 	s.broker.Publish(pubsub.Event[domain.PlaybackEvent]{
 		Type: "playback.resumed",
 		Payload: domain.PlaybackEvent{
@@ -351,25 +340,22 @@ func (s *PlaybackService) PlayDomainTrack(ctx context.Context, lib interface {
 				Error: err,
 			},
 		})
-		log.Error("playback.load_failed", "error", err)
+
 		return err
 	}
 
 	// Load the stream into the player
 	if err := s.LoadStream(stream, contentType); err != nil {
-		log.Error("failed to load stream", "err", err)
 		stream.Close()
 		return err
 	}
 
 	// Initialize and play
 	if err := s.Initialize(); err != nil {
-		log.Error("failed to initialize playback", "err", err)
 		return err
 	}
 
 	if err := s.Play(track); err != nil {
-		log.Error("failed to start playback", "err", err)
 		return err
 	}
 	return nil

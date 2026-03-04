@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/tui/styles"
@@ -26,7 +26,7 @@ func NewSearchComponent(ctx *app.AppContext) *SearchComponent {
 	ti := textinput.New()
 	ti.Placeholder = "Search albums, artists, playlists"
 	ti.CharLimit = 120
-	ti.Width = 48
+	ti.SetWidth(48)
 	ti.Blur() // Start blurred, focus when tab is active
 
 	return &SearchComponent{
@@ -46,7 +46,7 @@ func (s *SearchComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "enter":
 			s.PerformSearch()
@@ -61,7 +61,7 @@ func (s *SearchComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the search component.
-func (s *SearchComponent) View() string {
+func (s *SearchComponent) View() tea.View {
 	title := styles.TitleStyle.Render("Search")
 
 	// Render results
@@ -72,13 +72,13 @@ func (s *SearchComponent) View() string {
 		resultView = lipgloss.JoinVertical(lipgloss.Left, s.results...)
 	}
 
-	return lipgloss.JoinVertical(lipgloss.Left,
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
 		s.textInput.View(),
 		"",
 		resultView,
-	)
+	))
 }
 
 // SetSize sets the component's size.

@@ -1,8 +1,8 @@
 package components
 
 import (
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/tui/styles"
@@ -45,7 +45,7 @@ func (b *BaseListComponent) Init() tea.Cmd {
 // Update processes messages and updates the list
 func (b *BaseListComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Only process key messages when focused
-	if _, ok := msg.(tea.KeyMsg); ok && !b.focused {
+	if _, ok := msg.(tea.KeyPressMsg); ok && !b.focused {
 		return b, nil
 	}
 
@@ -55,8 +55,8 @@ func (b *BaseListComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the list
-func (b *BaseListComponent) View() string {
-	return b.list.View()
+func (b *BaseListComponent) View() tea.View {
+	return tea.NewView(b.list.View())
 }
 
 // SetSize sets the dimensions of the list

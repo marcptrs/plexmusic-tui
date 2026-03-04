@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/charmbracelet/log/v2"
-
 	"github.com/faiface/beep"
 	"github.com/faiface/beep/effects"
 	"github.com/faiface/beep/flac"
@@ -317,7 +315,6 @@ func (p *Player) Play(track *domain.Track) error {
 
 	// Check if we need to re-initialize speaker for new sample rate
 	if p.sampleRate != p.initializedSampleRate {
-		log.Info("Re-initializing speaker for new sample rate", "old", p.initializedSampleRate, "new", p.sampleRate)
 		err := speaker.Init(p.sampleRate, p.sampleRate.N(time.Second/10))
 		if err != nil {
 			return fmt.Errorf("failed to re-initialize speaker: %w", err)
@@ -346,11 +343,9 @@ func (p *Player) Pause() error {
 	if p.ctrl == nil {
 		speaker.Unlock()
 		p.state = domain.PlaybackPaused
-		log.Debug("Player.Pause: ctrl is nil, pausing state only")
 		return nil
 	}
 	p.ctrl.Paused = true
-	log.Debug("Player.Pause: ctrl.Paused set to true")
 	speaker.Unlock()
 	p.state = domain.PlaybackPaused
 
@@ -367,11 +362,9 @@ func (p *Player) Resume() error {
 	if p.ctrl == nil {
 		speaker.Unlock()
 		p.state = domain.PlaybackPlaying
-		log.Debug("Player.Resume: ctrl is nil, setting state to Playing")
 		return nil
 	}
 	p.ctrl.Paused = false
-	log.Debug("Player.Resume: ctrl.Paused set to false")
 	speaker.Unlock()
 	p.state = domain.PlaybackPlaying
 

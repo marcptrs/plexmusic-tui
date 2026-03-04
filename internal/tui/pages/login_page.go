@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	log "github.com/charmbracelet/log/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/config"
@@ -58,14 +57,14 @@ func NewLoginPageWithConfig(
 	usernameInput.Placeholder = "Email or username"
 	usernameInput.Focus()
 	usernameInput.CharLimit = 100
-	usernameInput.Width = 40
+	usernameInput.SetWidth(40)
 
 	passwordInput := textinput.New()
 	passwordInput.Placeholder = "Password"
 	passwordInput.EchoMode = textinput.EchoPassword
 	passwordInput.EchoCharacter = '•'
 	passwordInput.CharLimit = 100
-	passwordInput.Width = 40
+	passwordInput.SetWidth(40)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -127,7 +126,7 @@ func (p *LoginPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		p.width = msg.Width
 		p.height = msg.Height
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		// If authenticating, ignore all input
 		if p.authenticating {
 			return p, nil
@@ -202,9 +201,9 @@ func (p *LoginPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the login page
-func (p *LoginPage) View() string {
+func (p *LoginPage) View() tea.View {
 	if p.width == 0 {
-		return ""
+		return tea.NewView("")
 	}
 
 	var s string
@@ -247,13 +246,13 @@ func (p *LoginPage) View() string {
 		s += p.help.View(p.keys)
 	}
 
-	return lipgloss.Place(
+	return tea.NewView(lipgloss.Place(
 		p.width,
 		p.height,
 		lipgloss.Center,
 		lipgloss.Center,
 		lipgloss.NewStyle().Padding(1, 2).Render(s),
-	)
+	))
 }
 
 // getInput returns the text input at the given index
@@ -353,7 +352,8 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 		if p.configMgr != nil {
 			p.configMgr.SetAuthToken(event.Token)
 			if err := p.configMgr.Save(); err != nil {
-				log.Warn("failed to save config", "error", err)
+				// TODO: Add logging
+				_ = err // satisfy linter
 			}
 		}
 
@@ -397,7 +397,8 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 						if newKey != lastServer {
 							p.configMgr.SetLastSelectedServer(newKey)
 							if err := p.configMgr.Save(); err != nil {
-								log.Warn("failed to save updated lastSelectedServer", "error", err)
+								// TODO: Add logging
+								_ = err // satisfy linter
 							}
 						}
 					}

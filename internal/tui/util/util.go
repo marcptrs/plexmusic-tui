@@ -1,16 +1,14 @@
 package util
 
 import (
-	log "github.com/charmbracelet/log/v2"
-
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 )
 
 // Model is the standard Bubble Tea model interface
 type Model interface {
 	Init() tea.Cmd
 	Update(tea.Msg) (tea.Model, tea.Cmd)
-	View() string
+	View() tea.View
 }
 
 // Sizeable interface for components that can be resized
@@ -44,7 +42,7 @@ type InfoMsg struct {
 
 // ReportError creates a command that reports an error to the TUI and logs it using charm log
 func ReportError(err error) tea.Cmd {
-	log.Error("Error reported", "error", err)
+	// TODO: Add logging
 	return CmdHandler(InfoMsg{Type: InfoTypeError, Msg: err.Error()})
 }
 

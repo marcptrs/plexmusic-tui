@@ -5,19 +5,18 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/help"
-	"github.com/charmbracelet/bubbles/spinner"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	log "github.com/charmbracelet/log/v2"
+	"charm.land/bubbles/v2/help"
+	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	domain "plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/http"
-	"plexmusic-tui/internal/logging"
 	"plexmusic-tui/internal/pubsub"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
@@ -29,18 +28,28 @@ import (
 const retroLogoVertical = `
 ██████╗ ██╗     ███████╗██╗  ██╗
 ██╔══██╗██║     ██╔════╝╚██╗██╔╝
-██████╔╝██║     █████╗   ╚███╔╝ 
-██╔═══╝ ██║     ██╔══╝   ██╔██╗ 
+██████╔╝██║     █████╗   ╚███╔╝
+██╔═══╝ ██║     ██╔══╝   ██╔██╗
 ██║     ███████╗███████╗██╔╝ ██╗
 ╚═╝     ╚══════╝╚══════╝╚═╝  ╚═╝
 
-███╗   ███╗██╗   ██╗███████╗██╗ ██████╗ 
-████╗ ████║██║   ██║██╔════╝██║██╔════╝ 
-██╔████╔██║██║   ██║███████╗██║██║      
-██║╚██╔╝██║██║   ██║╚════██║██║██║      
-██║ ╚═╝ ██║╚██████╔╝███████║██║╚██████╗ 
-╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝ ╚═════╝ 
+███╗   ███╗██╗   ██╗███████╗██╗ ██████╗
+████╗ ████║██║   ██║██╔════╝██║██╔════╝
+██╔████╔██║██║   ██║███████╗██║██║
+██║╚██╔╝██║██║   ██║╚════██║██║██║
+██║ ╚═╝ ██║╚██████╔╝███████║██║╚██████╗
+╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝ ╚═════╝
 `
+
+// getDebugDumpFilePath returns the path to the debug dump file
+func getDebugDumpFilePath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	logDir := filepath.Join(homeDir, ".config", "plexmusic-tui", "logs")
+	return filepath.Join(logDir, "debug_dump.log")
+}
 
 // LibraryPage handles the library browsing UI with tab navigation,
 // list rendering (Recently Added, Playlists), modal dialogs, and the
@@ -197,19 +206,6 @@ func (p *LibraryPage) Init() tea.Cmd {
 	if server.Port != "" {
 		baseURL = fmt.Sprintf("%s:%s", baseURL, server.Port)
 	}
-	log.Debug(
-		"LibraryPage: connecting to server",
-		"name",
-		server.Name,
-		"baseURL",
-		baseURL,
-		"scheme",
-		server.Scheme,
-		"host",
-		server.Host,
-		"port",
-		server.Port,
-	)
 
 	// Create (or reuse) library service and subscribe to events. This ensures we
 	// only fetch library content when we have the necessary server + token.
@@ -222,12 +218,8 @@ func (p *LibraryPage) Init() tea.Cmd {
 		}
 	} else {
 		// Update base URL and token to reflect current selected server.
-		if err := p.libSvc.SetBaseURL(baseURL); err != nil {
-			log.Warn("Failed to set base URL", "error", err)
-		}
-		if err := p.libSvc.SetToken(token); err != nil {
-			log.Warn("Failed to set authentication token", "error", err)
-		}
+		_ = p.libSvc.SetBaseURL(baseURL)
+		_ = p.libSvc.SetToken(token)
 	}
 	// Detect Plex Pass and sonic analysis availability and cache in coordinator
 	if p.appCtx != nil {
@@ -310,7 +302,6 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
 		p.height = msg.Height
-		log.Debug("LibraryPage: WindowSizeMsg", "width", p.width, "height", p.height)
 
 		// Resize lists and compute heights consistent with View().
 		usableWidth := p.width - 4
@@ -378,7 +369,6 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case PlayQueueRefreshMsg:
 		// Handle playQueue refresh result for station continuous playback
 		if msg.Err != nil {
-			log.Error("PlayQueue refresh failed", "err", msg.Err)
 			return p, nil
 		}
 
@@ -386,10 +376,6 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// We need to find any NEW tracks that aren't already in our queue and append them
 		currentQueue := p.appCtx.Content.Queue()
 		serverTracks := msg.Tracks
-
-		log.Debug("PlayQueue refresh received",
-			"currentQueueLen", len(currentQueue),
-			"serverTrackCount", len(serverTracks))
 
 		// Build a set of existing playQueueItemIDs for fast lookup
 		existingIDs := make(map[int]bool)
@@ -408,11 +394,6 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		if len(newTracks) > 0 {
-			log.Info("PlayQueue refreshed: found new tracks to append",
-				"currentQueueLen", len(currentQueue),
-				"serverTrackCount", len(serverTracks),
-				"newTracksCount", len(newTracks))
-
 			p.appCtx.Content.AppendToQueue(newTracks)
 			p.queueComponent.UpdateListFromCoordinator()
 
@@ -420,25 +401,17 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if activeQueue := p.appCtx.Content.ActivePlayQueue(); activeQueue != nil {
 				activeQueue.Version = msg.Version
 			}
-		} else {
-			log.Debug("PlayQueue refresh: no new tracks found")
 		}
 		return p, nil
 
 	case StationPlaybackStartedMsg:
 		// Handle station playback initialization result
-		log.Debug("StationPlaybackStartedMsg received",
-			"stationKey", msg.StationKey,
-			"trackCount", len(msg.Tracks),
-			"hasActiveQueue", msg.ActiveQueue != nil)
 		p.playbackInitializing = false
 		if msg.Err != nil {
-			log.Error("Station playback start failed", "stationKey", msg.StationKey, "err", msg.Err)
 			return p, nil
 		}
 
 		if len(msg.Tracks) == 0 {
-			log.Warn("Station playback: no tracks returned", "stationKey", msg.StationKey)
 			return p, nil
 		}
 
@@ -449,15 +422,8 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		// Set the active playQueue for continuous playback
 		if msg.ActiveQueue != nil {
-			log.Info("Station playback started",
-				"stationKey", msg.StationKey,
-				"playQueueID", msg.ActiveQueue.PlayQueueID,
-				"trackCount", len(msg.Tracks))
 			p.appCtx.Content.SetActivePlayQueue(msg.ActiveQueue)
 		} else {
-			log.Warn("Station playback started without activeQueue",
-				"stationKey", msg.StationKey,
-				"trackCount", len(msg.Tracks))
 			p.appCtx.Content.ClearActivePlayQueue()
 		}
 
@@ -508,14 +474,10 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case playbackAdvanceMsg:
 		// Check if this advance message is stale (a new track has started since it was scheduled)
 		if !p.lastTrackStarted.IsZero() && msg.scheduledAt.Before(p.lastTrackStarted) {
-			log.Debug("playbackAdvanceMsg: ignoring stale advance",
-				"scheduledAt", msg.scheduledAt,
-				"lastTrackStarted", p.lastTrackStarted)
 			return p, nil
 		}
 		// Also skip if a load failed (this check is redundant with lastLoadFailed but adds safety)
 		if p.lastLoadFailed {
-			log.Debug("playbackAdvanceMsg: ignoring due to lastLoadFailed")
 			p.lastLoadFailed = false
 			return p, nil
 		}
@@ -544,7 +506,7 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return p, nil
 
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return p.handleKeyMsg(msg)
 	case sonicDetectResultMsg:
 		if msg.ok {
@@ -566,8 +528,10 @@ func (p *LibraryPage) dumpPageView(label string) {
 	if !p.appCtx.View.DumpView() {
 		return
 	}
+	// Get debug dump file path
+	debugDumpPath := getDebugDumpFilePath()
 	f, err := os.OpenFile(
-		logging.GetDebugDumpFilePath(),
+		debugDumpPath,
 		os.O_APPEND|os.O_CREATE|os.O_WRONLY,
 		0o600,
 	)
@@ -576,7 +540,7 @@ func (p *LibraryPage) dumpPageView(label string) {
 	}
 	defer f.Close()
 	_, _ = fmt.Fprintf(f, "=== %s (%s) ===\n", label, time.Now().Format(time.RFC3339))
-	_, _ = fmt.Fprintf(f, "%s\n\n", p.View())
+	_, _ = fmt.Fprintf(f, "%s\n\n", p.View().Content)
 }
 
 // Close cancels subscriptions and releases resources.
@@ -663,7 +627,6 @@ func (p *LibraryPage) fetchLibraryHubs() tea.Cmd {
 		// Get the library section key
 		libs, _, err := p.libSvc.FetchLibraries(ctx)
 		if err != nil || len(libs) == 0 {
-			log.Debug("fetchLibraryHubs: no libraries available", "err", err)
 			return nil
 		}
 		sectionKey := libs[0].Key
@@ -671,11 +634,8 @@ func (p *LibraryPage) fetchLibraryHubs() tea.Cmd {
 		// Fetch all hubs for this library section
 		hubs, err := p.libSvc.FetchLibraryHubs(ctx, sectionKey)
 		if err != nil {
-			log.Debug("fetchLibraryHubs failed", "err", err)
 			return nil
 		}
-
-		log.Debug("fetchLibraryHubs success", "count", len(hubs))
 
 		// Convert and store in coordinator
 		if p.appCtx != nil {
@@ -702,7 +662,7 @@ func (p *LibraryPage) fetchLibraryHubs() tea.Cmd {
 						aa := app.Artist{Name: da.Title, Key: da.Key}
 						p.appCtx.Content.AddRecentlyPlayedArtist(aa)
 					}
-					log.Debug("Extracted recently played artists from hub", "count", len(h.Artists))
+
 					break
 				}
 			}
@@ -723,11 +683,8 @@ func (p *LibraryPage) fetchSessionHistory() tea.Cmd {
 		// Fetch last 50 history entries (enough to get recently played artists)
 		history, err := p.libSvc.FetchSessionHistory(ctx, 50)
 		if err != nil {
-			log.Debug("fetchSessionHistory failed", "err", err)
 			return nil
 		}
-
-		log.Debug("fetchSessionHistory success", "count", len(history))
 
 		// Extract unique artists from track history (in order of most recently played)
 		seen := make(map[string]bool)
@@ -771,7 +728,6 @@ func (p *LibraryPage) fetchSessionHistory() tea.Cmd {
 			for i := len(artists) - 1; i >= 0; i-- {
 				p.appCtx.Content.AddRecentlyPlayedArtist(artists[i])
 			}
-			log.Debug("Stored recently played artists", "count", len(artists))
 		}
 
 		return nil
@@ -787,11 +743,7 @@ func (p *LibraryPage) fetchMixesForYou() tea.Cmd {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
 		playlists, _, err := p.libSvc.FetchMixesForYou(ctx)
-		if err != nil {
-			log.Debug("fetchMixesForYou failed", "err", err)
-		} else {
-			log.Debug("fetchMixesForYou success", "count", len(playlists))
-		}
+		_ = err
 		// store results in coordinator for UI consumption
 		if p.appCtx != nil {
 			p.appCtx.Content.SetMixesForYou(playlists)
@@ -808,12 +760,7 @@ func (p *LibraryPage) fetchOnThisDay() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
-		albums, _, err := p.libSvc.FetchOnThisDay(ctx)
-		if err != nil {
-			log.Debug("fetchOnThisDay failed", "err", err)
-		} else {
-			log.Debug("fetchOnThisDay success", "count", len(albums))
-		}
+		albums, _, _ := p.libSvc.FetchOnThisDay(ctx)
 		if p.appCtx != nil {
 			p.appCtx.Content.SetOnThisDay(albums)
 		}
@@ -834,9 +781,8 @@ func (p *LibraryPage) fetchMoodStations() tea.Cmd {
 		// FetchMoodStation with empty station name will return all mood-like content
 		tracks, _, err := p.libSvc.FetchMoodStation(ctx, "", 20)
 		if err != nil {
-			log.Debug("fetchMoodStations failed", "err", err)
-		} else {
-			log.Debug("fetchMoodStations success", "count", len(tracks))
+			// TODO: Add logging
+			return nil
 		}
 		if p.appCtx != nil && len(tracks) > 0 {
 			p.appCtx.Content.SetMoodStations(tracks)
@@ -909,7 +855,6 @@ type StationPlaybackStartedMsg struct {
 
 // startStationPlaybackCmd returns a command to start station playback with continuous refresh support.
 func (p *LibraryPage) startStationPlaybackCmd(stationKey string) tea.Cmd {
-	log.Info("startStationPlaybackCmd called", "stationKey", stationKey)
 	if p.libSvc == nil {
 		return nil
 	}
@@ -920,15 +865,7 @@ func (p *LibraryPage) startStationPlaybackCmd(stationKey string) tea.Cmd {
 			ctx, cancel := context.WithTimeout(p.ctx, 15*time.Second)
 			defer cancel()
 			tracks, activeQueue, err := p.libSvc.StartStationPlayback(ctx, stationKey)
-			log.Info(
-				"StartStationPlayback completed",
-				"trackCount",
-				len(tracks),
-				"hasActiveQueue",
-				activeQueue != nil,
-				"err",
-				err,
-			)
+
 			return StationPlaybackStartedMsg{
 				Tracks:      tracks,
 				ActiveQueue: activeQueue,
@@ -971,7 +908,6 @@ func (p *LibraryPage) fetchLibraryStats() tea.Cmd {
 		// Let's try to get libraries from coordinator.
 		libs := p.appCtx.Session.Libraries()
 		if len(libs) == 0 {
-			log.Warn("fetchLibraryStats: No libraries available in coordinator")
 			return nil
 		}
 		// Use the first library for now (or selected if we had that concept fully wired)
@@ -981,26 +917,16 @@ func (p *LibraryPage) fetchLibraryStats() tea.Cmd {
 			idx = 0
 		}
 		key := libs[idx].Key
-		log.Debug("fetchLibraryStats: starting", "libraryKey", key)
 
 		ctx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 		defer cancel()
 
 		artists, albums, tracks, err := p.libSvc.FetchSectionCounts(ctx, key)
 		if err != nil {
-			log.Error("Failed to fetch library stats", "err", err)
 			// Return zero stats to clear loading state
 			return LibraryStatsMsg{Artists: 0, Albums: 0, Tracks: 0}
 		}
-		log.Debug(
-			"fetchLibraryStats: success",
-			"artists",
-			artists,
-			"albums",
-			albums,
-			"tracks",
-			tracks,
-		)
+
 		return LibraryStatsMsg{Artists: artists, Albums: albums, Tracks: tracks}
 	}
 }
@@ -1025,8 +951,6 @@ func (p *LibraryPage) fetchCoverArtCmd(path string) tea.Cmd {
 		}
 		img, err := p.libSvc.FetchImage(p.ctx, path)
 		if err != nil {
-			// Keep error logs
-			log.Error("failed to fetch cover art", "path", path, "err", err)
 			return nil
 		}
 		return CoverArtLoadedMsg{Image: img, Path: path}

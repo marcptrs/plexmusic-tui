@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"github.com/charmbracelet/bubbles/key"
-	tea "github.com/charmbracelet/bubbletea"
+	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/config"
@@ -85,7 +85,7 @@ func (a *AppModel) CurrentPageID() PageID {
 func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// Handle key messages at the app level first to guarantee global keys
 	// are honored regardless of page/input interception.
-	if km, ok := msg.(tea.KeyMsg); ok {
+	if km, ok := msg.(tea.KeyPressMsg); ok {
 		if key.Matches(km, a.keyMap.Quit) {
 			// Graceful shutdown: close router (which closes current page),
 			// then instruct Bubble Tea to quit.
@@ -154,9 +154,10 @@ func (a *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View delegates rendering to the router.
-func (a *AppModel) View() string {
+func (a *AppModel) View() tea.View {
 	if a.router == nil {
-		return ""
+		return tea.NewView("")
 	}
-	return a.router.View()
+	content := a.router.View()
+	return tea.NewView(content)
 }

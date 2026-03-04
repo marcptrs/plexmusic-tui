@@ -14,8 +14,6 @@ import (
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	"plexmusic-tui/internal/tui/pages"
-
-	log "github.com/charmbracelet/log/v2"
 )
 
 // AppServices bundles the core application services
@@ -233,7 +231,6 @@ func provideApp(
 		app.eg.Go(func() error {
 			return mediaControl.Start(app.ctx)
 		})
-		log.Info("Media control integration enabled (daemon)")
 	}
 
 	return app

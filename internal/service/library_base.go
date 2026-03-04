@@ -13,8 +13,6 @@ import (
 	"strings"
 	"sync"
 
-	log "github.com/charmbracelet/log/v2"
-
 	"plexmusic-tui/internal/domain"
 )
 
@@ -234,7 +232,6 @@ func NewLibraryService(baseURL, token string, factory domain.HTTPClientFactory) 
 // FetchLibraries fetches the list of music libraries from the Plex server.
 func (s *LibraryService) FetchLibraries(ctx context.Context) ([]domain.MusicLibrary, int, error) {
 	endpoint := fmt.Sprintf("%s/library/sections?type=8", s.baseURL)
-	log.Debug("FetchLibraries", "endpoint", endpoint)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create request: %w", err)
@@ -244,11 +241,9 @@ func (s *LibraryService) FetchLibraries(ctx context.Context) ([]domain.MusicLibr
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		log.Error("FetchLibraries: HTTP request failed", "endpoint", endpoint, "error", err)
 		return nil, 0, fmt.Errorf("failed to fetch libraries: %w", err)
 	}
 	defer resp.Body.Close()
-	log.Debug("LibraryService.FetchLibraries", "status", resp.StatusCode)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -264,13 +259,6 @@ func (s *LibraryService) FetchLibraries(ctx context.Context) ([]domain.MusicLibr
 	var container domain.PlexMediaContainer
 	// Try direct decoding of the typical Plex MediaContainer structure.
 	if err := decodePlexMediaContainer(body, &container); err != nil {
-		log.Error(
-			"FetchLibraries: failed to decode",
-			"error",
-			err,
-			"body_preview",
-			string(body[:min(len(body), 500)]),
-		)
 		return nil, 0, fmt.Errorf("failed to decode libraries: %w", err)
 	}
 
@@ -290,7 +278,6 @@ func (s *LibraryService) FetchLibraries(ctx context.Context) ([]domain.MusicLibr
 			libraries = append(libraries, dir)
 		}
 	}
-	log.Debug("FetchLibraries: success", "count", len(libraries), "totalSize", container.TotalSize)
 	return libraries, container.TotalSize, nil
 }
 
@@ -313,7 +300,6 @@ func (s *LibraryService) FetchAlbums(
 // FetchRecentlyAdded fetches recently added albums for the server.
 func (s *LibraryService) FetchRecentlyAdded(ctx context.Context) ([]domain.Album, int, error) {
 	endpoint := fmt.Sprintf("%s/library/recentlyAdded?type=9", s.baseURL)
-	log.Debug("FetchRecentlyAdded", "endpoint", endpoint)
 	return s.fetchAlbums(ctx, endpoint)
 }
 
@@ -331,7 +317,6 @@ func (s *LibraryService) fetchAlbums(
 	ctx context.Context,
 	endpoint string,
 ) ([]domain.Album, int, error) {
-	log.Debug("fetchAlbums: starting request", "endpoint", endpoint)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create request: %w", err)
@@ -341,7 +326,6 @@ func (s *LibraryService) fetchAlbums(
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		log.Error("fetchAlbums: HTTP request failed", "endpoint", endpoint, "error", err)
 		return nil, 0, fmt.Errorf("failed to fetch albums: %w", err)
 	}
 	defer resp.Body.Close()
@@ -368,7 +352,6 @@ func (s *LibraryService) fetchAlbums(
 // FetchPlaylists fetches all playlists from the server.
 func (s *LibraryService) FetchPlaylists(ctx context.Context) ([]domain.Playlist, int, error) {
 	endpoint := s.baseURL + "/playlists"
-	log.Debug("FetchPlaylists", "endpoint", endpoint)
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create request: %w", err)
@@ -378,7 +361,6 @@ func (s *LibraryService) FetchPlaylists(ctx context.Context) ([]domain.Playlist,
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		log.Error("FetchPlaylists: HTTP request failed", "endpoint", endpoint, "error", err)
 		return nil, 0, fmt.Errorf("failed to fetch playlists: %w", err)
 	}
 	defer resp.Body.Close()
@@ -434,10 +416,7 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 		// Attempt to resolve a section/ station key to a metadata key first
 		if strings.Contains(pathOnly, "/library/sections/") && strings.Contains(pathOnly, "/stations/") {
 			if resolved, rerr := s.resolveStationMetadataKey(ctx, pathOnly); rerr == nil && resolved != "" {
-				log.Debug("FetchTracks: resolved station key to metadata key", "orig", pathOnly, "resolved", resolved)
 				pathOnly = resolved
-			} else if rerr != nil {
-				log.Debug("FetchTracks: failed to resolve station metadata key", "orig", pathOnly, "err", rerr)
 			}
 		}
 
@@ -478,17 +457,6 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 		params.Set("includeGeolocation", "1")
 
 		playQueueURL := playQueueEndpoint + "?" + params.Encode() + "&uri=" + url.QueryEscape(stationURI)
-		log.Debug(
-			"FetchTracks: creating playQueue for station",
-			"pathOnly",
-			pathOnly,
-			"machineID",
-			machineID,
-			"stationURI",
-			stationURI,
-			"endpoint",
-			playQueueURL,
-		)
 
 		req, rerr := http.NewRequestWithContext(ctx, "POST", playQueueURL, nil)
 		if rerr != nil {
@@ -503,11 +471,6 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 
 		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 			body, _ := io.ReadAll(resp.Body)
-			preview := string(body)
-			if len(preview) > 200 {
-				preview = preview[:200]
-			}
-			log.Debug("FetchTracks: playQueue creation failed", "status", resp.StatusCode, "body_preview", preview)
 			return nil, 0, fmt.Errorf("playQueue creation returned status %d: %s", resp.StatusCode, string(body))
 		}
 
@@ -516,30 +479,16 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 			return nil, 0, fmt.Errorf("failed to read playQueue response: %w", rerr)
 		}
 
-		preview := string(body)
-		if len(preview) > 300 {
-			preview = preview[:300]
-		}
-		log.Debug("FetchTracks: playQueue created", "body_len", len(body), "body_preview", preview)
-
 		var container domain.PlexTrackContainer
 		if derr := decodePlexTrackContainer(body, &container); derr != nil {
 			return nil, 0, fmt.Errorf("failed to decode playQueue tracks: %w", derr)
 		}
-		log.Debug(
-			"FetchTracks: playQueue decoded",
-			"trackCount",
-			len(container.Metadata),
-			"totalSize",
-			container.TotalSize,
-		)
 
 		return container.Metadata, container.TotalSize, nil
 	}
 
 	// Attempt primary fetch
 	tracks, totalSize, err := func() ([]domain.Track, int, error) {
-		log.Info("FetchTracks: fetching", "endpoint", endpoint)
 		// Use endpoint variable instead of constructing from baseURL
 		req, rerr := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 		if rerr != nil {
@@ -553,11 +502,6 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			preview := string(body)
-			if len(preview) > 200 {
-				preview = preview[:200]
-			}
-			log.Debug("FetchTracks: non-OK status", "status", resp.StatusCode, "body_preview", preview)
 			return nil, 0, fmt.Errorf(
 				"server returned status %d: %s",
 				resp.StatusCode,
@@ -569,16 +513,10 @@ func (s *LibraryService) FetchTracks(ctx context.Context, key string) ([]domain.
 		if rerr != nil {
 			return nil, 0, fmt.Errorf("failed to read tracks response: %w", rerr)
 		}
-		preview := string(body)
-		if len(preview) > 300 {
-			preview = preview[:300]
-		}
-		log.Debug("FetchTracks: response received", "body_len", len(body), "body_preview", preview)
 		var container domain.PlexTrackContainer
 		if derr := decodePlexTrackContainer(body, &container); derr != nil {
 			return nil, 0, fmt.Errorf("failed to decode tracks: %w", derr)
 		}
-		log.Debug("FetchTracks: decoded", "trackCount", len(container.Metadata), "totalSize", container.TotalSize)
 		return container.Metadata, container.TotalSize, nil
 	}()
 
@@ -649,17 +587,8 @@ func (s *LibraryService) BuildStreamURL(track *domain.Track) (string, error) {
 	// Prefer the full media part key
 	if len(track.Media) > 0 && len(track.Media[0].Part) > 0 {
 		key = track.Media[0].Part[0].Key
-		log.Debug("BuildStreamURL: using Media.Part.Key",
-			"title", track.Title,
-			"key", key,
-			"playQueueItemID", track.PlayQueueItemID)
 	} else {
 		key = track.Key
-		log.Debug("BuildStreamURL: using track.Key fallback (no Media.Part)",
-			"title", track.Title,
-			"key", key,
-			"playQueueItemID", track.PlayQueueItemID,
-			"mediaLen", len(track.Media))
 	}
 
 	if key == "" {
@@ -688,14 +617,10 @@ func (s *LibraryService) FetchStream(
 ) (io.ReadCloser, string, error) {
 	// If Media info is missing, try to enrich the track details
 	if len(track.Media) == 0 && track.Key != "" {
-		log.Debug("FetchStream: Media info missing, fetching full track details", "key", track.Key)
 		tracks, _, err := s.FetchTracks(ctx, track.Key)
 		if err == nil && len(tracks) > 0 {
 			// Use the enriched track
-			log.Debug("FetchStream: Enriched track details", "media_count", len(tracks[0].Media))
 			track = &tracks[0]
-		} else {
-			log.Warn("FetchStream: Failed to enrich track details", "error", err)
 		}
 	}
 
@@ -722,7 +647,6 @@ func (s *LibraryService) FetchStream(
 
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		log.Error("FetchStream failed", "url", urlStr, "status", resp.StatusCode, "track", track.Title)
 		return nil, "", fmt.Errorf("failed to fetch stream: status %d", resp.StatusCode)
 	}
 
@@ -962,19 +886,8 @@ func (s *LibraryService) FetchSectionCounts(
 		}
 		var container domain.PlexMediaContainer
 		if err := decodePlexMediaContainer(body, &container); err != nil {
-			// Log the body for debugging if decode fails
-			log.Debug("Failed to decode stats response", "type", typeID, "body", string(body))
 			return 0, err
 		}
-		log.Debug(
-			"fetchCount success",
-			"type",
-			typeID,
-			"totalSize",
-			container.TotalSize,
-			"body_len",
-			len(body),
-		)
 		return container.TotalSize, nil
 	}
 
@@ -991,30 +904,27 @@ func (s *LibraryService) FetchSectionCounts(
 	go func() {
 		defer wg.Done()
 		var err error
-		log.Debug("FetchSectionCounts: fetching artists")
 		artists, err = fetchCount(8)
 		if err != nil {
-			log.Error("Failed to fetch artist count", "err", err)
+			_ = err // TODO: log error
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		var err error
-		log.Debug("FetchSectionCounts: fetching albums")
 		albums, err = fetchCount(9)
 		if err != nil {
-			log.Error("Failed to fetch album count", "err", err)
+			_ = err // TODO: log error
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
 		var err error
-		log.Debug("FetchSectionCounts: fetching tracks")
 		tracks, err = fetchCount(10)
 		if err != nil {
-			log.Error("Failed to fetch track count", "err", err)
+			_ = err // TODO: log error
 		}
 	}()
 
@@ -1117,42 +1027,18 @@ func (s *LibraryService) HasSonicAnalysis(ctx context.Context) (bool, error) {
 						childBody, _ := io.ReadAll(childResp.Body)
 						childResp.Body.Close()
 						if childResp.StatusCode == http.StatusOK {
-							// Log a preview of the response to understand the format
-							preview := string(childBody)
-							if len(preview) > 1500 {
-								preview = preview[:1500]
-							}
-							log.Debug("HasSonicAnalysis: children response", "album", album.Title, "preview", preview)
-
 							var childContainer domain.PlexTrackContainer
 							if err := decodePlexTrackContainer(childBody, &childContainer); err == nil {
-								log.Debug(
-									"HasSonicAnalysis: decoded tracks",
-									"album",
-									album.Title,
-									"count",
-									len(childContainer.Metadata),
-								)
 								for _, track := range childContainer.Metadata {
-									log.Debug(
-										"HasSonicAnalysis: track info",
-										"title",
-										track.Title,
-										"hasSonic",
-										track.HasSonicAnalysis,
-										"analysisVersion",
-										track.MusicAnalysisVersion,
-									)
 									if track.HasSonicAnalysis || track.MusicAnalysisVersion > 0 {
-										log.Debug("HasSonicAnalysis: found sonic analysis", "track", track.Title)
 										return true, nil
 									}
 								}
 							} else {
-								log.Debug("HasSonicAnalysis: failed to decode children", "album", album.Title, "err", err)
+								_ = err // TODO: log error
 							}
 						} else {
-							log.Debug("HasSonicAnalysis: children request failed", "album", album.Title, "status", childResp.StatusCode)
+							_ = err // TODO: log error
 						}
 						checked++
 					}
@@ -1306,13 +1192,6 @@ func (s *LibraryService) FetchSonicallySimilarTracks(
 		}
 		var container domain.PlexTrackContainer
 		if err := decodePlexTrackContainer(body, &container); err != nil {
-			log.Debug(
-				"FetchSonicallySimilarTracks: failed to decode response",
-				"endpoint",
-				endpoint,
-				"error",
-				err.Error(),
-			)
 			continue
 		}
 		combined = append(combined, container.Metadata...)
@@ -1402,20 +1281,6 @@ func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string
 
 	var hubs []domain.Hub
 	for _, rawHub := range hubResponse.MediaContainer.Hub {
-		log.Debug(
-			"FetchLibraryHubs: found hub",
-			"identifier",
-			rawHub.HubIdentifier,
-			"title",
-			rawHub.Title,
-			"context",
-			rawHub.Context,
-			"type",
-			rawHub.Type,
-			"size",
-			rawHub.Size,
-		)
-
 		hub := domain.Hub{
 			HubIdentifier: rawHub.HubIdentifier,
 			Title:         rawHub.Title,
@@ -1435,17 +1300,6 @@ func (s *LibraryService) FetchLibraryHubs(ctx context.Context, sectionKey string
 				Key          string `json:"key"`
 			}
 			if err := json.Unmarshal(rawItem, &itemType); err == nil {
-				log.Debug(
-					"FetchLibraryHubs: parsing item",
-					"type",
-					itemType.Type,
-					"playlistType",
-					itemType.PlaylistType,
-					"title",
-					itemType.Title,
-					"key",
-					itemType.Key,
-				)
 				if itemType.PlaylistType != "" || itemType.Type == "playlist" {
 					var pl domain.Playlist
 					if err := json.Unmarshal(rawItem, &pl); err == nil {
@@ -1514,19 +1368,6 @@ func (s *LibraryService) FetchMixesForYou(ctx context.Context) ([]domain.Playlis
 	// Find playlists/mixes from the hubs that are stations or mixes
 	var playlists []domain.Playlist
 	for _, hub := range hubs {
-		log.Debug(
-			"FetchMixesForYou: evaluating hub",
-			"identifier",
-			hub.HubIdentifier,
-			"title",
-			hub.Title,
-			"context",
-			hub.Context,
-			"type",
-			hub.Type,
-			"playlists",
-			len(hub.Playlists),
-		)
 		isStation := strings.Contains(strings.ToLower(hub.Context), "station") ||
 			strings.Contains(strings.ToLower(hub.HubIdentifier), "station") ||
 			strings.Contains(strings.ToLower(hub.Title), "station") ||
@@ -1569,17 +1410,6 @@ func (s *LibraryService) FetchOnThisDay(ctx context.Context) ([]domain.Album, in
 	// Find "on this day" hub - look for identifier containing "onthisday", "history", or related terms
 	var albums []domain.Album
 	for _, hub := range hubs {
-		log.Debug(
-			"FetchOnThisDay: evaluating hub",
-			"identifier",
-			hub.HubIdentifier,
-			"title",
-			hub.Title,
-			"context",
-			hub.Context,
-			"albums",
-			len(hub.Albums),
-		)
 		lowerID := strings.ToLower(hub.HubIdentifier)
 		lowerTitle := strings.ToLower(hub.Title)
 		lowerContext := strings.ToLower(hub.Context)
@@ -1618,22 +1448,6 @@ func (s *LibraryService) FetchMoodStation(ctx context.Context, station string, l
 	// Find mood/genre station hubs
 	var tracks []domain.Track
 	for _, hub := range hubs {
-		log.Debug(
-			"FetchMoodStation: evaluating hub",
-			"station",
-			station,
-			"identifier",
-			hub.HubIdentifier,
-			"title",
-			hub.Title,
-			"context",
-			hub.Context,
-			"tracks",
-			len(hub.Tracks),
-			"playlists",
-			len(hub.Playlists),
-		)
-
 		// If station is empty, collect from all mood/genre-like hubs
 		if station == "" {
 			// Look for mood, genre, or similar content hubs
@@ -1712,11 +1526,6 @@ func (s *LibraryService) RefreshPlayQueue(
 
 	endpoint := fmt.Sprintf("%s/playQueues/%d?%s", s.baseURL, playQueueID, params.Encode())
 
-	log.Debug("RefreshPlayQueue: fetching playQueue with center window",
-		"playQueueID", playQueueID,
-		"center", selectedItemID,
-		"endpoint", endpoint)
-
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to create playQueue refresh request: %w", err)
@@ -1730,12 +1539,6 @@ func (s *LibraryService) RefreshPlayQueue(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		preview := string(body)
-		if len(preview) > 200 {
-			preview = preview[:200]
-		}
-		log.Debug("RefreshPlayQueue: non-OK status", "status", resp.StatusCode, "body_preview", preview)
 		return nil, 0, fmt.Errorf("playQueue refresh returned status %d", resp.StatusCode)
 	}
 
@@ -1744,27 +1547,9 @@ func (s *LibraryService) RefreshPlayQueue(
 		return nil, 0, fmt.Errorf("failed to read playQueue response: %w", err)
 	}
 
-	preview := string(body)
-	if len(preview) > 300 {
-		preview = preview[:300]
-	}
-	log.Debug("RefreshPlayQueue: response received", "body_len", len(body), "body_preview", preview)
-
 	var container domain.PlexTrackContainer
 	if err := decodePlexTrackContainer(body, &container); err != nil {
 		return nil, 0, fmt.Errorf("failed to decode playQueue tracks: %w", err)
-	}
-
-	log.Debug("RefreshPlayQueue: decoded",
-		"trackCount", len(container.Metadata),
-		"playQueueVersion", container.PlayQueueVersion)
-
-	// Debug: log the first track's playQueueItemID to verify parsing
-	if len(container.Metadata) > 0 {
-		log.Debug("RefreshPlayQueue: first track details",
-			"title", container.Metadata[0].Title,
-			"playQueueItemID", container.Metadata[0].PlayQueueItemID,
-			"ratingKey", container.Metadata[0].RatingKey)
 	}
 
 	return container.Metadata, container.PlayQueueVersion, nil
@@ -1817,11 +1602,6 @@ func (s *LibraryService) StartStationPlayback(
 	params.Set("includeGeolocation", "1")
 
 	playQueueURL := playQueueEndpoint + "?" + params.Encode() + "&uri=" + url.QueryEscape(stationURI)
-	log.Debug("StartStationPlayback: creating playQueue",
-		"stationKey", stationKey,
-		"machineID", machineID,
-		"stationURI", stationURI,
-		"endpoint", playQueueURL)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", playQueueURL, nil)
 	if err != nil {
@@ -1837,11 +1617,6 @@ func (s *LibraryService) StartStationPlayback(
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		preview := string(body)
-		if len(preview) > 200 {
-			preview = preview[:200]
-		}
-		log.Debug("StartStationPlayback: playQueue creation failed", "status", resp.StatusCode, "body_preview", preview)
 		return nil, nil, fmt.Errorf("playQueue creation returned status %d: %s", resp.StatusCode, string(body))
 	}
 
@@ -1850,28 +1625,9 @@ func (s *LibraryService) StartStationPlayback(
 		return nil, nil, fmt.Errorf("failed to read playQueue response: %w", err)
 	}
 
-	preview := string(body)
-	if len(preview) > 1000 {
-		preview = preview[:1000]
-	}
-	log.Debug("StartStationPlayback: playQueue created", "body_len", len(body), "body_preview", preview)
-
 	var container domain.PlexTrackContainer
 	if err := decodePlexTrackContainer(body, &container); err != nil {
 		return nil, nil, fmt.Errorf("failed to decode playQueue tracks: %w", err)
-	}
-
-	log.Info("StartStationPlayback: playQueue decoded",
-		"trackCount", len(container.Metadata),
-		"playQueueID", container.PlayQueueID,
-		"playQueueVersion", container.PlayQueueVersion)
-
-	// Debug: log the first track's playQueueItemID to verify parsing
-	if len(container.Metadata) > 0 {
-		log.Debug("StartStationPlayback: first track details",
-			"title", container.Metadata[0].Title,
-			"playQueueItemID", container.Metadata[0].PlayQueueItemID,
-			"ratingKey", container.Metadata[0].RatingKey)
 	}
 
 	// Create the ActivePlayQueue for tracking
@@ -1888,7 +1644,6 @@ func (s *LibraryService) StartStationPlayback(
 // limit: number of history entries to return (0 = all)
 func (s *LibraryService) FetchSessionHistory(ctx context.Context, limit int) ([]domain.HistoryEntry, error) {
 	endpoint := fmt.Sprintf("%s/status/sessions/history/all", s.baseURL)
-	log.Debug("FetchSessionHistory", "endpoint", endpoint, "limit", limit)
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
@@ -1906,7 +1661,6 @@ func (s *LibraryService) FetchSessionHistory(ctx context.Context, limit int) ([]
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		log.Error("FetchSessionHistory: HTTP request failed", "endpoint", endpoint, "error", err)
 		return nil, fmt.Errorf("failed to fetch session history: %w", err)
 	}
 	defer resp.Body.Close()
@@ -1926,7 +1680,6 @@ func (s *LibraryService) FetchSessionHistory(ctx context.Context, limit int) ([]
 	if err := json.Unmarshal(body, &container); err != nil {
 		// Fall back to XML parsing (older Plex servers or explicit XML requests)
 		// Note: XML parsing would require encoding/xml package
-		log.Debug("FetchSessionHistory: JSON decode failed, trying XML", "error", err)
 		return nil, fmt.Errorf("failed to decode history response: %w", err)
 	}
 
@@ -1936,6 +1689,5 @@ func (s *LibraryService) FetchSessionHistory(ctx context.Context, limit int) ([]
 	allEntries = append(allEntries, container.Video...)
 	allEntries = append(allEntries, container.Metadata...)
 
-	log.Debug("FetchSessionHistory: success", "totalEntries", len(allEntries))
 	return allEntries, nil
 }

@@ -15,9 +15,7 @@ import (
 	"sync"
 	"time"
 
-	log "github.com/charmbracelet/log/v2"
-
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/disintegration/imaging"
 
 	"plexmusic-tui/internal/cache"
@@ -394,7 +392,7 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int, contentH
 	// explicit and easier to tune for seam/anti-alias artifacts.
 	pixelPerCell := pixelPerCellKitty
 	// Use cached resized PNG if available, otherwise encode and cache.
-	imageData, pixelW, pixelH, err := r.getOrEncodePng(
+	imageData, _, _, err := r.getOrEncodePng(
 		contentHash,
 		img,
 		domain.ProtocolKitty,
@@ -415,23 +413,6 @@ func (r *Renderer) renderImageKitty(img image.Image, width, height int, contentH
 	encoded := base64.StdEncoding.EncodeToString(imageData)
 
 	var output strings.Builder
-	if r.debug {
-		log.Debug(
-			"KittyRender",
-			"charW",
-			width,
-			"charH",
-			height,
-			"pixelW",
-			pixelW,
-			"pixelH",
-			pixelH,
-			"resizedW",
-			pixelW,
-			"resizedH",
-			pixelH,
-		)
-	}
 
 	// Step 1: Transmit image data to Kitty's memory (a=t for transmit only, not display)
 	chunkSize := 4096
@@ -505,19 +486,7 @@ func (r *Renderer) renderImageITerm2(img image.Image, width, height int, content
 	// Use cached resized PNG when available. getOrEncodePng returns encoded
 	// PNG as well as the resized pixel dimensions for logging.
 	enc, pixelW, pixelH, err := r.getOrEncodePng(contentHash, img, domain.ProtocolITerm2, width, height, pixelPerCell)
-	if r.debug {
-		log.Debug(
-			"ITerm2Render",
-			"charW",
-			width,
-			"charH",
-			height,
-			"pixelW",
-			pixelW,
-			"pixelH",
-			pixelH,
-		)
-	}
+
 	if err != nil {
 		return ""
 	}

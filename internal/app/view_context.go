@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
+	"charm.land/bubbles/v2/textinput"
 )
 
 // ViewContext holds pure UI state that pages and components use for rendering.
@@ -55,14 +55,14 @@ func NewViewContext() *ViewContext {
 	usernameInput.Placeholder = "Email or username"
 	usernameInput.Focus()
 	usernameInput.CharLimit = 100
-	usernameInput.Width = 40
+	usernameInput.SetWidth(40)
 
 	passwordInput := textinput.New()
 	passwordInput.Placeholder = "Password"
 	passwordInput.EchoMode = textinput.EchoPassword
 	passwordInput.EchoCharacter = '•'
 	passwordInput.CharLimit = 100
-	passwordInput.Width = 40
+	passwordInput.SetWidth(40)
 
 	return &ViewContext{
 		sessionState:  LoginView,

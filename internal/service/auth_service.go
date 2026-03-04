@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 
-	log "github.com/charmbracelet/log/v2"
-
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
 )
@@ -41,7 +39,6 @@ func (s *AuthService) AuthenticateUser(
 	}
 	if err := creds.Validate(); err != nil {
 		validationErr := domain.ValidationErrorMessage(err)
-		log.Warn("Credentials validation failed", "error", validationErr)
 		return "", ErrValidation{Message: validationErr}
 	}
 
@@ -82,7 +79,6 @@ func (s *AuthService) FetchServers(ctx context.Context, token string) ([]domain.
 		// caller has intentionally abandoned the work (e.g., the page was closed).
 		if errors.Is(err, context.Canceled) {
 			// Debug: request cancelled intentionally (page closed / user navigated away).
-			log.Debug("AuthService.FetchServers: context canceled", "error", err)
 			return nil, err
 		}
 
@@ -91,7 +87,6 @@ func (s *AuthService) FetchServers(ctx context.Context, token string) ([]domain.
 		if errors.Is(err, context.DeadlineExceeded) {
 			// Deadline exceeded is worth recording as a warning so we can
 			// distinguish timeouts vs. other failures during diagnostics.
-			log.Warn("AuthService.FetchServers: deadline exceeded", "error", err)
 			s.broker.Publish(pubsub.Event[domain.AuthEvent]{
 				Type: "servers.fetch_failed",
 				Payload: domain.AuthEvent{
@@ -103,7 +98,6 @@ func (s *AuthService) FetchServers(ctx context.Context, token string) ([]domain.
 		}
 
 		// All other errors are actionable; log and publish as a failed fetch.
-		log.Error("AuthService.FetchServers: error", "error", err)
 		s.broker.Publish(pubsub.Event[domain.AuthEvent]{
 			Type: "servers.fetch_failed",
 			Payload: domain.AuthEvent{

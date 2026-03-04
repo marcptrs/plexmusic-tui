@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/tui/styles"
@@ -33,7 +33,7 @@ type HomeComponent struct {
 
 // NewHomeComponent creates a new scrollable home component
 func NewHomeComponent(ctx *app.AppContext) *HomeComponent {
-	vp := viewport.New(80, 20)
+	vp := viewport.New(viewport.WithWidth(80), viewport.WithHeight(20))
 
 	return &HomeComponent{
 		ctx:         ctx,
@@ -53,7 +53,7 @@ func (c *HomeComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "up", "k":
 			if c.selectedIdx > 0 {
@@ -85,15 +85,15 @@ func (c *HomeComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return c, cmd
 }
 
-func (c *HomeComponent) View() string {
-	return c.viewport.View()
+func (c *HomeComponent) View() tea.View {
+	return tea.NewView(c.viewport.View())
 }
 
 func (c *HomeComponent) SetSize(width, height int) {
 	c.width = width
 	c.height = height
-	c.viewport.Width = width
-	c.viewport.Height = height
+	c.viewport.SetWidth(width)
+	c.viewport.SetHeight(height)
 	c.updateContent()
 }
 
@@ -312,8 +312,8 @@ func (c *HomeComponent) ensureVisible() {
 	}
 
 	// Scroll viewport to show selected line
-	viewStart := c.viewport.YOffset
-	viewEnd := viewStart + c.viewport.Height
+	viewStart := c.viewport.YOffset()
+	viewEnd := viewStart + c.viewport.Height()
 
 	if linePos < viewStart {
 		// When scrolling up, show the section header if we're at the first item of a section
@@ -324,6 +324,6 @@ func (c *HomeComponent) ensureVisible() {
 			c.viewport.SetYOffset(linePos)
 		}
 	} else if linePos >= viewEnd-1 {
-		c.viewport.SetYOffset(linePos - c.viewport.Height + 2)
+		c.viewport.SetYOffset(linePos - c.viewport.Height() + 2)
 	}
 }

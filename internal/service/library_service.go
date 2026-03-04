@@ -3,8 +3,6 @@ package service
 import (
 	"context"
 
-	log "github.com/charmbracelet/log/v2"
-
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
 )
@@ -160,7 +158,6 @@ func (s *LibraryServiceWithEvents) FetchTracks(
 		return nil, 0, err
 	}
 
-	log.Info("LibraryServiceWithEvents: publishing tracks.loaded", "key", key, "trackCount", len(tracks))
 	s.broker.Publish(pubsub.Event[domain.LibraryEvent]{
 		Type: "tracks.loaded",
 		Payload: domain.LibraryEvent{

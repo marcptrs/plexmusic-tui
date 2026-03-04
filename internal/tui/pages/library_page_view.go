@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	domain "plexmusic-tui/internal/domain"
@@ -15,7 +16,7 @@ import (
 // View renders the library page using a tabbed layout. It includes a nav pane,
 // main content pane, and a detail/now-playing pane. When the queue is visible,
 // a modal overlay is displayed.
-func (p *LibraryPage) View() string {
+func (p *LibraryPage) View() tea.View {
 	// Ensure we have width/height for layout calculations. If the page hasn't
 	// received a WindowSizeMsg yet (width/height == 0) fall back to either the
 	// coordinator-provided dimensions or to pragmatic defaults so we can render
@@ -57,15 +58,13 @@ func (p *LibraryPage) View() string {
 		content := styles.BlurredStyle.Render(msg)
 		help := styles.HelpStyle.Render("Esc: Server Selection • Ctrl+C: Quit")
 
-		return lipgloss.Place(
+		return tea.NewView(lipgloss.Place(
 			p.width,
 			p.height,
 			lipgloss.Center,
 			lipgloss.Center,
-			lipgloss.NewStyle().
-				Padding(1, 2).
-				Render(lipgloss.JoinVertical(lipgloss.Center, title, "", content, "", help)),
-		)
+			lipgloss.NewStyle().Padding(1, 2).Render(lipgloss.JoinVertical(lipgloss.Center, title, "", content, "", help)),
+		))
 	}
 
 	// Split the main layout into two panes: left controlled by tabs (contentWidth)
@@ -128,7 +127,8 @@ func (p *LibraryPage) View() string {
 			} else {
 				p.homeComponent.SetSize(leftWidth, listHeight)
 				p.homeComponent.RefreshFromCoordinator()
-				leftContent = p.homeComponent.View()
+				leftView := p.homeComponent.View()
+				leftContent = leftView.Content
 			}
 		}
 	case app.LibraryTab:
@@ -147,10 +147,12 @@ func (p *LibraryPage) View() string {
 		leftContent = p.renderQueue(leftWidth)
 	case app.SearchTab:
 		p.searchComponent.SetSize(leftWidth, listHeight)
-		leftContent = p.searchComponent.View()
+		searchView := p.searchComponent.View()
+		leftContent = searchView.Content
 	case app.SettingsTab:
 		p.settingsComponent.SetSize(leftWidth, listHeight)
-		leftContent = p.settingsComponent.View()
+		settingsView := p.settingsComponent.View()
+		leftContent = settingsView.Content
 	default:
 		leftContent = p.renderRecentlyAdded(leftWidth)
 	}
@@ -180,7 +182,8 @@ func (p *LibraryPage) View() string {
 		} else {
 			p.homeComponent.SetSize(rightWidth, listHeight)
 			p.homeComponent.RefreshFromCoordinator()
-			rightPaneContent = p.homeComponent.View()
+			homeView := p.homeComponent.View()
+			rightPaneContent = homeView.Content
 		}
 	} else {
 		rightPaneContent = p.renderQueue(rightWidth)
@@ -226,22 +229,22 @@ func (p *LibraryPage) View() string {
 
 		// Create a shimmer effect by cycling through colors
 		// Use multiple shades of blue and cyan to create a wave effect
-		colors := []lipgloss.Color{
-			lipgloss.Color("33"), // Dark blue
-			lipgloss.Color("39"), // Blue (primary)
-			lipgloss.Color("45"), // Bright cyan
-			lipgloss.Color("51"), // Cyan
-			lipgloss.Color("87"), // Light cyan
-			lipgloss.Color("51"), // Cyan
-			lipgloss.Color("45"), // Bright cyan
-			lipgloss.Color("39"), // Blue (primary)
+		colors := []string{
+			"33", // Dark blue
+			"39", // Blue (primary)
+			"45", // Bright cyan
+			"51", // Cyan
+			"87", // Light cyan
+			"51", // Cyan
+			"45", // Bright cyan
+			"39", // Blue (primary)
 		}
 
 		// Apply shimmer colors to each line based on offset
 		for i, line := range lines {
 			colorIndex := (i + p.logoShimmerOffset) % len(colors)
 			shimmerStyle := lipgloss.NewStyle().
-				Foreground(colors[colorIndex]).
+				Foreground(lipgloss.Color(colors[colorIndex])).
 				Bold(true)
 			lines[i] = shimmerStyle.Render(line)
 		}
@@ -303,13 +306,13 @@ func (p *LibraryPage) View() string {
 
 	// If Queue modal is visible, overlay it
 	if p.appCtx.View.ShowQueueModal() {
-		return p.renderWithModal(layout)
+		return p.renderWithModal(tea.NewView(layout))
 	}
 
 	// If Now Playing is focused, show it full screen.
 	if p.focusedNowPlaying {
 		// Leave the rest of the layout behind — a full-screen now-playing UI is focused.
-		return lipgloss.Place(
+		return tea.NewView(lipgloss.Place(
 			p.width,
 			p.height,
 			lipgloss.Center,
@@ -317,7 +320,7 @@ func (p *LibraryPage) View() string {
 			func() string {
 				return p.nowPlaying.RenderFull(p.width, p.height)
 			}(),
-		)
+		))
 	}
 
 	// Drawers removed; no overlay logic.
@@ -383,7 +386,7 @@ func (p *LibraryPage) View() string {
 		}
 	}
 
-	p.help.Width = p.width
+	p.help.SetWidth(p.width)
 	helpView := p.help.View(p.keys)
 
 	// We use p.height-2 for the centered layout to leave room for the help view?
@@ -448,13 +451,13 @@ func (p *LibraryPage) View() string {
 	// Place the final view at the top-left so content starts at the first
 	// terminal row and we don't leave an empty line at the top due to
 	// vertical centering.
-	return lipgloss.Place(
+	return tea.NewView(lipgloss.Place(
 		p.width,
 		p.height,
 		lipgloss.Left,
 		lipgloss.Top,
 		finalView,
-	)
+	))
 }
 
 // renderRecentlyAdded displays the current recently-added albums list.
@@ -510,19 +513,22 @@ func (p *LibraryPage) renderRecentlyAdded(width int) string {
 
 // renderPlaylists displays the playlists list.
 func (p *LibraryPage) renderPlaylists(width int) string {
-	return p.playlistComponent.View()
+	playlistView := p.playlistComponent.View()
+	return playlistView.Content
 }
 
 // renderQueue displays the queued tracks list.
 func (p *LibraryPage) renderQueue(width int) string {
 	p.queueComponent.SetWidth(width)
-	return p.queueComponent.View()
+	queueView := p.queueComponent.View()
+	return queueView.Content
 }
 
 // renderTracks displays the currently selected tracks in the left pane.
 func (p *LibraryPage) renderTracks(width int) string {
 	p.trackComponent.SetWidth(width)
-	return p.trackComponent.View()
+	trackView := p.trackComponent.View()
+	return trackView.Content
 }
 
 // renderLoadingHubs renders a centered loading spinner while hubs are being fetched
@@ -542,10 +548,11 @@ func (p *LibraryPage) renderLoadingHubs(width, height int) string {
 		Height(height).
 		Align(lipgloss.Center, lipgloss.Center)
 
-	return style.Render(content)
+	view := tea.NewView(style.Render(content))
+	return view.Content
 }
 
 // renderWithModal composes the base view layout with the queue modal overlay.
-func (p *LibraryPage) renderWithModal(base string) string {
+func (p *LibraryPage) renderWithModal(base tea.View) tea.View {
 	return p.queueComponent.RenderWithModal(base, p.width, p.height)
 }

@@ -20,8 +20,6 @@ import (
 	"time"
 
 	"plexmusic-tui/internal/domain"
-
-	log "github.com/charmbracelet/log/v2"
 )
 
 const (
@@ -69,22 +67,17 @@ func NewDaemonClient() *DaemonClient {
 
 // Start begins the daemon client connection and message loop
 func (c *DaemonClient) Start(ctx context.Context) error {
-	log.Info("DaemonClient: Starting connection to daemon")
-
 	// Clean up any orphaned daemon from a previous crash
 	c.cleanupOrphanedDaemon()
 
 	// Try to connect first - daemon may already be running
 	if err := c.connect(); err != nil {
-		log.Info("DaemonClient: Daemon not running, attempting to start it")
 		if launchErr := c.launchDaemon(); launchErr != nil {
-			log.Warn("DaemonClient: Failed to launch daemon", "error", launchErr)
+			// TODO: Add logging
 		} else {
 			// Wait for daemon to start and try connecting again
 			time.Sleep(daemonStartWait)
-			if err := c.connect(); err != nil {
-				log.Warn("DaemonClient: Still can't connect after launching daemon", "error", err)
-			}
+			_ = c.connect()
 		}
 	}
 
@@ -97,7 +90,7 @@ func (c *DaemonClient) Start(ctx context.Context) error {
 
 // Stop disconnects from the daemon and optionally stops it
 func (c *DaemonClient) Stop() error {
-	log.Info("DaemonClient: Stopping")
+	// TODO: Add logging
 	c.cancel()
 
 	c.mu.Lock()
@@ -139,8 +132,6 @@ func (c *DaemonClient) cleanupOrphanedDaemon() {
 	}
 
 	// PID file exists - a previous instance started the daemon
-	// Check if that TUI process is still running by checking if the PID file's parent PID is alive
-	log.Info("DaemonClient: Found daemon PID file from previous session, cleaning up")
 
 	// Stop the daemon and remove the PID file
 	c.stopDaemon()
@@ -174,8 +165,6 @@ func (c *DaemonClient) launchDaemon() error {
 		return fmt.Errorf("daemon not installed at %s", daemonPath)
 	}
 
-	log.Info("DaemonClient: Launching daemon", "path", daemonPath)
-
 	// Use 'open' command to launch the app bundle
 	cmd := exec.CommandContext(context.Background(), "open", "-a", daemonPath)
 	if err := cmd.Start(); err != nil {
@@ -183,22 +172,17 @@ func (c *DaemonClient) launchDaemon() error {
 	}
 
 	// Write PID file so we can detect crashes
-	if err := writePidFile(); err != nil {
-		log.Warn("DaemonClient: Failed to write PID file", "error", err)
-	}
+	_ = writePidFile()
 
 	c.mu.Lock()
 	c.daemonStarted = true
 	c.mu.Unlock()
 
-	log.Info("DaemonClient: Daemon launched successfully")
 	return nil
 }
 
 // stopDaemon terminates the daemon process
 func (c *DaemonClient) stopDaemon() {
-	log.Info("DaemonClient: Stopping daemon process")
-
 	// Remove PID file first
 	removePidFile()
 
@@ -207,11 +191,8 @@ func (c *DaemonClient) stopDaemon() {
 	cmd := exec.CommandContext(ctx, "osascript", "-e", `tell application "PlexMusicDaemon" to quit`)
 	if err := cmd.Run(); err != nil {
 		// If graceful quit fails, try pkill as fallback (but only our daemon)
-		log.Debug("DaemonClient: Graceful quit failed, trying pkill", "error", err)
 		exec.CommandContext(ctx, "pkill", "-f", "PlexMusicDaemon.app/Contents/MacOS/PlexMusicDaemon").Run()
 	}
-
-	log.Info("DaemonClient: Daemon stopped")
 }
 
 // Commands returns a channel that receives commands from the daemon
@@ -236,7 +217,6 @@ func (c *DaemonClient) connect() error {
 
 	c.conn = conn
 	c.connected = true
-	log.Info("DaemonClient: Connected to daemon")
 	return nil
 }
 
@@ -261,17 +241,13 @@ func (c *DaemonClient) reconnect() {
 		case <-c.ctx.Done():
 			return
 		case <-time.After(reconnectDelay):
-			log.Info("DaemonClient: Reconnect attempt", "attempt", attempt+1, "max", maxReconnects)
 			if err := c.connect(); err != nil {
-				log.Warn("DaemonClient: Reconnect failed", "error", err)
+				// TODO: Add logging
 				continue
 			}
-			log.Info("DaemonClient: Reconnected successfully")
 			return
 		}
 	}
-
-	log.Error("DaemonClient: Failed to reconnect", "attempts", maxReconnects)
 }
 
 // messageLoop reads messages from the daemon
@@ -304,7 +280,6 @@ func (c *DaemonClient) messageLoop() {
 					continue
 				}
 
-				log.Warn("DaemonClient: Read error", "error", err)
 				c.mu.Lock()
 				c.connected = false
 				if c.conn != nil {
@@ -347,8 +322,6 @@ func (c *DaemonClient) readMessage(conn net.Conn) (*daemonMessage, error) {
 
 // handleMessage processes a message from the daemon
 func (c *DaemonClient) handleMessage(msg *daemonMessage) {
-	log.Debug("DaemonClient: Received command", "type", msg.Type)
-
 	cmd := DaemonCommand{
 		Type: msg.Type,
 		Data: msg.Data,
@@ -358,7 +331,7 @@ func (c *DaemonClient) handleMessage(msg *daemonMessage) {
 	case c.commandChan <- cmd:
 	case <-c.ctx.Done():
 	default:
-		log.Warn("DaemonClient: Command channel full, dropping command", "type", msg.Type)
+		// TODO: Add logging
 	}
 }
 
@@ -405,7 +378,7 @@ func (c *DaemonClient) SendPlaybackStarted(track *domain.Track, artwork image.Im
 	if artwork != nil {
 		artworkData, err := encodeImageToJPEG(artwork)
 		if err != nil {
-			log.Debug("DaemonClient: Failed to encode artwork", "error", err)
+			// TODO: Add logging
 		} else {
 			data["artwork"] = base64.StdEncoding.EncodeToString(artworkData)
 		}
@@ -417,11 +390,10 @@ func (c *DaemonClient) SendPlaybackStarted(track *domain.Track, artwork image.Im
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.started", "error", err)
+		// TODO: Add logging
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.started", "title", track.Title)
 	return nil
 }
 
@@ -444,11 +416,10 @@ func (c *DaemonClient) SendPlaybackPaused(position, sampleRate int) error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.paused", "error", err)
+		// TODO: Add logging
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.paused")
 	return nil
 }
 
@@ -463,11 +434,10 @@ func (c *DaemonClient) SendPlaybackResumed(position, sampleRate int) error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.resumed", "error", err)
+		// TODO: Add logging
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.resumed")
 	return nil
 }
 
@@ -478,11 +448,10 @@ func (c *DaemonClient) SendPlaybackStopped() error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.stopped", "error", err)
+		// TODO: Add logging
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.stopped")
 	return nil
 }
 
@@ -501,11 +470,10 @@ func (c *DaemonClient) SendArtwork(pngData []byte) error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.artwork", "error", err)
+		// TODO: Add logging
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.artwork", "bytes", len(pngData))
 	return nil
 }
 
@@ -517,7 +485,7 @@ func (c *DaemonClient) SendArtworkImage(img image.Image) error {
 
 	artworkData, err := encodeImageToJPEG(img)
 	if err != nil {
-		log.Debug("DaemonClient: Failed to encode artwork image", "error", err)
+		// TODO: Add logging
 		return err
 	}
 
@@ -530,11 +498,10 @@ func (c *DaemonClient) SendArtworkImage(img image.Image) error {
 	}
 
 	if err := c.sendMessage(msg); err != nil {
-		log.Debug("DaemonClient: Failed to send playback.artwork", "error", err)
+		// TODO: Add logging
 		return err
 	}
 
-	log.Debug("DaemonClient: Sent playback.artwork image", "bytes", len(artworkData))
 	return nil
 }
 

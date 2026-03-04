@@ -11,8 +11,6 @@ import (
 	"plexmusic-tui/internal/mediacontrol"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
-
-	log "github.com/charmbracelet/log/v2"
 )
 
 // MediaControlWrapper for Windows uses the in-process SMTC controller
@@ -31,58 +29,52 @@ type commandHandler struct {
 }
 
 func (h *commandHandler) HandlePlay() {
-	log.Info("Windows SMTC: HandlePlay")
 	if h.wrapper.pbService.GetState() == domain.PlaybackPaused {
 		if err := h.wrapper.pbService.Resume(); err != nil {
-			log.Warn("Failed to resume", "error", err)
+			// TODO: Add logging
 		}
 	}
 }
 
 func (h *commandHandler) HandlePause() {
-	log.Info("Windows SMTC: HandlePause")
+	// TODO: Add logging
 	if h.wrapper.pbService.GetState() == domain.PlaybackPlaying {
 		if err := h.wrapper.pbService.Pause(); err != nil {
-			log.Warn("Failed to pause", "error", err)
+			// TODO: Add logging
 		}
 	}
 }
 
 func (h *commandHandler) HandleTogglePlayPause() {
-	log.Info("Windows SMTC: HandleTogglePlayPause")
 	switch h.wrapper.pbService.GetState() {
 	case domain.PlaybackPlaying:
 		if err := h.wrapper.pbService.Pause(); err != nil {
-			log.Warn("Failed to pause", "error", err)
+			// TODO: Add logging
 		}
 	case domain.PlaybackPaused:
 		if err := h.wrapper.pbService.Resume(); err != nil {
-			log.Warn("Failed to resume", "error", err)
+			// TODO: Add logging
 		}
 	}
 }
 
 func (h *commandHandler) HandleStop() {
-	log.Info("Windows SMTC: HandleStop")
 	if err := h.wrapper.pbService.Stop(); err != nil {
-		log.Warn("Failed to stop", "error", err)
+		// TODO: Add logging
 	}
 }
 
 func (h *commandHandler) HandleNext() {
-	log.Info("Windows SMTC: HandleNext")
 	h.wrapper.playNext()
 }
 
 func (h *commandHandler) HandlePrevious() {
-	log.Info("Windows SMTC: HandlePrevious")
 	h.wrapper.playPrev()
 }
 
 func (h *commandHandler) HandleSeek(position time.Duration) {
-	log.Info("Windows SMTC: HandleSeek", "position", position)
 	if err := h.wrapper.pbService.SeekToSeconds(position.Seconds()); err != nil {
-		log.Warn("Failed to seek", "error", err)
+		// TODO: Add logging
 	}
 }
 
@@ -93,7 +85,7 @@ func (w *MediaControlWrapper) playNext() {
 
 	libSvc := w.appCtx.Services.LibraryService()
 	if libSvc == nil {
-		log.Warn("Cannot play next: library service not available")
+		// TODO: Add logging
 		return
 	}
 
@@ -110,13 +102,13 @@ func (w *MediaControlWrapper) playNext() {
 		w.ctx, dq, queueIdx, dtracks, selected, libSvc,
 	)
 	if err != nil {
-		log.Warn("Failed to determine next track", "error", err)
+		// TODO: Add logging
 		return
 	}
 
 	if next != nil {
 		if err := w.pbService.PlayDomainTrack(w.ctx, libSvc, next); err != nil {
-			log.Warn("Failed to play next track", "error", err)
+			// TODO: Add logging
 			return
 		}
 		if isQueue {
@@ -134,7 +126,7 @@ func (w *MediaControlWrapper) playPrev() {
 
 	libSvc := w.appCtx.Services.LibraryService()
 	if libSvc == nil {
-		log.Warn("Cannot play previous: library service not available")
+		// TODO: Add logging
 		return
 	}
 
@@ -151,13 +143,13 @@ func (w *MediaControlWrapper) playPrev() {
 		w.ctx, dq, queueIdx, dtracks, selected, libSvc,
 	)
 	if err != nil {
-		log.Warn("Failed to determine previous track", "error", err)
+		// TODO: Add logging
 		return
 	}
 
 	if prev != nil {
 		if err := w.pbService.PlayDomainTrack(w.ctx, libSvc, prev); err != nil {
-			log.Warn("Failed to play previous track", "error", err)
+			// TODO: Add logging
 			return
 		}
 		if isQueue {
@@ -171,12 +163,11 @@ func (w *MediaControlWrapper) playPrev() {
 // Start begins the Windows media control integration
 func (w *MediaControlWrapper) Start(ctx context.Context) error {
 	w.ctx = ctx
-	log.Info("Starting Windows SMTC media control integration")
 
 	// Create the in-process controller
 	controller, err := mediacontrol.New()
 	if err != nil {
-		log.Warn("Failed to create Windows media controller", "error", err)
+		// TODO: Add logging
 		return err
 	}
 	w.controller = controller
@@ -189,23 +180,20 @@ func (w *MediaControlWrapper) Start(ctx context.Context) error {
 	// Set up command handler
 	handler := &commandHandler{wrapper: w}
 	if err := w.controller.SetCommandHandler(handler); err != nil {
-		log.Warn("Failed to set command handler", "error", err)
+		// TODO: Add logging
 	}
 
 	// Subscribe to playback events
 	playbackEvents := w.pbService.Subscribe(ctx)
 
-	log.Info("Windows SMTC integration started, listening for events")
-
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info("Stopping Windows SMTC integration")
 			return w.controller.Stop()
 
 		case event := <-playbackEvents:
 			if event.Type != "playback.position" {
-				log.Debug("Windows SMTC received event", "type", event.Type)
+				// TODO: Add logging
 			}
 			w.handlePlaybackEvent(event.Payload)
 		}
@@ -216,7 +204,6 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 	switch event.Type {
 	case "playback.started":
 		if event.Track != nil {
-			log.Debug("Windows SMTC: updating metadata", "artist", event.Track.Artist, "title", event.Track.Title)
 			w.controller.UpdateMetadata(mediacontrol.Metadata{
 				Title:    event.Track.Title,
 				Artist:   event.Track.Artist,
@@ -255,7 +242,6 @@ func (w *MediaControlWrapper) handlePlaybackEvent(event domain.PlaybackEvent) {
 
 	case "playback.artwork":
 		if event.Artwork != nil {
-			log.Debug("Windows SMTC: setting artwork")
 			w.controller.SetArtwork(event.Artwork)
 		}
 	}

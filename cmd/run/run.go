@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
-	log "github.com/charmbracelet/log/v2"
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 
 	"plexmusic-tui/internal/bootstrap"
@@ -38,8 +37,6 @@ func Execute(
 	renderDebug bool,
 	dumpView bool,
 ) {
-	log.Info("Starting plexmusic-tui")
-
 	opts := bootstrap.AppOptions{
 		ForceRenderer: forceRenderer,
 		RenderDebug:   renderDebug,
@@ -59,18 +56,9 @@ func Execute(
 	// Initialize volume from config
 	bootstrap.InitializeVolume(appData.ConfigManager, appData.Orchestrator)
 
-	p := tea.NewProgram(
-		appData.Model,
-		tea.WithAltScreen(),
-		tea.WithMouseCellMotion(),
-	)
-
-	log.Info("NewProgram() completed, calling Run()")
+	p := tea.NewProgram(appData.Model)
 
 	if _, err := p.Run(); err != nil {
-		log.Error("Run() failed", "error", err)
 		panic(err)
 	}
-
-	log.Info("Run() completed successfully")
 }

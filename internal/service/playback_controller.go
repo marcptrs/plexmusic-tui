@@ -6,8 +6,6 @@ import (
 	"math"
 
 	"plexmusic-tui/internal/domain"
-
-	log "github.com/charmbracelet/log/v2"
 )
 
 // PlaybackController provides simple playback volume control operations.
@@ -32,8 +30,6 @@ func (pc *PlaybackController) AdjustVolume(percentDelta float64) {
 		return
 	}
 
-	log.Debug("PlaybackController.AdjustVolume", "delta", percentDelta)
-
 	currentVol := pc.pbSvc.GetVolume()
 
 	// Volume uses logarithmic scale: vol = log2(percentage / 100)
@@ -51,10 +47,6 @@ func (pc *PlaybackController) AdjustVolume(percentDelta float64) {
 
 	newVol := math.Log2(newPct / 100)
 	pc.pbSvc.SetVolume(newVol)
-
-	log.Debug("volume adjusted",
-		"from_pct", int(math.Round(currentPct)),
-		"to_pct", int(math.Round(newPct)))
 }
 
 // Next computes the next track selection and optionally plays it via the pbSvc

@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/list"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
-	log "github.com/charmbracelet/log/v2"
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/list"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/config"
@@ -139,10 +138,10 @@ func (p *ServerSelectionPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // View renders the server selection page
-func (p *ServerSelectionPage) View() string {
+func (p *ServerSelectionPage) View() tea.View {
 	// If width isn't initialized yet, avoid rendering (matches login page behavior)
 	if p.width == 0 {
-		return ""
+		return tea.NewView("")
 	}
 
 	var content string
@@ -158,13 +157,13 @@ func (p *ServerSelectionPage) View() string {
 	}
 
 	// Center the content and add padding like the login page
-	return lipgloss.Place(
+	return tea.NewView(lipgloss.Place(
 		p.width,
 		p.height,
 		lipgloss.Center,
 		lipgloss.Center,
 		lipgloss.NewStyle().Padding(1, 2).Render(content),
-	)
+	))
 }
 
 // Close cleans up resources
@@ -257,7 +256,8 @@ func (p *ServerSelectionPage) handleAuthEvent(event domain.AuthEvent) tea.Cmd {
 						if newKey != lastServer {
 							p.configMgr.SetLastSelectedServer(newKey)
 							if err := p.configMgr.Save(); err != nil {
-								log.Warn("failed to save updated lastSelectedServer", "error", err)
+								// TODO: Add logging
+								_ = err // satisfy linter
 							}
 						}
 					}
@@ -280,14 +280,6 @@ func (p *ServerSelectionPage) handleAuthEvent(event domain.AuthEvent) tea.Cmd {
 		}
 
 		if retryable && p.serverFetchAttempts < maxServerFetchAttempts {
-			// Debug: fetch failed; log via charm log rather than writing to a file
-			log.Debug(
-				"ServerSelectionPage: fetch failed; retrying",
-				"attempt",
-				p.serverFetchAttempts,
-				"error",
-				event.Error,
-			)
 			// Re-issue the fetch command to retry.
 			return p.fetchServers()
 		}
@@ -325,7 +317,8 @@ func (p *ServerSelectionPage) selectServer() tea.Cmd {
 		p.configMgr.SetLastSelectedServer(key)
 		if err := p.configMgr.Save(); err != nil {
 			// Log error but continue - non-fatal
-			log.Warn("failed to save config", "error", err)
+			_ = err // satisfy linter
+			// TODO: Add logging
 		}
 	}
 

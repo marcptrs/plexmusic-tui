@@ -9,8 +9,6 @@ import (
 	"time"
 
 	"plexmusic-tui/internal/mediacontrol/internal/mpnow"
-
-	log "github.com/charmbracelet/log/v2"
 )
 
 // darwinController implements MediaController for macOS
@@ -23,14 +21,12 @@ type darwinController struct {
 
 // newPlatformController creates a new macOS media controller
 func newPlatformController() (MediaController, error) {
-	log.Info("Creating macOS media controller")
 	bridge := mpnow.NewBridge()
 	if bridge == nil {
-		log.Error("Failed to create macOS media control bridge")
+		// TODO: Add logging
 		return nil, ErrUnsupportedPlatform
 	}
 
-	log.Info("macOS media controller created successfully")
 	return &darwinController{
 		bridge: bridge,
 	}, nil
@@ -82,23 +78,16 @@ func (c *darwinController) UpdateMetadata(metadata Metadata) error {
 	defer c.mu.RUnlock()
 
 	if c.bridge == nil {
-		log.Error("Bridge is nil in UpdateMetadata!")
+		// TODO: Add logging
 		return ErrUnsupportedPlatform
 	}
 
-	log.Debug("Updating media control metadata",
-		"title", metadata.Title,
-		"artist", metadata.Artist,
-		"album", metadata.Album)
-
-	log.Info("Calling bridge.UpdateMetadata")
 	c.bridge.UpdateMetadata(
 		metadata.Title,
 		metadata.Artist,
 		metadata.Album,
 		metadata.Duration,
 	)
-	log.Info("bridge.UpdateMetadata returned")
 
 	return nil
 }
@@ -168,17 +157,14 @@ func (c *darwinController) SetCommandHandler(handler CommandHandler) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	log.Info("darwinController.SetCommandHandler called")
 	c.handler = handler
 
 	if c.bridge == nil {
-		log.Error("Bridge is nil in SetCommandHandler!")
+		// TODO: Add logging
 		return ErrUnsupportedPlatform
 	}
 
-	log.Info("Calling bridge.SetCommandHandler")
 	c.bridge.SetCommandHandler(handler)
-	log.Info("bridge.SetCommandHandler returned")
 
 	return nil
 }
