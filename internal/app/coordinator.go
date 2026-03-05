@@ -8,6 +8,7 @@ import (
 	"plexmusic-tui/internal/auth"
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
+	"plexmusic-tui/internal/logging"
 	"plexmusic-tui/internal/service"
 )
 
@@ -21,7 +22,8 @@ import (
 type Coordinator struct {
 	*AppContext
 
-	mu sync.RWMutex
+	mu     sync.RWMutex
+	logger logging.Logger
 }
 
 // NewCoordinatorWithServices creates a new coordinator with service dependencies
@@ -70,4 +72,18 @@ func (c *Coordinator) Context() context.Context {
 // GetAppContext returns the underlying AppContext
 func (c *Coordinator) GetAppContext() *AppContext {
 	return c.AppContext
+}
+
+// SetLogger sets the logger for the coordinator
+func (c *Coordinator) SetLogger(logger logging.Logger) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.logger = logger
+}
+
+// GetLogger returns the logger
+func (c *Coordinator) GetLogger() logging.Logger {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return logging.GetLoggerOrDefault(c.logger)
 }

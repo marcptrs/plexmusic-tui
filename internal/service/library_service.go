@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"plexmusic-tui/internal/domain"
+	"plexmusic-tui/internal/logging"
 	"plexmusic-tui/internal/pubsub"
 )
 
@@ -14,9 +15,13 @@ type LibraryServiceWithEvents struct {
 }
 
 // NewLibraryServiceWithEvents creates a library service with event support
-func NewLibraryServiceWithEvents(baseURL, token string, factory domain.HTTPClientFactory) *LibraryServiceWithEvents {
+func NewLibraryServiceWithEvents(
+	baseURL, token string,
+	factory domain.HTTPClientFactory,
+	logger logging.Logger,
+) *LibraryServiceWithEvents {
 	return &LibraryServiceWithEvents{
-		LibraryService: NewLibraryService(baseURL, token, factory),
+		LibraryService: NewLibraryService(baseURL, token, factory, logger),
 		broker:         pubsub.NewBroker[domain.LibraryEvent](),
 	}
 }

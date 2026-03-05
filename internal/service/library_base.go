@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 
+	"plexmusic-tui/internal/logging"
+
 	"plexmusic-tui/internal/domain"
 )
 
@@ -205,12 +207,13 @@ type LibraryService struct {
 	machineIdentifier string            // Cached machine identifier for the server
 	stationKeyCache   map[string]string // Cache mapping section station keys to metadata keys
 	mu                sync.RWMutex
+	logger            logging.Logger
 }
 
 // NewLibraryService creates a new library service for a Plex server.
 // baseURL should be the full URL to the Plex server (scheme + host + port)
 // e.g., "https://192.168.1.100:32400" or "http://localhost:32400"
-func NewLibraryService(baseURL, token string, factory domain.HTTPClientFactory) *LibraryService {
+func NewLibraryService(baseURL, token string, factory domain.HTTPClientFactory, logger logging.Logger) *LibraryService {
 	// Extract host from baseURL for intelligent TLS handling
 	u, err := url.Parse(baseURL)
 	var client domain.HTTPClient
@@ -221,12 +224,23 @@ func NewLibraryService(baseURL, token string, factory domain.HTTPClientFactory) 
 		client = factory.GetClient(u.Host)
 	}
 
+	// Use GetLoggerOrDefault to handle nil logger gracefully
+	logger = logging.GetLoggerOrDefault(logger)
+
 	return &LibraryService{
 		baseURL:       baseURL,
 		token:         token,
 		httpClient:    client,
 		clientFactory: factory,
+		logger:        logger,
 	}
+}
+
+// getLogger returns the logger (which is always valid due to GetLoggerOrDefault in constructor)
+func (s *LibraryService) getLogger() logging.Logger {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.logger
 }
 
 // FetchLibraries fetches the list of music libraries from the Plex server.
@@ -906,7 +920,7 @@ func (s *LibraryService) FetchSectionCounts(
 		var err error
 		artists, err = fetchCount(8)
 		if err != nil {
-			_ = err // TODO: log error
+			s.getLogger().Error("Failed to fetch artist count", "error", err)
 		}
 	}()
 
@@ -915,7 +929,7 @@ func (s *LibraryService) FetchSectionCounts(
 		var err error
 		albums, err = fetchCount(9)
 		if err != nil {
-			_ = err // TODO: log error
+			s.getLogger().Error("Failed to fetch album count", "error", err)
 		}
 	}()
 
@@ -924,7 +938,7 @@ func (s *LibraryService) FetchSectionCounts(
 		var err error
 		tracks, err = fetchCount(10)
 		if err != nil {
-			_ = err // TODO: log error
+			s.getLogger().Error("Failed to fetch track count", "error", err)
 		}
 	}()
 
@@ -1035,10 +1049,10 @@ func (s *LibraryService) HasSonicAnalysis(ctx context.Context) (bool, error) {
 									}
 								}
 							} else {
-								_ = err // TODO: log error
+								s.getLogger().Error("Failed to decode track container", "error", err)
 							}
 						} else {
-							_ = err // TODO: log error
+							s.getLogger().Error("Failed to fetch album children", "albumKey", album.Key, "error", err)
 						}
 						checked++
 					}

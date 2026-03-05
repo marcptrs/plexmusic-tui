@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"plexmusic-tui/internal/logging"
+
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -68,6 +70,7 @@ type LibraryPage struct {
 	libEvtCh  <-chan pubsub.Event[domain.LibraryEvent]
 	// playback service is handled by the orchestrator (no pbSvc field on page)
 	pbEvtCh <-chan pubsub.Event[domain.PlaybackEvent]
+	logger  logging.Logger
 
 	// Lists
 	homeComponent          *components.HomeComponent
@@ -136,10 +139,10 @@ type playResultMsg struct{ Err error }
 
 // NewLibraryPage creates a library page and its cancellable event context.
 func NewLibraryPage(appCtx *app.AppContext) *LibraryPage {
-	return NewLibraryPageWithAuth(appCtx, nil)
+	return NewLibraryPageWithAuth(appCtx, nil, nil)
 }
 
-func NewLibraryPageWithAuth(appCtx *app.AppContext, authSvc service.AuthServicer) *LibraryPage {
+func NewLibraryPageWithAuth(appCtx *app.AppContext, authSvc service.AuthServicer, logger logging.Logger) *LibraryPage {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := spinner.New()
@@ -151,11 +154,15 @@ func NewLibraryPageWithAuth(appCtx *app.AppContext, authSvc service.AuthServicer
 
 	orch := tui.NewOrchestrator(appCtx, nil, nil)
 
+	// Use GetLoggerOrDefault to handle nil logger gracefully
+	logger = logging.GetLoggerOrDefault(logger)
+
 	p := &LibraryPage{
 		appCtx:        appCtx,
 		ctx:           ctx,
 		cancel:        cancel,
 		authSvc:       authSvc,
+		logger:        logger,
 		showingTracks: false,
 		drawerOpen:    false,
 		spinner:       s,
@@ -210,7 +217,7 @@ func (p *LibraryPage) Init() tea.Cmd {
 	// Create (or reuse) library service and subscribe to events. This ensures we
 	// only fetch library content when we have the necessary server + token.
 	if p.libSvc == nil {
-		p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token, http.NewFactory())
+		p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token, http.NewFactory(), p.logger)
 		p.libEvtCh = p.libSvc.Subscribe(p.ctx)
 		// Store in coordinator so media control wrapper can access it
 		if p.appCtx != nil {

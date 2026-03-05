@@ -8,13 +8,14 @@ package bootstrap
 
 import (
 	"github.com/google/wire"
+	"plexmusic-tui/internal/logging"
 )
 
 // Injectors from wire.go:
 
 // InitializeApp creates and initializes the entire application
 // This function will be replaced by generated wire_gen.go
-func InitializeApp(opts AppOptions) *App {
+func InitializeApp(opts AppOptions, logger logging.Logger) *App {
 	manager := provideConfigManager()
 	client := provideHTTPClient()
 	authenticator := provideAuthenticator(client)
@@ -23,6 +24,12 @@ func InitializeApp(opts AppOptions) *App {
 	playbackService := providePlaybackService()
 	playbackServicer := providePlaybackServicer(playbackService)
 	appServices := provideAppServices(authServicer, libraryServicer, playbackServicer)
+
+	// Set logger in options if provided
+	if logger != nil {
+		opts.Logger = logger
+	}
+
 	coordinator := provideCoordinator(appServices, manager, opts)
 	router := provideRouter(manager, coordinator, authServicer)
 	keyMap := provideKeyMap()

@@ -8,6 +8,7 @@ import (
 	"plexmusic-tui/cmd/logs"
 	"plexmusic-tui/cmd/run"
 	"plexmusic-tui/internal/domain"
+	"plexmusic-tui/internal/logging"
 )
 
 var (
@@ -17,6 +18,7 @@ var (
 	renderDebug    bool
 	dumpViewFlag   bool
 	forcedProtocol *domain.Protocol
+	rootLogger     logging.Logger
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -38,12 +40,15 @@ to view recent log entries.`,
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Default to 'run' if no subcommand specified
-		run.Execute(forcedProtocol, renderDebug, dumpViewFlag)
+		run.Execute(forcedProtocol, renderDebug, dumpViewFlag, rootLogger)
 	},
 }
 
 // Execute adds all child commands to the root command
-func Execute() error {
+func Execute(logger logging.Logger) error {
+	if logger != nil {
+		rootLogger = logger
+	}
 	return rootCmd.Execute()
 }
 
@@ -53,6 +58,7 @@ func init() {
 		func() *domain.Protocol { return forcedProtocol },
 		func() bool { return renderDebug },
 		func() bool { return dumpViewFlag },
+		func() logging.Logger { return rootLogger },
 	))
 	rootCmd.AddCommand(logs.NewLogsCommand())
 

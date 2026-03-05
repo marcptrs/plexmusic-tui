@@ -2,11 +2,11 @@ package logs
 
 import (
 	"bufio"
-	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
+	"plexmusic-tui/internal/logging"
 )
 
 // NewLogsCommand creates the 'logs' subcommand for viewing log entries
@@ -42,10 +42,11 @@ func getLogFilePath() string {
 
 // DisplayLogs reads and displays the last N lines from the log file
 func DisplayLogs(logFile string, tailLines int) {
+	logger := logging.SetupWithStdoutLogging()
+
 	file, err := os.Open(logFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Could not open log file at %s\n", logFile)
-		fmt.Fprintf(os.Stderr, "Details: %v\n", err)
+		logger.Error("Could not open log file", "path", logFile, "error", err)
 		return
 	}
 	defer file.Close()
@@ -58,7 +59,7 @@ func DisplayLogs(logFile string, tailLines int) {
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading log file: %v\n", err)
+		logger.Error("Error reading log file", "error", err)
 		return
 	}
 
@@ -66,16 +67,15 @@ func DisplayLogs(logFile string, tailLines int) {
 	startIdx := 0
 	if len(lines) > tailLines {
 		startIdx = len(lines) - tailLines
-		fmt.Fprintf(os.Stderr, "Showing last %d lines. Full logs at: %s\n\n",
-			tailLines, logFile)
+		logger.Info("Showing last lines", "lines", tailLines, "path", logFile)
 	}
 
 	// Print the tail lines
 	for i := startIdx; i < len(lines); i++ {
-		fmt.Println(lines[i])
+		logger.Info(lines[i])
 	}
 
 	if len(lines) == 0 {
-		fmt.Fprintf(os.Stderr, "No log entries found in %s\n", logFile)
+		logger.Info("No log entries found", "path", logFile)
 	}
 }

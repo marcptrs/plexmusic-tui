@@ -11,6 +11,7 @@ import (
 
 	"plexmusic-tui/internal/domain"
 	plexhttp "plexmusic-tui/internal/http"
+	"plexmusic-tui/internal/logging"
 )
 
 func TestFetchStreamSetsTokenHeaderAndReturnsContent(t *testing.T) {
@@ -31,7 +32,7 @@ func TestFetchStreamSetsTokenHeaderAndReturnsContent(t *testing.T) {
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
-	service := NewLibraryService(srv.URL, "server-token", plexhttp.NewFactory())
+	service := NewLibraryService(srv.URL, "server-token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

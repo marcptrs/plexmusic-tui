@@ -11,6 +11,7 @@ import (
 
 	"plexmusic-tui/internal/domain"
 	plexhttp "plexmusic-tui/internal/http"
+	"plexmusic-tui/internal/logging"
 )
 
 func startTestServer(respBody string) *httptest.Server {
@@ -41,7 +42,7 @@ func TestFetchRecentlyAddedReturnsAlbums(t *testing.T) {
 	srv := startTestServer(body)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -76,7 +77,7 @@ func TestAddPlexHeadersSetsHeaderAndQuery(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "server-token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "server-token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -93,7 +94,7 @@ func TestFetchPlaylistsReturnsPlaylists(t *testing.T) {
 	srv := startTestServer(body)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -115,7 +116,7 @@ func TestFetchAlbumsReturnsAlbums(t *testing.T) {
 	srv := startTestServer(body)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -138,7 +139,7 @@ func TestFetchRecentlyAddedHandlesPlaylistFormat(t *testing.T) {
 	srv := startTestServer(body)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -158,7 +159,7 @@ func TestFetchRecentlyAddedInLibraryReturnsAlbums(t *testing.T) {
 	srv := startTestServer(body)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -178,7 +179,7 @@ func TestBuildStreamURLUsesMediaPartKeyOrKeyAndDoesNotDuplicateToken(t *testing.
 	srv := startTestServer(`{"MediaContainer":{"Metadata":[]}}`)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "server-token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "server-token", plexhttp.NewFactory(), logging.DefaultLogger())
 
 	// Case 1: Media part key present
 	track1 := &domain.Track{
@@ -235,7 +236,7 @@ func TestFetchTracksChildrenFallback(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -269,7 +270,7 @@ func TestFetchTracksChildrenFallbackAbsoluteKey(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -312,7 +313,7 @@ func TestHasSonicAnalysisWithAlbumChildren(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -332,7 +333,7 @@ func TestDecodePlexTrackContainerHubItems(t *testing.T) {
 	// Some plex hubs return tracks nested under 'Hub' -> [{'Metadata': []}]
 	body := `{"Hub":[{"Metadata":[{"title":"Hub Track","grandparentTitle":"Artist",` +
 		`"parentTitle":"Album","duration":1000,"index":1,"key":"/library/metadata/1/track/1"}]}]}`
-	_ = NewLibraryService("http://example.com", "token", plexhttp.NewFactory())
+	_ = NewLibraryService("http://example.com", "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	var container domain.PlexTrackContainer
 	if err := decodePlexTrackContainer([]byte(body), &container); err != nil {
 		t.Fatalf("decodePlexTrackContainer failed to decode Hub payload: %v", err)
@@ -410,7 +411,7 @@ func TestHasSonicAnalysisPerLibrary(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory())
+	s := NewLibraryService(srv.URL, "token", plexhttp.NewFactory(), logging.DefaultLogger())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 

@@ -8,6 +8,7 @@ import (
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/domain"
+	"plexmusic-tui/internal/logging"
 	"plexmusic-tui/internal/mediacontrol"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
@@ -22,6 +23,7 @@ type InProcessMediaControl struct {
 	appCtx           *app.AppContext
 	ctx              context.Context
 	lastPositionSent time.Time
+	logger           logging.Logger
 }
 
 // NewInProcessMediaControl creates a new in-process media control handler.
@@ -35,11 +37,13 @@ func NewInProcessMediaControl(
 		return nil, err
 	}
 
+	logger := coordinator.GetLogger()
 	return &InProcessMediaControl{
 		controller:   controller,
 		pbService:    playbackService,
 		orchestrator: orchestrator,
 		appCtx:       coordinator.GetAppContext(),
+		logger:       logger,
 	}, nil
 }
 
@@ -197,7 +201,7 @@ func (ctrl *InProcessMediaControl) Start(ctx context.Context) error {
 	// Set up command handler for remote commands from Control Center
 	handler := &commandHandler{ctrl: ctrl}
 	if err := ctrl.controller.SetCommandHandler(handler); err != nil {
-		_ = err // TODO: log error
+		ctrl.logger.Error("Failed to set command handler", "error", err)
 	}
 
 	// Subscribe to playback events

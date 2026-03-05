@@ -7,6 +7,7 @@ import (
 
 	"plexmusic-tui/internal/bootstrap"
 	"plexmusic-tui/internal/config"
+	"plexmusic-tui/internal/logging"
 )
 
 func TestInitializeApp_UsesServerSelectionWhenTokenPresent(t *testing.T) {
@@ -23,7 +24,11 @@ func TestInitializeApp_UsesServerSelectionWhenTokenPresent(t *testing.T) {
 		t.Fatalf("failed to save test config: %v", err)
 	}
 
-	appData := bootstrap.InitializeApp(bootstrap.AppOptions{})
+	// Initialize logger for test
+	logCfg := logging.DefaultConfig()
+	logger := logging.SetupWithAdapter(logCfg)
+
+	appData := bootstrap.InitializeApp(bootstrap.AppOptions{}, logger)
 	if appData == nil {
 		t.Fatalf("InitializeApp returned nil")
 	}

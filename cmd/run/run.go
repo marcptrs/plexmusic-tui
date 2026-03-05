@@ -1,7 +1,6 @@
 package run
 
 import (
-	"fmt"
 	"os"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,6 +8,7 @@ import (
 
 	"plexmusic-tui/internal/bootstrap"
 	"plexmusic-tui/internal/domain"
+	"plexmusic-tui/internal/logging"
 )
 
 // NewRunCommand creates the 'run' subcommand for starting the TUI
@@ -16,6 +16,7 @@ func NewRunCommand(
 	getForceRenderer func() *domain.Protocol,
 	getRenderDebug func() bool,
 	getDumpView func() bool,
+	getLogger func() logging.Logger,
 ) *cobra.Command {
 	return &cobra.Command{
 		Use:   "run",
@@ -26,6 +27,7 @@ func NewRunCommand(
 				getForceRenderer(),
 				getRenderDebug(),
 				getDumpView(),
+				getLogger(),
 			)
 		},
 	}
@@ -36,6 +38,7 @@ func Execute(
 	forceRenderer *domain.Protocol,
 	renderDebug bool,
 	dumpView bool,
+	logger logging.Logger,
 ) {
 	opts := bootstrap.AppOptions{
 		ForceRenderer: forceRenderer,
@@ -43,9 +46,9 @@ func Execute(
 		DumpView:      dumpView,
 	}
 
-	appData := bootstrap.InitializeApp(opts)
+	appData := bootstrap.InitializeApp(opts, logger)
 	if appData == nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed to initialize application\n")
+		logger.Error("Failed to initialize application")
 		os.Exit(1)
 	}
 	defer appData.Close()
@@ -59,6 +62,7 @@ func Execute(
 	p := tea.NewProgram(appData.Model)
 
 	if _, err := p.Run(); err != nil {
-		panic(err)
+		logger.Error("TUI program failed", "error", err)
+		os.Exit(1)
 	}
 }

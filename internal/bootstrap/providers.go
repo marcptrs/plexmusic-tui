@@ -11,6 +11,7 @@ import (
 	"plexmusic-tui/internal/auth"
 	"plexmusic-tui/internal/config"
 	"plexmusic-tui/internal/domain"
+	"plexmusic-tui/internal/logging"
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	"plexmusic-tui/internal/tui/pages"
@@ -28,6 +29,7 @@ type AppOptions struct {
 	ForceRenderer *domain.Protocol
 	RenderDebug   bool
 	DumpView      bool
+	Logger        logging.Logger
 }
 
 // MediaControlStarter is implemented by both daemon-based and in-process media control
@@ -124,6 +126,10 @@ func provideCoordinator(
 		opts.RenderDebug,
 		opts.DumpView,
 	)
+	// Convert slog.Logger to our Logger interface if provided
+	if opts.Logger != nil {
+		coord.SetLogger(opts.Logger)
+	}
 	return coord
 }
 
@@ -182,7 +188,7 @@ func providePageFactory(
 		case tui.ServerSelectionPageID:
 			return pages.NewServerSelectionPage(appCtx, authService, cfgMgr)
 		case tui.LibraryPageID:
-			return pages.NewLibraryPageWithAuth(appCtx, authService)
+			return pages.NewLibraryPageWithAuth(appCtx, authService, coord.GetLogger())
 		default:
 			return nil
 		}

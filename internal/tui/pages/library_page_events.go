@@ -211,7 +211,7 @@ func (p *LibraryPage) handleAuthEvent(msg domain.AuthEvent) (tea.Model, tea.Cmd)
 			if srv.Port != "" {
 				baseURL = fmt.Sprintf("%s:%s", baseURL, srv.Port)
 			}
-			p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token, http.NewFactory())
+			p.libSvc = service.NewLibraryServiceWithEvents(baseURL, token, http.NewFactory(), p.logger)
 			p.libEvtCh = p.libSvc.Subscribe(p.ctx)
 			// Store in coordinator so media control wrapper can access it
 			if p.appCtx != nil {
