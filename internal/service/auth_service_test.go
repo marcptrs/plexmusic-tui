@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -180,17 +181,17 @@ func TestServerSelectionHandlesAuthFailedEvents(t *testing.T) {
 
 	// Simulate the server selection page's event subscription
 	eventCh := service.Subscribe(ctx)
-	eventsReceived := 0
-	authFailedReceived := false
+	var eventsReceived int32
+	var authFailedReceived int32
 
 	// Simulate the server selection page's event filtering logic
 	go func() {
 		for event := range eventCh {
-			eventsReceived++
+			atomic.AddInt32(&eventsReceived, 1)
 			// This simulates the fixed filtering logic that should forward auth.failed events
 			if event.Type == "servers.loaded" || event.Type == "servers.fetch_failed" || event.Type == "auth.failed" {
 				if event.Type == "auth.failed" {
-					authFailedReceived = true
+					atomic.StoreInt32(&authFailedReceived, 1)
 				}
 				return // Would return the event in real code
 			}
@@ -206,7 +207,7 @@ func TestServerSelectionHandlesAuthFailedEvents(t *testing.T) {
 	// Wait a bit for events to be processed
 	time.Sleep(100 * time.Millisecond)
 
-	if !authFailedReceived {
+	if atomic.LoadInt32(&authFailedReceived) == 0 {
 		t.Fatal("Server selection page did not receive auth.failed event - event filtering is broken")
 	}
 	t.Log("✓ Server selection page properly received auth.failed event")
