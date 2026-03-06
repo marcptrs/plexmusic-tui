@@ -138,10 +138,12 @@ func (c *linuxController) Stop() error {
 	busName := fmt.Sprintf("%s.plexmusic", mprisBusPrefix)
 	if _, err := c.conn.ReleaseName(busName); err != nil {
 		// TODO: Add logging
+		c.logger.Error("Failed to release bus name", "error", err)
 	}
 
 	if err := c.conn.Close(); err != nil {
 		// TODO: Add logging
+		c.logger.Error("Failed to close connection", "error", err)
 	}
 
 	c.started = false
@@ -396,7 +398,7 @@ func (c *linuxController) Previous() *dbus.Error {
 	return nil
 }
 
-func (c *linuxController) Seek(offset int64) *dbus.Error {
+func (c *linuxController) Seek(offset int64, whence int) (int64, error) {
 	c.mu.RLock()
 	handler := c.handler
 	currentPos := c.position
