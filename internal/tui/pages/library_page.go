@@ -252,6 +252,9 @@ func (p *LibraryPage) Init() tea.Cmd {
 				}
 			}(libSvc, appCtx)
 		}
+
+		// Note: Dynamic styling will be implemented in a future update
+		// For now, track lists use the standard styling from styles package
 	}
 
 	// Create (or reuse) playback service and subscribe to events.

@@ -9,6 +9,7 @@ import (
 	"plexmusic-tui/internal/app"
 	imageutil "plexmusic-tui/internal/image"
 	"plexmusic-tui/internal/service"
+	"plexmusic-tui/internal/tui/styles"
 )
 
 // BackgroundComponent renders a full-screen background with palette-derived colors
@@ -187,20 +188,18 @@ func (bg *BackgroundComponent) renderWithOverlay(
 		Height(height)
 	leftSide := leftStyle.Render(leftContent)
 
-	// Right side: overlay content with secondary color background
-	overlayStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(secondaryColor)).
-		Foreground(lipgloss.Color("#FFFFFF")).
+	// Set global theme based on current album art
+	bgColor := bg.paletteToHexColor(palette.Primary)
+	theme := styles.CreateThemeFromColor(bgColor)
+	styles.SetGlobalTheme(theme)
+
+	// Right side: overlay content with themed styling
+	overlayStyle := styles.ThemedBackgroundStyle().
 		Padding(1, 1).
 		Width(overlayWidth - 2).
-		Height(height - 2).
+		Height(height).
 		Align(lipgloss.Left).
 		AlignVertical(lipgloss.Top)
-
-	if styled {
-		overlayStyle = overlayStyle.Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#FFFFFF"))
-	}
 
 	rightContent := overlayStyle.Render(overlayContent)
 	rightStyle := lipgloss.NewStyle().
@@ -233,6 +232,146 @@ func (bg *BackgroundComponent) paletteToHexColor(c any) string {
 	}
 
 	return "#333333"
+}
+
+// adjustColorBrightness adjusts the brightness of a hex color by a factor
+// factor > 0 makes it brighter, factor < 0 makes it darker
+func adjustColorBrightness(hexColor string, factor float64) string {
+	// Remove # if present
+	hexColor = strings.TrimPrefix(hexColor, "#")
+
+	// Parse hex color
+	var r, g, b uint8
+	if len(hexColor) == 6 {
+		fmt.Sscanf(hexColor, "%02x%02x%02x", &r, &g, &b)
+	} else {
+		// Default to dark gray if parsing fails
+		return "#2a2a2a"
+	}
+
+	// Adjust brightness
+	adjust := func(c uint8) uint8 {
+		// Convert to float, adjust, and clamp to 0-255
+		newVal := float64(c) * (1.0 + factor)
+		if newVal < 0 {
+			return 0
+		}
+		if newVal > 255 {
+			return 255
+		}
+		return uint8(newVal)
+	}
+
+	newR := adjust(r)
+	newG := adjust(g)
+	newB := adjust(b)
+
+	return fmt.Sprintf("#%02x%02x%02x", newR, newG, newB)
+}
+
+// CurrentBackgroundColor returns the current background color being used
+func (bg *BackgroundComponent) CurrentBackgroundColor() string {
+	return styles.CurrentTheme().BackgroundColor
+}
+
+// CreateThemedDelegate creates a list delegate with theme-based styling
+func (bg *BackgroundComponent) CreateThemedDelegate() styles.CustomDelegate {
+	delegate := styles.NewCustomDelegate()
+
+	// Apply global theme styles to the delegate
+	delegate.Styles.NormalTitle = styles.ThemedPrimaryTextStyle().Padding(0, 0, 0, 1)
+	delegate.Styles.NormalDesc = styles.ThemedSecondaryTextStyle().Padding(0, 0, 0, 1)
+	delegate.Styles.SelectedTitle = styles.ThemedSelectedStyle().Padding(0, 0, 0, 1)
+	delegate.Styles.SelectedDesc = styles.ThemedTertiaryTextStyle().
+		Background(lipgloss.Color(styles.CurrentTheme().TextColor)).
+		Padding(0, 0, 0, 1)
+
+	return delegate
+}
+
+// min returns the smaller of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// applyFadeEffectWithAmount applies a fading effect based on a fade amount (0.0 to 1.0)
+func applyFadeEffectWithAmount(char string, fadeAmount float64) string {
+	// fadeAmount = 0.0 (no fade), fadeAmount = 1.0 (fully faded)
+
+	// For spaces, keep as-is
+	if char == " " || char == "\t" || char == "\n" || char == "\r" {
+		return " "
+	}
+
+	// Block characters with progressive fading
+	if char == "█" {
+		if fadeAmount < 0.3 {
+			return "▓"
+		} else if fadeAmount < 0.6 {
+			return "▒"
+		} else if fadeAmount < 0.9 {
+			return "░"
+		} else {
+			return " "
+		}
+	}
+	if char == "▓" {
+		if fadeAmount < 0.5 {
+			return "▒"
+		} else if fadeAmount < 0.8 {
+			return "░"
+		} else {
+			return " "
+		}
+	}
+	if char == "▒" {
+		if fadeAmount < 0.6 {
+			return "░"
+		} else {
+			return " "
+		}
+	}
+	if char == "░" {
+		return " "
+	}
+
+	// Vertical lines
+	if char == "│" || char == "┃" {
+		if fadeAmount < 0.5 {
+			return "┆"
+		} else {
+			return " "
+		}
+	}
+	if char == "┆" {
+		return " "
+	}
+
+	// Horizontal lines
+	if char == "─" || char == "━" {
+		if fadeAmount < 0.5 {
+			return "┄"
+		} else {
+			return " "
+		}
+	}
+	if char == "┄" || char == "┈" {
+		return " "
+	}
+
+	// For other characters, fade based on amount
+	if fadeAmount > 0.7 {
+		return " " // Fully faded
+	}
+	if fadeAmount > 0.4 {
+		// Partially faded - keep character but it will be on darker background
+		return char
+	}
+	// Minimal fade - keep original
+	return char
 }
 
 // SetTheme allows updating the color theme dynamically (for palette changes)
