@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"charm.land/bubbles/v2/textinput"
+
+	"plexmusic-tui/internal/image"
 )
 
 // ViewContext holds pure UI state that pages and components use for rendering.
@@ -29,6 +31,9 @@ type ViewContext struct {
 
 	// UI state flags
 	showQueueModal bool
+
+	// Color palette derived from current album art
+	currentPalette *image.Palette
 
 	// Login form inputs
 	usernameInput textinput.Model
@@ -317,4 +322,18 @@ func (v *ViewContext) SetDumpView(dump bool) {
 
 func (v *ViewContext) Tasks() *TaskManager {
 	return v.tasks
+}
+
+// Palette
+
+func (v *ViewContext) CurrentPalette() *image.Palette {
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.currentPalette
+}
+
+func (v *ViewContext) SetCurrentPalette(palette *image.Palette) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.currentPalette = palette
 }

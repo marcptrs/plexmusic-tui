@@ -81,6 +81,9 @@ type LibraryPage struct {
 	searchComponent        *components.SearchComponent
 	settingsComponent      *components.SettingsComponent
 
+	// Background with dynamic palette coloring
+	background *components.BackgroundComponent
+
 	// showingTracks indicates the left-pane is showing track list for a selected album/playlist.
 	showingTracks bool
 	// drawerOpen indicates whether an overlay drawer (for library/search/settings) is open
@@ -183,6 +186,7 @@ func NewLibraryPageWithAuth(appCtx *app.AppContext, authSvc service.AuthServicer
 		settingsComponent:         components.NewSettingsComponent(appCtx),
 		nowPlaying:                components.NewNowPlayingComponent(appCtx, nil),
 		orchestrator:              orch,
+		background:                components.NewBackgroundComponent(appCtx, nil),
 	}
 
 	if authSvc != nil {
@@ -271,6 +275,8 @@ func (p *LibraryPage) Init() tea.Cmd {
 	} else {
 		p.nowPlaying = components.NewNowPlayingComponent(p.appCtx, p.orchestrator)
 	}
+	// Update background component with the orchestrator for album art and palette extraction
+	p.background = components.NewBackgroundComponent(p.appCtx, p.orchestrator)
 
 	// Default to the Home tab and ensure selection indices are initialized so
 	// the initial view always starts with content focused when available.

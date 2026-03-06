@@ -136,6 +136,15 @@ func (r *Renderer) Precompute(img image.Image, width, height int) {
 	}()
 }
 
+// ExtractPalette extracts a palette from an image using k-means clustering.
+// Returns a *Palette containing dominant colors from the image.
+func (r *Renderer) ExtractPalette(img image.Image) interface{} {
+	if img == nil {
+		return ExtractPalette(image.NewRGBA(image.Rect(0, 0, 1, 1)))
+	}
+	return ExtractPalette(img)
+}
+
 // getPngCacheKey builds a cache key for a pre-encoded resized PNG. Includes
 // the content hash (image content), the protocol, the bucketed widths/heights
 // and the pixelPerCell which affects the resize.
@@ -486,7 +495,6 @@ func (r *Renderer) renderImageITerm2(img image.Image, width, height int, content
 	// Use cached resized PNG when available. getOrEncodePng returns encoded
 	// PNG as well as the resized pixel dimensions for logging.
 	enc, pixelW, pixelH, err := r.getOrEncodePng(contentHash, img, domain.ProtocolITerm2, width, height, pixelPerCell)
-
 	if err != nil {
 		return ""
 	}

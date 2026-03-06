@@ -32,4 +32,7 @@ type ImageRenderer interface {
 	// when the UI requests an image for the first time. Implementations should
 	// run the work in the background and return immediately.
 	Precompute(img image.Image, width, height int)
+	// ExtractPalette extracts a palette of dominant colors from an image.
+	// Returns an interface{} that should be cast to *image.Palette.
+	ExtractPalette(img image.Image) interface{}
 }
