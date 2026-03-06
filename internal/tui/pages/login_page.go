@@ -31,8 +31,9 @@ type LoginPage struct {
 	passwordInput textinput.Model
 	focusIndex    int
 
-	authenticating bool
-	errorMsg       string
+	authenticating        bool
+	errorMsg              string
+	isAuthFailureRedirect bool // Track if this login is due to auth failure
 
 	// Event subscription
 	ctx    context.Context
@@ -45,13 +46,14 @@ type LoginPage struct {
 // NewLoginPage creates a new login page
 func NewLoginPage(appCtx *app.AppContext, authSvc service.AuthServicer) *LoginPage {
 	// Backward-compatible wrapper, creating login page without config manager
-	return NewLoginPageWithConfig(appCtx, authSvc, nil)
+	return NewLoginPageWithConfig(appCtx, authSvc, nil, false)
 }
 
 func NewLoginPageWithConfig(
 	appCtx *app.AppContext,
 	authSvc service.AuthServicer,
 	cfgMgr *config.Manager,
+	isAuthFailure bool,
 ) *LoginPage {
 	usernameInput := textinput.New()
 	usernameInput.Placeholder = "Email or username"
@@ -69,21 +71,44 @@ func NewLoginPageWithConfig(
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &LoginPage{
-		appCtx:        appCtx,
-		authService:   authSvc,
-		configMgr:     cfgMgr,
-		usernameInput: usernameInput,
-		passwordInput: passwordInput,
-		focusIndex:    0,
-		ctx:           ctx,
-		cancel:        cancel,
-		help:          help.New(),
-		keys:          tui.DefaultLoginKeyMap(),
+		appCtx:                appCtx,
+		authService:           authSvc,
+		configMgr:             cfgMgr,
+		usernameInput:         usernameInput,
+		passwordInput:         passwordInput,
+		focusIndex:            0,
+		authenticating:        false,
+		isAuthFailureRedirect: isAuthFailure,
+		ctx:                   ctx,
+		cancel:                cancel,
+		help:                  help.New(),
+		keys:                  tui.DefaultLoginKeyMap(),
 	}
 }
 
 // Init initializes the login page
 func (p *LoginPage) Init() tea.Cmd {
+	// Check if this is an auth failure redirect (either from session context or constructor flag)
+	isAuthFailure := p.isAuthFailureRedirect || p.appCtx.Session.IsAuthFailureRedirect()
+
+	// If this is an auth failure redirect, don't automatically use any existing token
+	if isAuthFailure {
+		// Clear any invalid token from session to ensure clean state
+		p.appCtx.Session.SetToken("")
+		// Also clear from config to prevent auto-login attempts
+		if p.configMgr != nil {
+			p.configMgr.SetAuthToken("")
+			// Save immediately to prevent the token from being read again
+			_ = p.configMgr.Save() // Ignore error for now
+		}
+		// Reset the auth failure flag
+		p.appCtx.Session.SetAuthFailureRedirect(false)
+		return tea.Batch(
+			textinput.Blink,
+			p.subscribeToAuthEvents(),
+		)
+	}
+
 	// If there's already a token stored in the config, restore it and navigate to the next page.
 	if p.configMgr != nil {
 		if token := p.configMgr.GetAuthToken(); token != "" {
@@ -371,6 +396,16 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 	case "auth.failed":
 		p.authenticating = false
 		p.errorMsg = event.Error.Error()
+		// Clear the invalid token from session
+		p.appCtx.Session.SetToken("")
+		// Clear the invalid token from config if present
+		if p.configMgr != nil {
+			p.configMgr.SetAuthToken("")
+			if err := p.configMgr.Save(); err != nil {
+				// TODO: Add logging
+				_ = err // satisfy linter
+			}
+		}
 		return p, nil
 
 	case "servers.loaded":
@@ -424,6 +459,11 @@ func (p *LoginPage) handleAuthEvent(event domain.AuthEvent) (tea.Model, tea.Cmd)
 	}
 
 	return p, nil
+}
+
+// MarkAsAuthFailureRedirect marks this login page instance as being shown due to auth failure
+func (p *LoginPage) MarkAsAuthFailureRedirect() {
+	p.isAuthFailureRedirect = true
 }
 
 // Close cleans up resources

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"plexmusic-tui/internal/domain"
 	"plexmusic-tui/internal/pubsub"
@@ -95,6 +96,22 @@ func (s *AuthService) FetchServers(ctx context.Context, token string) ([]domain.
 				},
 			})
 			return nil, err
+		}
+
+		// Check if this is a 401 Unauthorized error (expired/invalid token)
+		// The error message from authenticator will contain "status 401"
+		if err != nil && err.Error() != "" {
+			if strings.Contains(err.Error(), "status 401") {
+				// Publish auth.failed event to trigger redirect to login
+				s.broker.Publish(pubsub.Event[domain.AuthEvent]{
+					Type: "auth.failed",
+					Payload: domain.AuthEvent{
+						Type:  "auth.failed",
+						Error: err,
+					},
+				})
+				return nil, err
+			}
 		}
 
 		// All other errors are actionable; log and publish as a failed fetch.

@@ -167,7 +167,7 @@ func provideRouter(
 		initialID = tui.ServerSelectionPageID
 		appCtx.Session.SetToken(token)
 	} else {
-		initialPage = pages.NewLoginPageWithConfig(appCtx, authService, cfgMgr)
+		initialPage = pages.NewLoginPageWithConfig(appCtx, authService, cfgMgr, false)
 		initialID = tui.LoginPageID
 	}
 
@@ -184,7 +184,7 @@ func providePageFactory(
 		appCtx := coord.GetAppContext()
 		switch id {
 		case tui.LoginPageID:
-			return pages.NewLoginPageWithConfig(appCtx, authService, cfgMgr)
+			return pages.NewLoginPageWithConfig(appCtx, authService, cfgMgr, false)
 		case tui.ServerSelectionPageID:
 			return pages.NewServerSelectionPage(appCtx, authService, cfgMgr)
 		case tui.LibraryPageID:

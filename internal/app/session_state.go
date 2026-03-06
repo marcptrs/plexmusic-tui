@@ -10,8 +10,9 @@ import (
 // This separates session/auth concerns from content and playback.
 type SessionContext struct {
 	// Authentication
-	token string
-	err   error
+	token               string
+	err                 error
+	authFailureRedirect bool // Track if we're redirecting due to auth failure
 
 	// Server and library selection
 	servers         []domain.PlexServer
@@ -60,6 +61,19 @@ func (s *SessionContext) SetError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.err = err
+}
+
+// Auth Failure Redirect
+func (s *SessionContext) IsAuthFailureRedirect() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.authFailureRedirect
+}
+
+func (s *SessionContext) SetAuthFailureRedirect(flag bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.authFailureRedirect = flag
 }
 
 // Servers

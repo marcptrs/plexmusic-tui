@@ -129,7 +129,8 @@ func (p *ServerSelectionPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case domain.AuthEvent:
-		return p, p.handleAuthEvent(msg)
+		cmd := p.handleAuthEvent(msg)
+		return p, cmd
 	}
 
 	var cmd tea.Cmd
@@ -208,12 +209,12 @@ func (p *ServerSelectionPage) subscribeToAuthEvents() tea.Cmd {
 		p.eventCh = eventCh
 	}
 
-	// Only forward server-related events (servers.loaded, servers.fetch_failed).
-	// Ignore other auth events (auth.success/auth.failed) that are irrelevant to
-	// this page and which could result in incorrectly updating state.
+	// Forward server-related events (servers.loaded, servers.fetch_failed) and
+	// auth.failed events (for handling expired tokens and redirecting to login).
+	// Ignore other auth events (auth.success) that are irrelevant to this page.
 	return func() tea.Msg {
 		for event := range eventCh {
-			if event.Type == "servers.loaded" || event.Type == "servers.fetch_failed" {
+			if event.Type == "servers.loaded" || event.Type == "servers.fetch_failed" || event.Type == "auth.failed" {
 				return event.Payload
 			}
 			// skip unrelated events and continue listening
@@ -226,6 +227,23 @@ func (p *ServerSelectionPage) subscribeToAuthEvents() tea.Cmd {
 // handleAuthEvent processes authentication events
 func (p *ServerSelectionPage) handleAuthEvent(event domain.AuthEvent) tea.Cmd {
 	switch event.Type {
+	case "auth.failed":
+		// Authentication failed (likely expired token), redirect to login page
+		p.loadingServers = false
+		p.errorMsg = ""
+		// Clear the invalid token from session
+		p.appCtx.Session.SetToken("")
+		// Mark this as an auth failure redirect
+		p.appCtx.Session.SetAuthFailureRedirect(true)
+		// Clear the invalid token from config if present
+		if p.configMgr != nil {
+			p.configMgr.SetAuthToken("")
+			// Save immediately to prevent the token from being read again
+			_ = p.configMgr.Save() // Ignore error for now
+		}
+		return func() tea.Msg {
+			return tui.PageChangeMsg{ID: tui.LoginPageID}
+		}
 	case "servers.loaded":
 		p.loadingServers = false
 		p.errorMsg = ""
