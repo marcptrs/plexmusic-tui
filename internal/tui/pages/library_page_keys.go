@@ -566,6 +566,8 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	if p.showingTracks {
 		if !p.IsFocusedQueue() && !p.appCtx.View.ShowQueueModal() {
+			// Ensure track component is focused to receive key events
+			p.trackComponent.SetFocused(true)
 			oldSel := p.trackComponent.Index()
 			_, cmd = p.trackComponent.Update(msg)
 			newSel := p.trackComponent.Index()
