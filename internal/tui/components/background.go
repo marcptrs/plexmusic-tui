@@ -179,13 +179,8 @@ func (bg *BackgroundComponent) renderWithOverlay(
 		leftContent = strings.Join(albumAreaLines, "\n")
 	}
 
-	// Apply background color to left side using the primary palette color
-	// This ensures the album art has a proper background
-	leftStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(bg.paletteToHexColor(palette.Primary))).
-		Width(artWidth).
-		Height(height)
-	leftSide := leftStyle.Render(leftContent)
+	// Create a multi-color blended background for the left side
+	leftSide := bg.createMultiColorBackground(artWidth, height, leftContent, palette)
 
 	// Right side: overlay content with secondary color background
 	overlayStyle := lipgloss.NewStyle().
@@ -233,6 +228,76 @@ func (bg *BackgroundComponent) paletteToHexColor(c any) string {
 	}
 
 	return "#333333"
+}
+
+// createMultiColorBackground creates a background with blended colors from the palette
+func (bg *BackgroundComponent) createMultiColorBackground(
+	width, height int, content string, palette *imageutil.Palette,
+) string {
+	if palette == nil {
+		// Fallback to single color if no palette available
+		style := lipgloss.NewStyle().
+			Background(lipgloss.Color("#333333")).
+			Width(width).
+			Height(height)
+		return style.Render(content)
+	}
+
+	// Get multiple colors from the palette
+	colors := []string{
+		bg.paletteToHexColor(palette.Primary),
+		bg.paletteToHexColor(palette.Secondary),
+		bg.paletteToHexColor(palette.Accent),
+		bg.paletteToHexColor(palette.Muted),
+	}
+
+	// Filter out empty/invalid colors
+	validColors := []string{}
+	for _, color := range colors {
+		if color != "" && color != "#000000" {
+			validColors = append(validColors, color)
+		}
+	}
+
+	// If we don't have enough colors, fallback to single color
+	if len(validColors) < 2 {
+		style := lipgloss.NewStyle().
+			Background(lipgloss.Color(bg.paletteToHexColor(palette.Primary))).
+			Width(width).
+			Height(height)
+		return style.Render(content)
+	}
+
+	// Create a multi-color background by using different colors for different rows
+	var result strings.Builder
+	contentLines := strings.Split(content, "\n")
+
+	for i := 0; i < height; i++ {
+		// Select color based on row position to create a gradient effect
+		colorIndex := i % len(validColors)
+		color := validColors[colorIndex]
+
+		contentLine := ""
+		if i < len(contentLines) {
+			contentLine = contentLines[i]
+		}
+
+		// Create a line with the selected background color
+		lineStyle := lipgloss.NewStyle().
+			Background(lipgloss.Color(color)).
+			Width(width)
+
+		// Ensure content line is exactly the width we want
+		if len(contentLine) < width {
+			contentLine += strings.Repeat(" ", width-len(contentLine))
+		} else if len(contentLine) > width {
+			contentLine = contentLine[:width]
+		}
+
+		result.WriteString(lineStyle.Render(contentLine) + "\n")
+	}
+
+	return strings.TrimSuffix(result.String(), "\n")
 }
 
 // SetTheme allows updating the color theme dynamically (for palette changes)
