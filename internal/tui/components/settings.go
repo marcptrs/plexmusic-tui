@@ -22,7 +22,7 @@ type SettingsComponent struct {
 
 // NewSettingsComponent creates a new SettingsComponent.
 func NewSettingsComponent(ctx *app.AppContext) *SettingsComponent {
-	delegate := styles.NewCustomDelegate()
+	delegate := styles.NewDynamicDelegate()
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = "Settings"
 	l.SetShowHelp(false)

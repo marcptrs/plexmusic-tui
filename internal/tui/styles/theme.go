@@ -58,14 +58,20 @@ func ResetToDefaultTheme() {
 
 // CreateThemeFromColor creates a complete theme based on a background color
 func CreateThemeFromColor(bgColor string) Theme {
-	textColor := chooseContrastingTextColor(bgColor)
+	// Use Lip Gloss's adaptive color function to choose contrasting text
+	textColor := getContrastingTextColor(bgColor)
+
+	// Use simple color brightness adjustment
+	secondaryColor := adjustBrightness(bgColor, 0.2) // 20% lighter
+	tertiaryColor := adjustBrightness(bgColor, 0.4)  // 40% lighter
+	borderColor := adjustBrightness(bgColor, -0.1)   // 10% darker
 
 	theme := Theme{
 		BackgroundColor: bgColor,
 		TextColor:       textColor,
-		SecondaryColor:  adjustColorBrightness(bgColor, 0.2),  // 20% lighter
-		TertiaryColor:   adjustColorBrightness(bgColor, 0.4),  // 40% lighter
-		BorderColor:     adjustColorBrightness(bgColor, -0.1), // 10% darker
+		SecondaryColor:  secondaryColor,
+		TertiaryColor:   tertiaryColor,
+		BorderColor:     borderColor,
 	}
 
 	// Create pre-computed styles for performance
@@ -119,19 +125,22 @@ func ThemedSelectedStyle() lipgloss.Style {
 	return currentTheme.Styles.Selected
 }
 
-// Color utility functions
-
-// chooseContrastingTextColor selects black or white text based on background brightness
-func chooseContrastingTextColor(bgColor string) string {
+// getContrastingTextColor selects black or white text based on background brightness
+// using Lip Gloss's adaptive color functionality
+func getContrastingTextColor(bgColor string) string {
 	// Remove # if present
 	bgColor = strings.TrimPrefix(bgColor, "#")
 
-	// Parse hex color
+	// Parse hex color components
 	var r, g, b uint8
 	if len(bgColor) == 6 {
-		fmt.Sscanf(bgColor, "%02x%02x%02x", &r, &g, &b)
+		_, err := fmt.Sscanf(bgColor, "%02x%02x%02x", &r, &g, &b)
+		if err != nil {
+			// Default to white text if parsing fails
+			return "#FFFFFF"
+		}
 	} else {
-		// Default to white text if parsing fails
+		// Default to white text if invalid format
 		return "#FFFFFF"
 	}
 
@@ -146,9 +155,9 @@ func chooseContrastingTextColor(bgColor string) string {
 	}
 }
 
-// adjustColorBrightness adjusts the brightness of a hex color by a factor
+// adjustBrightness adjusts the brightness of a hex color by a factor
 // factor > 0 makes it brighter, factor < 0 makes it darker
-func adjustColorBrightness(hexColor string, factor float64) string {
+func adjustBrightness(hexColor string, factor float64) string {
 	// Remove # if present
 	hexColor = strings.TrimPrefix(hexColor, "#")
 

@@ -5,6 +5,8 @@ import (
 	"io"
 	"strings"
 
+	"plexmusic-tui/internal/tui/colors"
+
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -65,6 +67,28 @@ func NewCustomDelegate() CustomDelegate {
 	}
 }
 
+// NewDynamicDelegate creates a new delegate that dynamically uses current theme colors
+func NewDynamicDelegate() CustomDelegate {
+	return CustomDelegate{
+		ShowDescription: true,
+		height:          2,
+		spacing:         0,
+		Styles: CustomDelegateStyles{
+			NormalTitle: lipgloss.NewStyle().
+				Padding(0, 0, 0, 1),
+			NormalDesc: lipgloss.NewStyle().
+				Padding(0, 0, 0, 1),
+			SelectedTitle: lipgloss.NewStyle().
+				Bold(true).
+				Padding(0, 1),
+			SelectedDesc: lipgloss.NewStyle().
+				Padding(0, 1),
+			SelectedIndicator: "▸ ",
+			NormalIndicator:   "  ",
+		},
+	}
+}
+
 func (d CustomDelegate) Height() int {
 	if d.ShowDescription {
 		return d.height
@@ -105,15 +129,24 @@ func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 	if isSelected {
 		indicator = s.SelectedIndicator
 
-		// Render title with full-width background
+		// Get current theme colors dynamically
+		textColor, bgColor, _, _ := colors.GetThemeColors()
+
+		// Render title with full-width background using theme colors
 		var titleStr string
 		if strings.Contains(title, "\x1b[") {
-			// Preserve any inner ANSI color codes and apply pane background and padding.
-			titleStr = lipgloss.NewStyle().Background(ColorSelected).
+			// Preserve any inner ANSI color codes and apply theme background and padding.
+			titleStr = lipgloss.NewStyle().
+				Background(lipgloss.Color(bgColor)).
+				Foreground(lipgloss.Color(textColor)).
 				Width(width - lipgloss.Width(indicator)).
 				Render(title)
 		} else {
-			titleStr = s.SelectedTitle.
+			// Apply theme colors to selected title
+			themedSelectedTitle := s.SelectedTitle.
+				Foreground(lipgloss.Color(textColor)).
+				Background(lipgloss.Color(bgColor))
+			titleStr = themedSelectedTitle.
 				Width(width - lipgloss.Width(indicator)).
 				Render(title)
 		}
@@ -129,13 +162,18 @@ func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 			}
 			// For selected rows ensure artist/album have high contrast on the selected background
 			artistStyled := lipgloss.NewStyle().
-				Foreground(ColorSelectedText).
-				Background(ColorSelected).
+				Foreground(lipgloss.Color(textColor)).
+				Background(lipgloss.Color(bgColor)).
 				Render(artistPart)
 			// Slightly dim album: use muted color for contrast (subtle but readable)
 			// Make album visible on selected rows; white text ensures clarity.
-			albumStyled := lipgloss.NewStyle().Foreground(ColorSelectedText).Background(ColorSelected).Render(albumPart)
-			sep := lipgloss.NewStyle().Background(ColorSelected).Render(" - ")
+			albumStyled := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(textColor)).
+				Background(lipgloss.Color(bgColor)).
+				Render(albumPart)
+			sep := lipgloss.NewStyle().
+				Background(lipgloss.Color(bgColor)).
+				Render(" - ")
 			if artistPart == "" {
 				descStr = albumStyled
 			} else if albumPart == "" {
@@ -144,11 +182,16 @@ func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 				descStr = lipgloss.JoinHorizontal(lipgloss.Left, artistStyled, sep, albumStyled)
 			}
 			descStr = lipgloss.NewStyle().
-				Background(ColorSelected).
+				Background(lipgloss.Color(bgColor)).
 				Width(width - lipgloss.Width(indicator)).
 				Render(descStr)
-			padding := lipgloss.NewStyle().Background(ColorSelected).Width(lipgloss.Width(indicator)).Render("")
-			indicator = lipgloss.NewStyle().Background(ColorSelected).Render(indicator)
+			padding := lipgloss.NewStyle().
+				Background(lipgloss.Color(bgColor)).
+				Width(lipgloss.Width(indicator)).
+				Render("")
+			indicator = lipgloss.NewStyle().
+				Background(lipgloss.Color(bgColor)).
+				Render(indicator)
 			fmt.Fprintf(w, "%s%s\n%s%s", indicator, titleStr, padding, descStr)
 		} else {
 			fmt.Fprintf(w, "%s%s", indicator, titleStr)
@@ -157,14 +200,25 @@ func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 		indicator = s.NormalIndicator
 
 		var titleStr string
+		// Get current theme colors for non-selected items
+		textColor, bgColor, secondaryColor, tertiaryColor := colors.GetThemeColors()
+
 		// If the item reports that it is playing, show the success color; otherwise use the normal title style.
 		if pi, ok := item.(PlayingIndicator); ok && pi.IsPlaying() {
 			titleStr = SuccessStyle.Render(title)
 		} else if strings.Contains(title, "\x1b[") {
-			// Preserve inner color codes and apply minimal padding via NormalTitle.
-			titleStr = lipgloss.NewStyle().Background(ColorPaneBackground).Padding(0, 0, 0, 1).Render(title)
+			// Preserve inner color codes and apply theme background and padding.
+			titleStr = lipgloss.NewStyle().
+				Background(lipgloss.Color(bgColor)).
+				Foreground(lipgloss.Color(textColor)).
+				Padding(0, 0, 0, 1).
+				Render(title)
 		} else {
-			titleStr = s.NormalTitle.Width(width - lipgloss.Width(indicator)).Render(title)
+			// Apply theme colors to normal title
+			themedNormalTitle := s.NormalTitle.
+				Foreground(lipgloss.Color(textColor)).
+				Background(lipgloss.Color(bgColor))
+			titleStr = themedNormalTitle.Width(width - lipgloss.Width(indicator)).Render(title)
 		}
 
 		if d.ShowDescription && desc != "" {
@@ -176,11 +230,20 @@ func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 			if len(parts) > 1 {
 				albumPart = parts[1]
 			}
-			// Non-selected row: artist and album are same color (Secondary) and use pane background.
-			artistStyled := lipgloss.NewStyle().Foreground(ColorSecondary).Background(ColorPaneBackground).Render(artistPart)
-			// Slightly dim album for visual difference — use dimmed hue instead of font fainting
-			albumStyled := lipgloss.NewStyle().Foreground(ColorSecondaryDim).Background(ColorPaneBackground).Render(albumPart)
-			sep := lipgloss.NewStyle().Foreground(ColorSecondary).Background(ColorPaneBackground).Render(" - ")
+			// Non-selected row: artist and album use theme colors and background.
+			artistStyled := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(secondaryColor)).
+				Background(lipgloss.Color(bgColor)).
+				Render(artistPart)
+			// Slightly dim album for visual difference — use tertiary color
+			albumStyled := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(tertiaryColor)).
+				Background(lipgloss.Color(bgColor)).
+				Render(albumPart)
+			sep := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(secondaryColor)).
+				Background(lipgloss.Color(bgColor)).
+				Render(" - ")
 			if artistPart == "" {
 				descStr = albumStyled
 			} else if albumPart == "" {
@@ -188,13 +251,18 @@ func (d CustomDelegate) Render(w io.Writer, m list.Model, index int, item list.I
 			} else {
 				descStr = lipgloss.JoinHorizontal(lipgloss.Left, artistStyled, sep, albumStyled)
 			}
-			// end: description rendering for non-selected row
-			// Apply background + width separately to keep line length under linter limits
-			descStr = lipgloss.NewStyle().Background(ColorPaneBackground).
+			// Apply theme background + width
+			descStr = lipgloss.NewStyle().
+				Background(lipgloss.Color(bgColor)).
 				Width(width - lipgloss.Width(indicator)).
 				Render(descStr)
-			padding := lipgloss.NewStyle().Background(ColorPaneBackground).Width(lipgloss.Width(indicator)).Render("")
-			indicator = lipgloss.NewStyle().Background(ColorPaneBackground).Render(indicator)
+			padding := lipgloss.NewStyle().
+				Background(lipgloss.Color(bgColor)).
+				Width(lipgloss.Width(indicator)).
+				Render("")
+			indicator = lipgloss.NewStyle().
+				Background(lipgloss.Color(bgColor)).
+				Render(indicator)
 			fmt.Fprintf(w, "%s%s\n%s%s", indicator, titleStr, padding, descStr)
 		} else {
 			fmt.Fprintf(w, "%s%s", indicator, titleStr)

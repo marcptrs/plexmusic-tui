@@ -99,7 +99,7 @@ func (np *NowPlayingComponent) Render(width, height int) string {
 	}
 
 	// Build progress bar and time display
-	progressBar := np.buildProgressBar(width, artW, tr.Duration)
+	progressBar := np.BuildProgressBar(width, artW, tr.Duration)
 
 	// Volume display
 	volume := np.buildVolumeDisplay()
@@ -152,10 +152,10 @@ func (np *NowPlayingComponent) RenderInfo(width, height int) string {
 	}
 
 	tr := np.ctx.Playback.CurrentTrack()
-	trackTitle := styles.PrimaryTextStyle().Render(tr.Title)
-	artist := styles.SecondaryTextStyle().Render(tr.Artist)
-	album := styles.TertiaryTextStyle().Render(tr.Album)
-	progressBar := np.buildProgressBar(width, 0, tr.Duration)
+	trackTitle := styles.ThemedPrimaryTextStyle().Render(tr.Title)
+	artist := styles.ThemedSecondaryTextStyle().Render(tr.Artist)
+	album := styles.ThemedTertiaryTextStyle().Render(tr.Album)
+	progressBar := np.BuildProgressBar(width, 0, tr.Duration)
 	volume := np.buildVolumeDisplay()
 
 	// Next track info
@@ -191,14 +191,14 @@ func (np *NowPlayingComponent) renderNothingPlaying(width, height int) string {
 		"",
 		help,
 		"",
-		styles.BlurredStyle.Render(volumeStr),
+		styles.ThemedTertiaryTextStyle().Render(volumeStr),
 	)
 	// Center both horizontally and vertically within the available space
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, nothingPlayingText)
 }
 
-// buildProgressBar constructs a progress bar string with position/duration.
-func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDuration int) string {
+// BuildProgressBar constructs a progress bar string with position/duration.
+func (np *NowPlayingComponent) BuildProgressBar(totalWidth, artWidth, trackDuration int) string {
 	// Use time-based calculated position for smooth display
 	posMs := np.ctx.Playback.CalculatedPositionMs()
 	sr := int(np.ctx.Playback.SampleRate())
@@ -256,11 +256,11 @@ func (np *NowPlayingComponent) buildProgressBar(totalWidth, artWidth, trackDurat
 	}
 
 	return lipgloss.JoinHorizontal(lipgloss.Left,
-		styles.SecondaryTextStyle().Render(posStr),
+		styles.ThemedSecondaryTextStyle().Render(posStr),
 		" ",
 		np.progress.ViewAs(pct),
 		" ",
-		styles.SecondaryTextStyle().Render(remainingStr),
+		styles.ThemedSecondaryTextStyle().Render(remainingStr),
 	)
 }
 
@@ -329,9 +329,6 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 	}
 
 	tr := np.ctx.Playback.CurrentTrack()
-	title := styles.PrimaryTextStyle().Render(tr.Title)
-	artist := styles.SecondaryTextStyle().Render(tr.Artist)
-	album := styles.TertiaryTextStyle().Render(tr.Album)
 
 	art := np.ctx.Playback.AlbumArt()
 	var artView string
@@ -422,17 +419,17 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 
 	info := lipgloss.JoinVertical(
 		lipgloss.Left,
-		styles.TitleStyle.Render("Now Playing"),
+		styles.ThemedTitleStyle().Render("Now Playing"),
 		"",
-		title,
-		artist,
-		album,
+		tr.Title,
+		tr.Artist,
+		tr.Album,
 		"",
 		progressBar,
 		"",
 		lipgloss.JoinHorizontal(lipgloss.Left,
 			"Volume: ",
-			styles.BlurredStyle.Render(fmt.Sprintf("%.2f", func() float64 {
+			styles.ThemedTertiaryTextStyle().Render(fmt.Sprintf("%.2f", func() float64 {
 				if vol := np.ctx.Playback.Volume(); vol != nil {
 					return vol.Volume
 				}

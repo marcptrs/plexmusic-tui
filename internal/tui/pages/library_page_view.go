@@ -75,7 +75,7 @@ func (p *LibraryPage) View() tea.View {
 		active = app.HomeTab
 	}
 
-	rightWidth := (p.width / 2) - 1
+	rightWidth := p.width * 30 / 100
 	listHeight := contentHeight - 2
 
 	switch active {

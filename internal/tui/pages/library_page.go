@@ -332,10 +332,12 @@ func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if contentHeight < 6 {
 			contentHeight = 6
 		}
+		// Account for now playing controls height
+		controlsHeight := 6
 		// Pane borders take 2 lines (top+bottom)
-		listHeight := contentHeight - 2
-		if listHeight < 0 {
-			listHeight = 0
+		listHeight := contentHeight - controlsHeight - 2
+		if listHeight < 4 {
+			listHeight = 4
 		}
 
 		p.recentlyAddedComponent.SetSize(leftWidth, listHeight)

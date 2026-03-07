@@ -43,6 +43,27 @@ var (
 				Bold(true).
 				Padding(0, 1).
 				Background(ColorPaneBackground)
+
+	// ThemedTitleStyle for view titles that adapt to current theme
+	ThemedTitleStyle = func() lipgloss.Style {
+		theme := CurrentTheme()
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextColor)).
+			Bold(true).
+			Padding(0, 1).
+			Background(lipgloss.Color(theme.BackgroundColor))
+	}
+
+	// ThemedSectionTitleStyle for section headers that adapt to current theme
+	ThemedSectionTitleStyle = func() lipgloss.Style {
+		theme := CurrentTheme()
+		// Use primary text color for better contrast in section headers
+		return lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextColor)).
+			Bold(true).
+			Padding(0, 1).
+			Background(lipgloss.Color(theme.BackgroundColor))
+	}
 	// SubtitleStyle for subtitles
 	SubtitleStyle = lipgloss.NewStyle().
 			Foreground(ColorMuted).
@@ -236,6 +257,34 @@ func NothingPlayingHintStyle() string {
 		Render("Select a track and press Enter to start playback")
 }
 
+// ApplyThemeToDelegate applies the current theme to a custom delegate
+func ApplyThemeToDelegate(delegate *CustomDelegate) {
+	theme := CurrentTheme()
+	delegate.Styles.NormalTitle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Padding(0, 0, 0, 1)
+	delegate.Styles.NormalDesc = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TertiaryColor)).
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Padding(0, 0, 0, 1)
+	delegate.Styles.SelectedTitle = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.BackgroundColor)).
+		Background(lipgloss.Color(theme.TextColor)).
+		Bold(true).
+		Padding(0, 1)
+	delegate.Styles.SelectedDesc = lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.BackgroundColor)).
+		Background(lipgloss.Color(theme.TextColor)).
+		Padding(0, 1)
+}
+
+// GetCurrentThemeColors returns the current theme colors for dynamic use
+func GetCurrentThemeColors() (textColor, backgroundColor, secondaryColor, tertiaryColor string) {
+	theme := CurrentTheme()
+	return theme.TextColor, theme.BackgroundColor, theme.SecondaryColor, theme.TertiaryColor
+}
+
 // ApplyWidth applies a width to a style
 func ApplyWidth(style lipgloss.Style, width int) lipgloss.Style {
 	return style.Width(width)
@@ -255,14 +304,15 @@ func ApplySize(style lipgloss.Style, width, height int) lipgloss.Style {
 // If selected is true, the selected styles are used; if playing is true and
 // not selected, the title uses SuccessStyle.
 func RenderTitleArtist(title, artist string, selected bool, playing bool) string {
-	// Build title
+	// Build title using theme-aware styles
 	var titleStr string
+	theme := CurrentTheme()
 	if selected {
-		titleStr = SelectedItemStyle.Render(title)
+		titleStr = ThemedSelectedStyle().Render(title)
 	} else if playing {
 		titleStr = SuccessStyle.Render(title)
 	} else {
-		titleStr = PrimaryTextStyle().Render(title)
+		titleStr = ThemedPrimaryTextStyle().Render(title)
 	}
 
 	if artist == "" {
@@ -278,28 +328,50 @@ func RenderTitleArtist(title, artist string, selected bool, playing bool) string
 	}
 	if selected {
 		// For selected rows use high-contrast text over the selected background
-		artistStr := lipgloss.NewStyle().Foreground(ColorSelectedText).Background(ColorSelected).Render(artistPart)
+		artistStr := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.BackgroundColor)).
+			Background(lipgloss.Color(theme.TextColor)).
+			Render(artistPart)
 		albumStr := ""
 		if albumPart != "" {
-			// Make album name visible on selected rows: use white text for clarity.
-			albumStr = lipgloss.NewStyle().Foreground(ColorSelectedText).Background(ColorSelected).Render(albumPart)
+			// Make album name visible on selected rows: use contrasting text for clarity.
+			albumStr = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.BackgroundColor)).
+				Background(lipgloss.Color(theme.TextColor)).
+				Render(albumPart)
 		}
-		sep := lipgloss.NewStyle().Foreground(ColorSelectedText).Background(ColorSelected).Render(" - ")
-		sp := lipgloss.NewStyle().Background(ColorSelected).Render(" ")
+		sep := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.BackgroundColor)).
+			Background(lipgloss.Color(theme.TextColor)).
+			Render(" - ")
+		sp := lipgloss.NewStyle().
+			Background(lipgloss.Color(theme.TextColor)).
+			Render(" ")
 		if albumPart == "" {
 			return lipgloss.JoinHorizontal(lipgloss.Left, titleStr, sp, artistStr)
 		}
 		return lipgloss.JoinHorizontal(lipgloss.Left, titleStr, sp, artistStr, sep, albumStr)
 	}
 
-	// Non-selected row
-	artistStr := lipgloss.NewStyle().Foreground(ColorSecondary).Background(ColorPaneBackground).Render(artistPart)
+	// Non-selected row - use primary text color for better contrast
+	artistStr := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Render(artistPart)
 	albumStr := ""
 	if albumPart != "" {
-		albumStr = lipgloss.NewStyle().Foreground(ColorSecondaryDim).Background(ColorPaneBackground).Render(albumPart)
+		albumStr = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.SecondaryColor)).
+			Background(lipgloss.Color(theme.BackgroundColor)).
+			Render(albumPart)
 	}
-	sep := lipgloss.NewStyle().Foreground(ColorSecondary).Background(ColorPaneBackground).Render(" - ")
-	sp := lipgloss.NewStyle().Background(ColorPaneBackground).Render(" ")
+	sep := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.SecondaryColor)).
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Render(" - ")
+	sp := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Render(" ")
 	if albumPart == "" {
 		return lipgloss.JoinHorizontal(lipgloss.Left, titleStr, sp, artistStr)
 	}

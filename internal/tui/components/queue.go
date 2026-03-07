@@ -30,7 +30,7 @@ type QueueComponent struct {
 type PlayResultMsg struct{ Err error }
 
 func NewQueueComponent(ctx *app.AppContext, orch *tui.Orchestrator) *QueueComponent {
-	delegate := styles.NewCustomDelegate()
+	delegate := styles.NewDynamicDelegate()
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = "Queue"
 	l.SetShowHelp(false)
@@ -113,7 +113,12 @@ func (c *QueueComponent) View() tea.View {
 	}
 
 	summary := fmt.Sprintf("%d items • %s", len(items), util.FormatTrackDuration(total))
-	summaryView := styles.MutedStyle.Padding(0, 1).Render(summary)
+	theme := styles.CurrentTheme()
+	summaryView := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Padding(0, 1).
+		Render(summary)
 
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, v, summaryView))
 }

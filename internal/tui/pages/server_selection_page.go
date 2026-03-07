@@ -61,7 +61,8 @@ func NewServerSelectionPage(
 	// publishes events before the page has a chance to subscribe.
 	eventCh := authSvc.Subscribe(ctx)
 
-	l := list.New(nil, styles.NewCustomDelegate(), 20, 10)
+	delegate := styles.NewDynamicDelegate()
+	l := list.New(nil, delegate, 20, 10)
 	l.Title = "Select Plex Server"
 	l.SetShowHelp(true)
 	l.SetShowStatusBar(false)

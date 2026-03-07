@@ -9,6 +9,7 @@ import (
 	"plexmusic-tui/internal/app"
 	imageutil "plexmusic-tui/internal/image"
 	"plexmusic-tui/internal/service"
+	"plexmusic-tui/internal/tui/colors"
 	"plexmusic-tui/internal/tui/styles"
 )
 
@@ -38,16 +39,25 @@ func NewBackgroundComponent(
 // Render renders the full-screen background with palette colors.
 // If overlayContent is provided, it will be rendered as a centered modal overlay.
 func (bg *BackgroundComponent) Render(width, height int, overlayContent string) string {
-	return bg.render(width, height, overlayContent, false)
+	leftWidth := width * 70 / 100
+	rightWidth := width - leftWidth
+	return bg.render(width, height, overlayContent, false, leftWidth, rightWidth)
 }
 
 // RenderWithOverlay renders the background with a styled overlay modal.
 func (bg *BackgroundComponent) RenderWithOverlay(width, height int, overlayContent string) string {
-	return bg.render(width, height, overlayContent, true)
+	leftWidth := width * 70 / 100
+	rightWidth := width - leftWidth
+	return bg.render(width, height, overlayContent, true, leftWidth, rightWidth)
 }
 
 // render is the internal rendering method
-func (bg *BackgroundComponent) render(width, height int, overlayContent string, styled bool) string {
+func (bg *BackgroundComponent) render(
+	width, height int,
+	overlayContent string,
+	styled bool,
+	leftWidth, rightWidth int,
+) string {
 	// Ensure minimum dimensions
 	if width < 20 || height < 10 {
 		return ""
@@ -55,12 +65,12 @@ func (bg *BackgroundComponent) render(width, height int, overlayContent string, 
 
 	// Extract palette from current album art
 	palette := bg.extractPalette()
-	bgColor := bg.paletteToHexColor(palette.Primary)
+	bgColorHex := bg.paletteToHexColor(palette.Primary)
 	secondaryColor := bg.paletteToHexColor(palette.Secondary)
 
 	// Create background style with primary palette color
 	bgStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(bgColor)).
+		Background(lipgloss.Color(bgColorHex)).
 		Foreground(lipgloss.Color("#FFFFFF")).
 		Width(width).
 		Height(height)
@@ -85,7 +95,19 @@ func (bg *BackgroundComponent) render(width, height int, overlayContent string, 
 	}
 
 	// Render layout with overlay on the right side
-	return bg.renderWithOverlay(width, height, overlayContent, palette, styled, bgStyle, secondaryColor)
+	left := width * 70 / 100
+	return bg.renderWithOverlay(
+		width,
+		height,
+		overlayContent,
+		palette,
+		styled,
+		bgStyle,
+		secondaryColor,
+		bgColorHex,
+		left,
+		width-left,
+	)
 }
 
 // extractPalette extracts and caches the palette from the current album art
@@ -118,57 +140,58 @@ func (bg *BackgroundComponent) renderWithOverlay(
 	styled bool,
 	bgStyle lipgloss.Style,
 	secondaryColor string,
+	bgColorHex string,
+	leftWidth, rightWidth int,
 ) string {
 	// Layout: left side gets colored background (based on primary color),
 	// right side gets overlay content
-	// Use 70% width for album art pane
-	artWidth := width * 70 / 100
-	if artWidth < 20 {
-		artWidth = 20
-	}
-
-	overlayWidth := width - artWidth
-	if overlayWidth < 20 {
-		overlayWidth = 20
-		artWidth = width - overlayWidth
-	}
+	// Use explicit widths passed from library_page_view.go
+	artWidth := leftWidth
+	overlayWidth := rightWidth
 
 	// Left side: render album art (which will be displayed as ANSI color blocks)
 	var leftContent string
 	art := bg.ctx.Playback.AlbumArt()
 	if art != nil && bg.ctx.Services.PlaybackImgRenderer() != nil {
 		// Render album art - it will be converted to ANSI color blocks by the renderer
-		leftContent = bg.ctx.Services.PlaybackImgRenderer().Render(art, artWidth, height)
-		leftContent = strings.TrimRight(leftContent, "\r\n ")
+		imageOutput := bg.ctx.Services.PlaybackImgRenderer().Render(art, artWidth, height)
 
-		// Safely center the album art if it's smaller than the available space
-		artLines := strings.Split(leftContent, "\n")
-		artHeight := len(artLines)
+		// Use lipgloss to create a fixed-width container that properly handles ANSI codes
+		// This ensures consistent width regardless of image aspect ratio
+		// Apply the palette background color to fill any empty space around the album art
+		containerStyle := lipgloss.NewStyle().
+			Width(artWidth).
+			Height(height).
+			Align(lipgloss.Center).
+			AlignVertical(lipgloss.Center).
+			Background(lipgloss.Color(bgColorHex))
 
-		if artHeight < height {
-			// Use lipgloss.Place to center the content
-			leftContent = lipgloss.Place(
-				artWidth,
-				height,
-				lipgloss.Center, // Horizontal center
-				lipgloss.Center, // Vertical center
-				leftContent,
-			)
-		}
+		leftContent = containerStyle.Render(imageOutput)
 	} else {
-		// Fallback: show colored placeholder when no art available
+		// Fallback: show "Plex Music" logo when no art available
 		albumAreaLines := []string{}
 		for i := 0; i < height; i++ {
 			switch i {
 			case height/2 - 1:
-				albumAreaLines = append(albumAreaLines, strings.Repeat(" ", artWidth))
-			case height / 2:
-				// Center "Album Art" placeholder
-				padding := (artWidth - 9) / 2
+				// Center "Plex Music" logo
+				logo := "🎵 Plex Music"
+				padding := (artWidth - len(logo)) / 2
 				if padding < 0 {
 					padding = 0
 				}
-				line := strings.Repeat(" ", padding) + "Album Art" + strings.Repeat(" ", artWidth-padding-9)
+				line := strings.Repeat(" ", padding) + logo + strings.Repeat(" ", artWidth-padding-len(logo))
+				if len(line) < artWidth {
+					line += strings.Repeat(" ", artWidth-len(line))
+				}
+				albumAreaLines = append(albumAreaLines, line)
+			case height / 2:
+				// Optional subtitle line
+				subtitle := "Terminal Music Player"
+				padding := (artWidth - len(subtitle)) / 2
+				if padding < 0 {
+					padding = 0
+				}
+				line := strings.Repeat(" ", padding) + subtitle + strings.Repeat(" ", artWidth-padding-len(subtitle))
 				if len(line) < artWidth {
 					line += strings.Repeat(" ", artWidth-len(line))
 				}
@@ -183,9 +206,10 @@ func (bg *BackgroundComponent) renderWithOverlay(
 	// Apply background color to left side using the primary palette color
 	// This ensures the album art has a proper background
 	leftStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(bg.paletteToHexColor(palette.Primary))).
-		Width(artWidth).
-		Height(height)
+		Background(lipgloss.Color(bgColorHex))
+
+	// Apply the background color to ensure proper rendering
+	// The album art renderer handles its own colors, but we need a base background
 	leftSide := leftStyle.Render(leftContent)
 
 	// Set global theme based on current album art
@@ -193,21 +217,27 @@ func (bg *BackgroundComponent) renderWithOverlay(
 	theme := styles.CreateThemeFromColor(bgColor)
 	styles.SetGlobalTheme(theme)
 
-	// Right side: overlay content with themed styling
-	overlayStyle := styles.ThemedBackgroundStyle().
-		Padding(1, 1).
-		Width(overlayWidth - 2).
-		Height(height).
-		Align(lipgloss.Left).
-		AlignVertical(lipgloss.Top)
+	// Update the colors package with the new theme colors
+	colors.SetThemeColors(
+		theme.TextColor,
+		theme.BackgroundColor,
+		theme.SecondaryColor,
+		theme.TertiaryColor,
+	)
 
-	rightContent := overlayStyle.Render(overlayContent)
-	rightStyle := lipgloss.NewStyle().
+	// Right side: overlay content with themed styling
+	// First wrap overlay content to constrain it to exact overlayWidth
+	constrainedOverlay := lipgloss.NewStyle().
 		Width(overlayWidth).
+		Align(lipgloss.Left).
+		AlignVertical(lipgloss.Top).
+		Render(overlayContent)
+
+	// Then apply padding and theming to the constrained content
+	rightSide := styles.ThemedBackgroundStyle().
+		Padding(1, 1).
 		Height(height).
-		AlignVertical(lipgloss.Center).
-		Align(lipgloss.Left)
-	rightSide := rightStyle.Render(rightContent)
+		Render(constrainedOverlay)
 
 	// Combine left and right sides horizontally
 	combined := lipgloss.JoinHorizontal(lipgloss.Top, leftSide, rightSide)
@@ -274,19 +304,9 @@ func (bg *BackgroundComponent) CurrentBackgroundColor() string {
 	return styles.CurrentTheme().BackgroundColor
 }
 
-// CreateThemedDelegate creates a list delegate with theme-based styling
+// CreateThemedDelegate creates a themed delegate using the current theme
 func (bg *BackgroundComponent) CreateThemedDelegate() styles.CustomDelegate {
-	delegate := styles.NewCustomDelegate()
-
-	// Apply global theme styles to the delegate
-	delegate.Styles.NormalTitle = styles.ThemedPrimaryTextStyle().Padding(0, 0, 0, 1)
-	delegate.Styles.NormalDesc = styles.ThemedSecondaryTextStyle().Padding(0, 0, 0, 1)
-	delegate.Styles.SelectedTitle = styles.ThemedSelectedStyle().Padding(0, 0, 0, 1)
-	delegate.Styles.SelectedDesc = styles.ThemedTertiaryTextStyle().
-		Background(lipgloss.Color(styles.CurrentTheme().TextColor)).
-		Padding(0, 0, 0, 1)
-
-	return delegate
+	return styles.NewDynamicDelegate()
 }
 
 // min returns the smaller of two integers

@@ -229,29 +229,32 @@ func (c *HomeComponent) updateContent() {
 			if currentSection != "" {
 				b.WriteString("\n")
 			}
-			b.WriteString(styles.SectionTitleStyle.Render(section))
+			b.WriteString(styles.ThemedSectionTitleStyle().Render(section))
 			b.WriteString("\n")
 			currentSection = section
 		}
 
 		// Render item
 		prefix := "  "
-		// background for line
-		bg := styles.ColorPaneBackground
+		// background for line - use theme background for consistency
+		bg := lipgloss.Color(styles.CurrentTheme().BackgroundColor)
 		// use delegated title+artist rendering for home items
-		style := styles.PrimaryTextStyle()
+		style := styles.ThemedPrimaryTextStyle()
 		if i == c.selectedIdx {
 			prefix = "> "
-			style = styles.SelectedItemStyle
-			bg = styles.ColorSelected
+			style = styles.ThemedSelectedStyle()
+			bg = lipgloss.Color(styles.CurrentTheme().TextColor)
 		}
 		// style prefix with same background so it's not unstyled terminal background
 		prefixStyled := lipgloss.NewStyle().Background(bg).Render(prefix)
 
 		if item.Type == "station" || item.Type == "artist" {
-			line := lipgloss.JoinHorizontal(lipgloss.Left, prefixStyled, style.Render(item.Title))
-			// Ensure line uses the full background (avoids black/uncolored gaps)
-			line = lipgloss.NewStyle().Background(bg).Render(line)
+			// Create full-width styled line to prevent wrapping issues
+			lineStyle := lipgloss.NewStyle().
+				Background(bg).
+				Width(c.width).
+				MaxWidth(c.width)
+			line := lineStyle.Render(lipgloss.JoinHorizontal(lipgloss.Left, prefixStyled, style.Render(item.Title)))
 			b.WriteString(line)
 			b.WriteString("\n")
 		} else {
@@ -260,9 +263,12 @@ func (c *HomeComponent) updateContent() {
 			artistInfo := parts[0]
 			// Centralized rendering: produce a styled title+artist string via styles helper
 			title := styles.RenderTitleArtist(item.Title, artistInfo, i == c.selectedIdx, false)
-			line := lipgloss.JoinHorizontal(lipgloss.Left, prefixStyled, title)
-			// Ensure background fills entire line
-			line = lipgloss.NewStyle().Background(bg).Render(line)
+			// Create full-width styled line to prevent wrapping issues
+			lineStyle := lipgloss.NewStyle().
+				Background(bg).
+				Width(c.width).
+				MaxWidth(c.width)
+			line := lineStyle.Render(lipgloss.JoinHorizontal(lipgloss.Left, prefixStyled, title))
 			b.WriteString(line)
 			b.WriteString("\n")
 		}

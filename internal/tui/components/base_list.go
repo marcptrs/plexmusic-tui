@@ -3,6 +3,7 @@ package components
 import (
 	"charm.land/bubbles/v2/list"
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"plexmusic-tui/internal/app"
 	"plexmusic-tui/internal/tui/styles"
@@ -23,7 +24,8 @@ type BaseListComponent struct {
 
 // NewBaseListComponent creates a new base list component with standard configuration
 func NewBaseListComponent(ctx *app.AppContext, title string) *BaseListComponent {
-	delegate := styles.NewCustomDelegate()
+	delegate := styles.NewDynamicDelegate()
+
 	l := list.New(nil, delegate, 20, 10)
 	l.Title = title
 	l.SetShowHelp(false)
@@ -31,9 +33,8 @@ func NewBaseListComponent(ctx *app.AppContext, title string) *BaseListComponent 
 	l.DisableQuitKeybindings() // Disable q/Q quit keys - use ctrl+c for quit
 
 	return &BaseListComponent{
-		ctx:   ctx,
-		list:  l,
-		title: title,
+		ctx:  ctx,
+		list: l,
 	}
 }
 
@@ -56,7 +57,23 @@ func (b *BaseListComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the list
 func (b *BaseListComponent) View() tea.View {
-	return tea.NewView(b.list.View())
+	// Get the list view but hide the built-in title
+	b.list.SetShowTitle(false)
+	listContent := b.list.View()
+
+	// Create our own theme-aware title
+	theme := styles.CurrentTheme()
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Bold(true).
+		Padding(0, 1).
+		Background(lipgloss.Color(theme.BackgroundColor))
+
+	// Use the list's title directly
+	styledTitle := titleStyle.Render(b.list.Title)
+
+	// Combine our custom title with the list content
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, styledTitle, listContent))
 }
 
 // SetSize sets the dimensions of the list
