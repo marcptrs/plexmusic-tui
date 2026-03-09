@@ -324,18 +324,21 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	// System reminder
 	systemReminder := "Press h for help • Esc to close queue"
 
-	// Create centered styles
+	// Create centered styles with explicit width constraints
 	centeredStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextColor)).
-		Background(lipgloss.Color(theme.BackgroundColor))
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(width)
 
 	secondaryStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.SecondaryColor)).
-		Background(lipgloss.Color(theme.BackgroundColor))
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(width)
 
 	tertiaryStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TertiaryColor)).
-		Background(lipgloss.Color(theme.BackgroundColor))
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(width)
 
 	// Build centered content elements
 	progressBar := centeredStyle.Render(progressStr)
@@ -382,10 +385,10 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 			Background(lipgloss.Color(theme.BackgroundColor))
 	}
 
-	// Render media control buttons
-	prevBtn := prevStyle.Render("⏮")
-	playPauseBtn := playPauseStyle.Render(playPauseIcon)
-	nextBtn := nextStyle.Render("⏭")
+	// Render media control buttons with proper width constraints
+	prevBtn := prevStyle.Width(1).Render("⏮")
+	playPauseBtn := playPauseStyle.Width(1).Render(playPauseIcon)
+	nextBtn := nextStyle.Width(1).Render("⏭")
 
 	// Create playback controls row
 	controlsText := lipgloss.JoinHorizontal(
