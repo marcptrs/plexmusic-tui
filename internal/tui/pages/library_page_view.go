@@ -410,7 +410,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 
 	// Build vertical content with proper width constraints
 	content := lipgloss.JoinVertical(
-		lipgloss.Left,
+		lipgloss.Center,
 		progressBar,
 		"",
 		artistText,
