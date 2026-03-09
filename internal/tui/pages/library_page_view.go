@@ -395,7 +395,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	// Let emojis render at their natural widths for consistent sizing
 	prevBtn := prevStyle.Render("⏮")
 	playPauseBtn := playPauseStyle.Render(playPauseIcon)
-	nextBtn := nextStyle.Render("⏭")
+	nextBtn := nextStyle.Render("▶▶")
 
 	// Create styled spaces with proper background
 	spaceStyle := lipgloss.NewStyle().
