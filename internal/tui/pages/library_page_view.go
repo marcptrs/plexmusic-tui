@@ -405,6 +405,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	controlsText := lipgloss.NewStyle().
 		Background(lipgloss.Color(theme.BackgroundColor)).
 		Width(width).
+		Align(lipgloss.Center).
 		Render(lipgloss.JoinHorizontal(
 			lipgloss.Center,
 			prevBtn,
