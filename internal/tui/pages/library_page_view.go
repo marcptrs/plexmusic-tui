@@ -377,7 +377,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 			Background(lipgloss.Color(theme.TextColor))
 	} else {
 		prevStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.SecondaryColor)).
+			Foreground(lipgloss.Color(theme.TextColor)).
 			Background(lipgloss.Color(theme.BackgroundColor))
 	}
 
@@ -387,7 +387,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 			Background(lipgloss.Color(theme.TextColor))
 	} else {
 		nextStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(theme.SecondaryColor)).
+			Foreground(lipgloss.Color(theme.TextColor)).
 			Background(lipgloss.Color(theme.BackgroundColor))
 	}
 
