@@ -393,7 +393,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 
 	// Render media control buttons without width constraints
 	// Let emojis render at their natural widths for consistent sizing
-	prevBtn := prevStyle.Render("⏮")
+	prevBtn := prevStyle.Render("◀◀")
 	playPauseBtn := playPauseStyle.Render(playPauseIcon)
 	nextBtn := nextStyle.Render("▶▶")
 
