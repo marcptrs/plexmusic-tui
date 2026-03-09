@@ -133,6 +133,10 @@ func (p *LibraryPage) View() tea.View {
 	var nowPlayingInfo string
 	if p.appCtx != nil && p.appCtx.Playback.CurrentTrack() != nil {
 		nowPlayingInfo = p.renderNowPlayingInfo(rightWidth)
+		// Position the Now Playing info specifically below the right panel
+		nowPlayingInfo = lipgloss.NewStyle().
+			PaddingLeft(p.width - rightWidth).
+			Render(nowPlayingInfo)
 	}
 
 	// Build status line
