@@ -324,24 +324,27 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	// System reminder
 	systemReminder := "Press h for help • Esc to close queue"
 
-	// Create centered styles with explicit width constraints
+	// Create centered styles with explicit width constraints and center alignment
 	centeredStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextColor)).
 		Background(lipgloss.Color(theme.BackgroundColor)).
-		Width(width)
+		Width(width).
+		Align(lipgloss.Center)
 
 	// Secondary style - use text color with normal weight for artist
 	// Good contrast is prioritized over dimming for dark backgrounds
 	secondaryStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextColor)).
 		Background(lipgloss.Color(theme.BackgroundColor)).
-		Width(width)
+		Width(width).
+		Align(lipgloss.Center)
 
 	// Tertiary style - use text color (already improved above) for system reminder
 	tertiaryStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextColor)).
 		Background(lipgloss.Color(theme.BackgroundColor)).
-		Width(width)
+		Width(width).
+		Align(lipgloss.Center)
 
 	// Build centered content elements
 	progressBar := centeredStyle.Render(progressStr)
