@@ -307,6 +307,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	} else {
 		playPauseStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.TextColor)).
+			Background(lipgloss.Color(theme.BackgroundColor)).
 			Padding(0, 1)
 	}
 
@@ -318,6 +319,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	} else {
 		prevStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.SecondaryColor)).
+			Background(lipgloss.Color(theme.BackgroundColor)).
 			Padding(0, 1)
 	}
 
@@ -329,6 +331,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	} else {
 		nextStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.SecondaryColor)).
+			Background(lipgloss.Color(theme.BackgroundColor)).
 			Padding(0, 1)
 	}
 
@@ -337,19 +340,28 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	playPauseBtn := playPauseStyle.Render(playPauseIcon)
 	nextBtn := nextStyle.Render("⏭")
 
-	// Build progress string
-	progress := ""
+	// Build visual progress bar
+	var progressStr string
+	var pct float64
 	if tr.Duration > 0 {
 		posMs := p.appCtx.Playback.CalculatedPositionMs()
 		if posMs > 0 {
 			posSec := posMs / 1000
 			totalSec := tr.Duration / 1000
 			if totalSec > 0 {
-				pct := float64(posSec) / float64(totalSec) * 100
+				pct = float64(posSec) / float64(totalSec) * 100
 				if pct > 100 {
 					pct = 100
 				}
-				progress = fmt.Sprintf("%.0f%%", pct)
+
+				// Create visual progress bar
+				barWidth := 20 // characters wide
+				filledWidth := int(pct / 100 * float64(barWidth))
+				emptyWidth := barWidth - filledWidth
+
+				filledBar := strings.Repeat("█", filledWidth)
+				emptyBar := strings.Repeat("░", emptyWidth)
+				progressStr = fmt.Sprintf("[%s%s]", filledBar, emptyBar)
 			}
 		}
 	}
@@ -357,11 +369,13 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	// Track info style
 	trackInfoStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextColor)).
+		Background(lipgloss.Color(theme.BackgroundColor)).
 		Padding(0, 1)
 
 	// Progress bar style
 	progressStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TertiaryColor)).
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Background(lipgloss.Color(theme.BackgroundColor)).
 		Padding(0, 1)
 
 	// Build the control bar
@@ -371,7 +385,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 		playPauseBtn,
 		nextBtn,
 		trackInfoStyle.Render(fmt.Sprintf(" %s - %s", tr.Title, tr.Artist)),
-		progressStyle.Render(fmt.Sprintf(" %s", progress)),
+		progressStyle.Render(fmt.Sprintf(" %s", progressStr)),
 	)
 
 	// Wrap entire control bar in background style
