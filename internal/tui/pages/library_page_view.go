@@ -428,6 +428,8 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	containerStyle := lipgloss.NewStyle().
 		Width(width).
 		Height(10).
+		Align(lipgloss.Center).
+		AlignVertical(lipgloss.Center).
 		Background(lipgloss.Color(theme.BackgroundColor))
 
 	return containerStyle.Render(content)
