@@ -83,6 +83,21 @@ func CalculateContrastingTextColor(bgColor string) string {
 	}
 }
 
+// GetSpinnerColor returns a color suitable for spinner dots based on current theme background
+// Uses a pink/purple color (similar to original #205) that contrasts well with both light and dark backgrounds
+func GetSpinnerColor() string {
+	// Use the current background color to determine contrast
+	bgColor := CurrentBackgroundColor
+
+	// For dark backgrounds, use a light pink/purple (similar to terminal color 205)
+	// For light backgrounds, use a darker purple for better visibility
+	if IsDarkColor(bgColor) {
+		return "#FF80FF" // Light pink/purple for dark backgrounds
+	} else {
+		return "#800080" // Dark purple for light backgrounds
+	}
+}
+
 // AdjustBrightness adjusts the brightness of a hex color by a factor
 func AdjustBrightness(hexColor string, factor float64) string {
 	// Remove # if present
