@@ -391,10 +391,11 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 			Background(lipgloss.Color(theme.BackgroundColor))
 	}
 
-	// Render media control buttons with proper width constraints
-	prevBtn := prevStyle.Width(1).Render("⏮")
-	playPauseBtn := playPauseStyle.Width(1).Render(playPauseIcon)
-	nextBtn := nextStyle.Width(1).Render("⏭")
+	// Render media control buttons without width constraints
+	// Let emojis render at their natural widths for consistent sizing
+	prevBtn := prevStyle.Render("⏮")
+	playPauseBtn := playPauseStyle.Render(playPauseIcon)
+	nextBtn := nextStyle.Render("⏭")
 
 	// Create styled spaces with proper background
 	spaceStyle := lipgloss.NewStyle().
