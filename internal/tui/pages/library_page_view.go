@@ -281,7 +281,7 @@ func (p *LibraryPage) renderTracks(width int) string {
 	return trackView.Content
 }
 
-// renderNowPlayingInfo renders a compact now playing info section with media controls
+// renderNowPlayingInfo renders a centered now playing info section with media controls
 func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	tr := p.appCtx.Playback.CurrentTrack()
 	if tr == nil {
@@ -290,7 +290,60 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 
 	theme := styles.CurrentTheme()
 
-	// Determine play/pause state
+	// Build visual progress bar
+	var progressStr string
+	if tr.Duration > 0 {
+		posMs := p.appCtx.Playback.CalculatedPositionMs()
+		if posMs > 0 {
+			posSec := posMs / 1000
+			totalSec := tr.Duration / 1000
+			if totalSec > 0 {
+				pct := float64(posSec) / float64(totalSec) * 100
+				if pct > 100 {
+					pct = 100
+				}
+
+				// Create visual progress bar
+				barWidth := 40
+				filledWidth := int(pct / 100 * float64(barWidth))
+				emptyWidth := barWidth - filledWidth
+
+				filledBar := strings.Repeat("█", filledWidth)
+				emptyBar := strings.Repeat("░", emptyWidth)
+				progressStr = fmt.Sprintf("[%s%s]", filledBar, emptyBar)
+			}
+		}
+	}
+
+	// Get volume information
+	volumeStr := "Volume: --"
+	if vol := p.appCtx.Playback.Volume(); vol != nil {
+		volumeStr = fmt.Sprintf("Volume: %.0f", vol.Volume*100)
+	}
+
+	// System reminder
+	systemReminder := "Press h for help • Esc to close queue"
+
+	// Create centered styles
+	centeredStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Background(lipgloss.Color(theme.BackgroundColor))
+
+	secondaryStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.SecondaryColor)).
+		Background(lipgloss.Color(theme.BackgroundColor))
+
+	tertiaryStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TertiaryColor)).
+		Background(lipgloss.Color(theme.BackgroundColor))
+
+	// Build centered content elements
+	progressBar := centeredStyle.Render(progressStr)
+	artistText := secondaryStyle.Render(tr.Artist)
+	titleText := centeredStyle.Render(tr.Title)
+	albumText := tertiaryStyle.Render(tr.Album)
+
+	// Playback controls
 	isPlaying := p.appCtx.Playback.IsPlaying()
 	playPauseIcon := "▶"
 	if isPlaying {
@@ -302,37 +355,31 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	if p.playPauseBtnPressed {
 		playPauseStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.BackgroundColor)).
-			Background(lipgloss.Color(theme.TextColor)).
-			Padding(0, 1)
+			Background(lipgloss.Color(theme.TextColor))
 	} else {
 		playPauseStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.TextColor)).
-			Background(lipgloss.Color(theme.BackgroundColor)).
-			Padding(0, 1)
+			Background(lipgloss.Color(theme.BackgroundColor))
 	}
 
 	if p.previousBtnPressed {
 		prevStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.BackgroundColor)).
-			Background(lipgloss.Color(theme.TextColor)).
-			Padding(0, 1)
+			Background(lipgloss.Color(theme.TextColor))
 	} else {
 		prevStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.SecondaryColor)).
-			Background(lipgloss.Color(theme.BackgroundColor)).
-			Padding(0, 1)
+			Background(lipgloss.Color(theme.BackgroundColor))
 	}
 
 	if p.nextBtnPressed {
 		nextStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.BackgroundColor)).
-			Background(lipgloss.Color(theme.TextColor)).
-			Padding(0, 1)
+			Background(lipgloss.Color(theme.TextColor))
 	} else {
 		nextStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(theme.SecondaryColor)).
-			Background(lipgloss.Color(theme.BackgroundColor)).
-			Padding(0, 1)
+			Background(lipgloss.Color(theme.BackgroundColor))
 	}
 
 	// Render media control buttons
@@ -340,60 +387,39 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	playPauseBtn := playPauseStyle.Render(playPauseIcon)
 	nextBtn := nextStyle.Render("⏭")
 
-	// Build visual progress bar
-	var progressStr string
-	var pct float64
-	if tr.Duration > 0 {
-		posMs := p.appCtx.Playback.CalculatedPositionMs()
-		if posMs > 0 {
-			posSec := posMs / 1000
-			totalSec := tr.Duration / 1000
-			if totalSec > 0 {
-				pct = float64(posSec) / float64(totalSec) * 100
-				if pct > 100 {
-					pct = 100
-				}
-
-				// Create visual progress bar
-				barWidth := 20 // characters wide
-				filledWidth := int(pct / 100 * float64(barWidth))
-				emptyWidth := barWidth - filledWidth
-
-				filledBar := strings.Repeat("█", filledWidth)
-				emptyBar := strings.Repeat("░", emptyWidth)
-				progressStr = fmt.Sprintf("[%s%s]", filledBar, emptyBar)
-			}
-		}
-	}
-
-	// Track info style
-	trackInfoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextColor)).
-		Background(lipgloss.Color(theme.BackgroundColor)).
-		Padding(0, 1)
-
-	// Progress bar style
-	progressStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextColor)).
-		Background(lipgloss.Color(theme.BackgroundColor)).
-		Padding(0, 1)
-
-	// Build the control bar
-	controlBar := lipgloss.JoinHorizontal(
-		lipgloss.Left,
+	// Create playback controls row
+	controlsText := lipgloss.JoinHorizontal(
+		lipgloss.Center,
 		prevBtn,
+		" ",
 		playPauseBtn,
+		" ",
 		nextBtn,
-		trackInfoStyle.Render(fmt.Sprintf(" %s - %s", tr.Title, tr.Artist)),
-		progressStyle.Render(fmt.Sprintf(" %s", progressStr)),
 	)
 
-	// Wrap entire control bar in background style
-	infoStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color(theme.BackgroundColor)).
-		Width(width)
+	// Build vertical centered layout
+	content := lipgloss.JoinVertical(
+		lipgloss.Center,
+		progressBar,
+		"",
+		artistText,
+		titleText,
+		albumText,
+		"",
+		controlsText,
+		"",
+		secondaryStyle.Render(volumeStr),
+		"",
+		tertiaryStyle.Render(systemReminder),
+	)
 
-	return infoStyle.Render(controlBar)
+	// Wrap in container that centers content
+	containerStyle := lipgloss.NewStyle().
+		Width(width).
+		Height(10).
+		Background(lipgloss.Color(theme.BackgroundColor))
+
+	return containerStyle.Render(content)
 }
 
 // renderLoadingHubs renders a centered loading spinner while hubs are being fetched
