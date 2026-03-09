@@ -126,18 +126,15 @@ func (p *LibraryPage) View() tea.View {
 		}
 	}
 
+	// Add Now Playing info to the right panel content if there's a track playing
+	if p.appCtx != nil && p.appCtx.Playback.CurrentTrack() != nil {
+		nowPlayingInfo := p.renderNowPlayingInfo(rightWidth)
+		// Append Now Playing info to the right content
+		rightContent = lipgloss.JoinVertical(lipgloss.Left, rightContent, nowPlayingInfo)
+	}
+
 	// Render the background with colored areas and overlay
 	mainContent := p.background.RenderWithOverlay(p.width, contentHeight, rightContent)
-
-	// Add Now Playing info section below the right panel
-	var nowPlayingInfo string
-	if p.appCtx != nil && p.appCtx.Playback.CurrentTrack() != nil {
-		nowPlayingInfo = p.renderNowPlayingInfo(rightWidth)
-		// Position the Now Playing info specifically below the right panel
-		nowPlayingInfo = lipgloss.NewStyle().
-			PaddingLeft(p.width - rightWidth).
-			Render(nowPlayingInfo)
-	}
 
 	// Build status line
 	serverName := "none"
@@ -185,18 +182,11 @@ func (p *LibraryPage) View() tea.View {
 	helpView := p.help.View(p.keys)
 
 	// Compose final layout
-	var finalElements []string
-	finalElements = append(finalElements, statusLine)
-	finalElements = append(finalElements, mainContent)
-
-	// Add Now Playing info if available
-	if nowPlayingInfo != "" {
-		finalElements = append(finalElements, nowPlayingInfo)
-	}
-
-	finalElements = append(finalElements, helpView)
-
-	finalView := lipgloss.JoinVertical(lipgloss.Left, finalElements...)
+	finalView := lipgloss.JoinVertical(lipgloss.Left,
+		statusLine,
+		mainContent,
+		helpView,
+	)
 
 	// If full-screen now playing is focused, show that instead
 	if p.focusedNowPlaying {
