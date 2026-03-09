@@ -229,7 +229,7 @@ func (bg *BackgroundComponent) renderWithOverlay(
 	// First wrap overlay content to constrain it to exact overlayWidth
 	constrainedOverlay := lipgloss.NewStyle().
 		Width(overlayWidth).
-		Align(lipgloss.Left).
+		Align(lipgloss.Center).
 		AlignVertical(lipgloss.Top).
 		Render(overlayContent)
 
