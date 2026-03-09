@@ -105,6 +105,12 @@ type LibraryPage struct {
 	lastSelectedQueueIndex    int
 	lastSelectedTrackIndex    int
 
+	// Media control button pressed state
+	previousBtnPressed  bool
+	nextBtnPressed      bool
+	playPauseBtnPressed bool
+	clearPressedAt      time.Time
+
 	// Help model
 	help help.Model
 
@@ -304,6 +310,14 @@ func (p *LibraryPage) Init() tea.Cmd {
 // Update processes messages for the library page, including window
 // size changes, library/playback events, and key events for navigation & actions.
 func (p *LibraryPage) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Clear button pressed states if the timeout has been reached
+	if !p.clearPressedAt.IsZero() && time.Now().After(p.clearPressedAt) {
+		p.previousBtnPressed = false
+		p.nextBtnPressed = false
+		p.playPauseBtnPressed = false
+		p.clearPressedAt = time.Time{}
+	}
+
 	// Debug: log top-level message types for development only (disabled by default)
 	// Unpack BatchMsg to ensure sub-messages are processed (e.g. Tick + Subscribe)
 	// If we get a BatchMsg, let Bubble Tea handle it as normal; don't attempt to

@@ -115,6 +115,10 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		p.lastPlayKey = time.Now()
 
+		// Set pressed state for play/pause button
+		p.playPauseBtnPressed = true
+		p.clearPressedAt = time.Now().Add(150 * time.Millisecond)
+
 		if p.orchestrator == nil {
 			p.appCtx.View.SetNotification(
 				"Playback unavailable: orchestrator is not initialized",
@@ -369,8 +373,14 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return p, nil
 
 	case key.Matches(msg, p.keys.Next):
+		// Set pressed state for next button
+		p.nextBtnPressed = true
+		p.clearPressedAt = time.Now().Add(150 * time.Millisecond)
 		return p, tea.Batch(p.playNext(), p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	case key.Matches(msg, p.keys.Prev):
+		// Set pressed state for previous button
+		p.previousBtnPressed = true
+		p.clearPressedAt = time.Now().Add(150 * time.Millisecond)
 		return p, tea.Batch(p.playPrev(), p.subscribeToPlaybackEvents(), p.subscribeToLibraryEvents())
 	case key.Matches(msg, p.keys.SeekForward):
 		if p.appCtx.Services.PlaybackService() != nil && p.orchestrator != nil {
@@ -811,6 +821,14 @@ func (p *LibraryPage) handleQueueKeyMsg(msg tea.KeyMsg) tea.Cmd {
 	if len(cmds) > 0 {
 		return tea.Batch(cmds...)
 	}
+	return nil
+}
+
+// clearPressedStates resets the button pressed states after a short delay
+func (p *LibraryPage) clearPressedStates() tea.Msg {
+	p.previousBtnPressed = false
+	p.nextBtnPressed = false
+	p.playPauseBtnPressed = false
 	return nil
 }
 

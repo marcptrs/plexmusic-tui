@@ -281,21 +281,63 @@ func (p *LibraryPage) renderTracks(width int) string {
 	return trackView.Content
 }
 
-// renderNowPlayingInfo renders a compact now playing info section
+// renderNowPlayingInfo renders a compact now playing info section with media controls
 func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	tr := p.appCtx.Playback.CurrentTrack()
 	if tr == nil {
 		return ""
 	}
 
-	// Create a compact now playing info display
 	theme := styles.CurrentTheme()
-	infoStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TextColor)).
-		Background(lipgloss.Color(theme.BackgroundColor)).
-		Padding(0, 1).
-		Width(width)
 
+	// Determine play/pause state
+	isPlaying := p.appCtx.Playback.IsPlaying()
+	playPauseIcon := "▶"
+	if isPlaying {
+		playPauseIcon = "⏸"
+	}
+
+	// Apply pressed styling to buttons
+	var playPauseStyle, prevStyle, nextStyle lipgloss.Style
+	if p.playPauseBtnPressed {
+		playPauseStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.BackgroundColor)).
+			Background(lipgloss.Color(theme.TextColor)).
+			Padding(0, 1)
+	} else {
+		playPauseStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextColor)).
+			Padding(0, 1)
+	}
+
+	if p.previousBtnPressed {
+		prevStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.BackgroundColor)).
+			Background(lipgloss.Color(theme.TextColor)).
+			Padding(0, 1)
+	} else {
+		prevStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.SecondaryColor)).
+			Padding(0, 1)
+	}
+
+	if p.nextBtnPressed {
+		nextStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.BackgroundColor)).
+			Background(lipgloss.Color(theme.TextColor)).
+			Padding(0, 1)
+	} else {
+		nextStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.SecondaryColor)).
+			Padding(0, 1)
+	}
+
+	// Render media control buttons
+	prevBtn := prevStyle.Render("⏮")
+	playPauseBtn := playPauseStyle.Render(playPauseIcon)
+	nextBtn := nextStyle.Render("⏭")
+
+	// Build progress string
 	progress := ""
 	if tr.Duration > 0 {
 		posMs := p.appCtx.Playback.CalculatedPositionMs()
@@ -307,13 +349,37 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 				if pct > 100 {
 					pct = 100
 				}
-				progress = fmt.Sprintf(" %.0f%%", pct)
+				progress = fmt.Sprintf("%.0f%%", pct)
 			}
 		}
 	}
 
-	info := fmt.Sprintf("▶ %s - %s%s", tr.Title, tr.Artist, progress)
-	return infoStyle.Render(info)
+	// Track info style
+	trackInfoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Padding(0, 1)
+
+	// Progress bar style
+	progressStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TertiaryColor)).
+		Padding(0, 1)
+
+	// Build the control bar
+	controlBar := lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		prevBtn,
+		playPauseBtn,
+		nextBtn,
+		trackInfoStyle.Render(fmt.Sprintf(" %s - %s", tr.Title, tr.Artist)),
+		progressStyle.Render(fmt.Sprintf(" %s", progress)),
+	)
+
+	// Wrap entire control bar in background style
+	infoStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(width)
+
+	return infoStyle.Render(controlBar)
 }
 
 // renderLoadingHubs renders a centered loading spinner while hubs are being fetched
