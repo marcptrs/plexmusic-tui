@@ -129,6 +129,12 @@ func (p *LibraryPage) View() tea.View {
 	// Render the background with colored areas and overlay
 	mainContent := p.background.RenderWithOverlay(p.width, contentHeight, rightContent)
 
+	// Add Now Playing info section below the right panel
+	var nowPlayingInfo string
+	if p.appCtx != nil && p.appCtx.Playback.CurrentTrack() != nil {
+		nowPlayingInfo = p.renderNowPlayingInfo(rightWidth)
+	}
+
 	// Build status line
 	serverName := "none"
 	if server != nil && server.Name != "" {
@@ -175,11 +181,18 @@ func (p *LibraryPage) View() tea.View {
 	helpView := p.help.View(p.keys)
 
 	// Compose final layout
-	finalView := lipgloss.JoinVertical(lipgloss.Left,
-		statusLine,
-		mainContent,
-		helpView,
-	)
+	var finalElements []string
+	finalElements = append(finalElements, statusLine)
+	finalElements = append(finalElements, mainContent)
+
+	// Add Now Playing info if available
+	if nowPlayingInfo != "" {
+		finalElements = append(finalElements, nowPlayingInfo)
+	}
+
+	finalElements = append(finalElements, helpView)
+
+	finalView := lipgloss.JoinVertical(lipgloss.Left, finalElements...)
 
 	// If full-screen now playing is focused, show that instead
 	if p.focusedNowPlaying {
@@ -274,6 +287,41 @@ func (p *LibraryPage) renderTracks(width int) string {
 	return trackView.Content
 }
 
+// renderNowPlayingInfo renders a compact now playing info section
+func (p *LibraryPage) renderNowPlayingInfo(width int) string {
+	tr := p.appCtx.Playback.CurrentTrack()
+	if tr == nil {
+		return ""
+	}
+
+	// Create a compact now playing info display
+	theme := styles.CurrentTheme()
+	infoStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Padding(0, 1).
+		Width(width)
+
+	progress := ""
+	if tr.Duration > 0 {
+		posMs := p.appCtx.Playback.CalculatedPositionMs()
+		if posMs > 0 {
+			posSec := posMs / 1000
+			totalSec := tr.Duration / 1000
+			if totalSec > 0 {
+				pct := float64(posSec) / float64(totalSec) * 100
+				if pct > 100 {
+					pct = 100
+				}
+				progress = fmt.Sprintf(" %.0f%%", pct)
+			}
+		}
+	}
+
+	info := fmt.Sprintf("▶ %s - %s%s", tr.Title, tr.Artist, progress)
+	return infoStyle.Render(info)
+}
+
 // renderLoadingHubs renders a centered loading spinner while hubs are being fetched
 func (p *LibraryPage) renderLoadingHubs(width, height int) string {
 	// Get the raw spinner frames without styling
@@ -295,11 +343,22 @@ func (p *LibraryPage) renderLoadingHubs(width, height int) string {
 		Background(lipgloss.Color(bgColor)).
 		Render(loadingText)
 
+	// Style the space with the background color too
+	styledSpace := lipgloss.NewStyle().
+		Background(lipgloss.Color(bgColor)).
+		Render(" ")
+
 	content := lipgloss.JoinHorizontal(lipgloss.Left,
 		styledSpinner,
-		" ",
+		styledSpace,
 		styledLoadingText,
 	)
+
+	// Apply full-width background to the entire content to fill remaining space
+	fullWidthContent := lipgloss.NewStyle().
+		Width(width).
+		Background(lipgloss.Color(bgColor)).
+		Render(content)
 
 	// Center horizontally and vertically
 	style := lipgloss.NewStyle().
@@ -307,7 +366,7 @@ func (p *LibraryPage) renderLoadingHubs(width, height int) string {
 		Height(height).
 		Align(lipgloss.Center, lipgloss.Center)
 
-	view := tea.NewView(style.Render(content))
+	view := tea.NewView(style.Render(fullWidthContent))
 	return view.Content
 }
 
