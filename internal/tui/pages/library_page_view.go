@@ -330,13 +330,16 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 		Background(lipgloss.Color(theme.BackgroundColor)).
 		Width(width)
 
+	// Secondary style - use text color with normal weight for artist
+	// Good contrast is prioritized over dimming for dark backgrounds
 	secondaryStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.SecondaryColor)).
+		Foreground(lipgloss.Color(theme.TextColor)).
 		Background(lipgloss.Color(theme.BackgroundColor)).
 		Width(width)
 
+	// Tertiary style - use text color (already improved above) for system reminder
 	tertiaryStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color(theme.TertiaryColor)).
+		Foreground(lipgloss.Color(theme.TextColor)).
 		Background(lipgloss.Color(theme.BackgroundColor)).
 		Width(width)
 
@@ -390,13 +393,18 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	playPauseBtn := playPauseStyle.Width(1).Render(playPauseIcon)
 	nextBtn := nextStyle.Width(1).Render("⏭")
 
-	// Create playback controls row
+	// Create styled spaces with proper background
+	spaceStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BackgroundColor))
+	styledSpace := spaceStyle.Render(" ")
+
+	// Create playback controls row with proper background
 	controlsText := lipgloss.JoinHorizontal(
 		lipgloss.Center,
 		prevBtn,
-		" ",
+		styledSpace,
 		playPauseBtn,
-		" ",
+		styledSpace,
 		nextBtn,
 	)
 
