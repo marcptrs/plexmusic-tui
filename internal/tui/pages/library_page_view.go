@@ -9,6 +9,7 @@ import (
 
 	"plexmusic-tui/internal/app"
 	domain "plexmusic-tui/internal/domain"
+	colors "plexmusic-tui/internal/tui/colors"
 	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
@@ -275,13 +276,29 @@ func (p *LibraryPage) renderTracks(width int) string {
 
 // renderLoadingHubs renders a centered loading spinner while hubs are being fetched
 func (p *LibraryPage) renderLoadingHubs(width, height int) string {
+	// Get the raw spinner frames without styling
 	spinnerStr := p.spinner.View()
 	loadingText := "Loading..."
 
+	// Get current theme colors for dynamic styling
+	textColor, bgColor, _, _ := colors.GetThemeColors()
+	spinnerColor := colors.GetSpinnerColor()
+
+	// Apply dynamic theme colors to spinner and text
+	styledSpinner := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(spinnerColor)).
+		Background(lipgloss.Color(bgColor)).
+		Render(spinnerStr)
+
+	styledLoadingText := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(textColor)).
+		Background(lipgloss.Color(bgColor)).
+		Render(loadingText)
+
 	content := lipgloss.JoinHorizontal(lipgloss.Left,
-		spinnerStr,
+		styledSpinner,
 		" ",
-		styles.BlurredStyle.Render(loadingText),
+		styledLoadingText,
 	)
 
 	// Center horizontally and vertically
