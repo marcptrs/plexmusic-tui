@@ -95,8 +95,23 @@ func (s *SettingsComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the settings component.
 func (s *SettingsComponent) View() tea.View {
-	title := styles.TitleStyle.Render("Settings")
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, title, "", s.list.View()))
+	theme := styles.CurrentTheme()
+
+	// Create theme-aware title with proper background
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Bold(true).
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(s.list.Width())
+	title := titleStyle.Render("Settings")
+
+	// Apply theme background to list content
+	listContentStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(s.list.Width())
+	styledListContent := listContentStyle.Render(s.list.View())
+
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, title, "", styledListContent))
 }
 
 // SetSize sets the component's size.

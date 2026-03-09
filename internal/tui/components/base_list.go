@@ -67,13 +67,20 @@ func (b *BaseListComponent) View() tea.View {
 		Foreground(lipgloss.Color(theme.TextColor)).
 		Bold(true).
 		Padding(0, 1).
-		Background(lipgloss.Color(theme.BackgroundColor))
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(b.list.Width())
 
 	// Use the list's title directly
 	styledTitle := titleStyle.Render(b.list.Title)
 
+	// Apply theme background to list content to ensure consistent background
+	listContentStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(b.list.Width())
+	styledListContent := listContentStyle.Render(listContent)
+
 	// Combine our custom title with the list content
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, styledTitle, listContent))
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, styledTitle, styledListContent))
 }
 
 // SetSize sets the dimensions of the list

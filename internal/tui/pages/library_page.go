@@ -23,7 +23,6 @@ import (
 	"plexmusic-tui/internal/service"
 	"plexmusic-tui/internal/tui"
 	components "plexmusic-tui/internal/tui/components"
-	styles "plexmusic-tui/internal/tui/styles"
 	"plexmusic-tui/internal/tui/util"
 )
 
@@ -150,10 +149,10 @@ func NewLibraryPageWithAuth(appCtx *app.AppContext, authSvc service.AuthServicer
 
 	s := spinner.New()
 	s.Spinner = spinner.Dot
-	// Use the muted/blurred style as a base so the spinner adopts the
-	// current pane background, avoiding background color leakage that can
-	// make the spinner text appear with a black / wrong background.
-	s.Style = styles.BlurredStyle.Foreground(lipgloss.Color("205"))
+	// Use a transparent background so the spinner can adopt
+	// the dynamic theme background applied at render time.
+	s.Style = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("205"))
 
 	orch := tui.NewOrchestrator(appCtx, nil, nil)
 

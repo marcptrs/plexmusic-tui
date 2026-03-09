@@ -320,7 +320,7 @@ func (np *NowPlayingComponent) RenderFull(width int, height int) string {
 		help := styles.NothingPlayingHintStyle()
 		return lipgloss.JoinVertical(
 			lipgloss.Center,
-			styles.TitleStyle.Render("Now Playing"),
+			styles.ThemedTitleStyle().Render("Now Playing"),
 			"",
 			styles.NothingPlayingStyle(),
 			"",

@@ -229,7 +229,15 @@ func (c *HomeComponent) updateContent() {
 			if currentSection != "" {
 				b.WriteString("\n")
 			}
-			b.WriteString(styles.ThemedSectionTitleStyle().Render(section))
+			// Apply width constraint to section header for proper background rendering
+			theme := styles.CurrentTheme()
+			sectionHeaderStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color(theme.TextColor)).
+				Bold(true).
+				Padding(0, 1).
+				Background(lipgloss.Color(theme.BackgroundColor)).
+				Width(c.width)
+			b.WriteString(sectionHeaderStyle.Render(section))
 			b.WriteString("\n")
 			currentSection = section
 		}

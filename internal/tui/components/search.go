@@ -62,20 +62,42 @@ func (s *SearchComponent) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the search component.
 func (s *SearchComponent) View() tea.View {
-	title := styles.TitleStyle.Render("Search")
+	theme := styles.CurrentTheme()
 
-	// Render results
+	// Create theme-aware title with proper background
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(theme.TextColor)).
+		Bold(true).
+		Background(lipgloss.Color(theme.BackgroundColor))
+	title := titleStyle.Render("Search")
+
+	// Render results with theme background
 	var resultView string
 	if len(s.results) == 0 && s.textInput.Value() != "" {
-		resultView = styles.BlurredStyle.Render("No matches")
+		resultView = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TertiaryColor)).
+			Background(lipgloss.Color(theme.BackgroundColor)).
+			Render("No matches")
 	} else {
-		resultView = lipgloss.JoinVertical(lipgloss.Left, s.results...)
+		// Apply background to each result
+		styledResults := make([]string, len(s.results))
+		for i, result := range s.results {
+			styledResults[i] = lipgloss.NewStyle().
+				Background(lipgloss.Color(theme.BackgroundColor)).
+				Render(result)
+		}
+		resultView = lipgloss.JoinVertical(lipgloss.Left, styledResults...)
 	}
+
+	// Apply background to text input
+	styledInput := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Render(s.textInput.View())
 
 	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left,
 		title,
 		"",
-		s.textInput.View(),
+		styledInput,
 		"",
 		resultView,
 	))

@@ -114,13 +114,22 @@ func (c *QueueComponent) View() tea.View {
 
 	summary := fmt.Sprintf("%d items • %s", len(items), util.FormatTrackDuration(total))
 	theme := styles.CurrentTheme()
+
+	// Apply theme background to list content to ensure consistent background
+	listContentStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Width(c.list.Width())
+	styledListContent := listContentStyle.Render(v)
+
+	// Create summary with correct width and background
 	summaryView := lipgloss.NewStyle().
 		Foreground(lipgloss.Color(theme.TextColor)).
 		Background(lipgloss.Color(theme.BackgroundColor)).
 		Padding(0, 1).
+		Width(c.list.Width()).
 		Render(summary)
 
-	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, v, summaryView))
+	return tea.NewView(lipgloss.JoinVertical(lipgloss.Left, styledListContent, summaryView))
 }
 
 func (c *QueueComponent) handleKeyMsg(msg tea.KeyPressMsg) (bool, tea.Cmd) {
