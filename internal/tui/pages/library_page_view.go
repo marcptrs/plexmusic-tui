@@ -402,14 +402,16 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 	styledSpace := spaceStyle.Render(" ")
 
 	// Create playback controls row with proper background
-	controlsText := lipgloss.JoinHorizontal(
-		lipgloss.Center,
-		prevBtn,
-		styledSpace,
-		playPauseBtn,
-		styledSpace,
-		nextBtn,
-	)
+	controlsText := lipgloss.NewStyle().
+		Background(lipgloss.Color(theme.BackgroundColor)).
+		Render(lipgloss.JoinHorizontal(
+			lipgloss.Center,
+			prevBtn,
+			styledSpace,
+			playPauseBtn,
+			styledSpace,
+			nextBtn,
+		))
 
 	// Build vertical content with proper width constraints
 	content := lipgloss.JoinVertical(
