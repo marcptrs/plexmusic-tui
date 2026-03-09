@@ -408,7 +408,7 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 		nextBtn,
 	)
 
-	// Build vertical centered content
+	// Build vertical content with proper width constraints
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
 		progressBar,
@@ -424,22 +424,14 @@ func (p *LibraryPage) renderNowPlayingInfo(width int) string {
 		tertiaryStyle.Render(systemReminder),
 	)
 
-	// Use Place to center the content properly within the container
-	centeredContent := lipgloss.Place(
-		width,
-		10,
-		lipgloss.Center,
-		lipgloss.Center,
-		content,
-	)
-
-	// Wrap in container that provides background and dimensions
+	// Wrap in container that centers and provides background
 	containerStyle := lipgloss.NewStyle().
 		Width(width).
 		Height(10).
+		Align(lipgloss.Center).
 		Background(lipgloss.Color(theme.BackgroundColor))
 
-	return containerStyle.Render(centeredContent)
+	return containerStyle.Render(content)
 }
 
 // renderLoadingHubs renders a centered loading spinner while hubs are being fetched
