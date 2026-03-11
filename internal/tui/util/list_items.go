@@ -37,7 +37,6 @@ func (i TrackItem) Title() string {
 }
 
 func (i TrackItem) Description() string {
-	// Return raw unstyled description; delegate will apply artist/album styles.
 	return fmt.Sprintf("%s - %s", i.Track.Artist, i.Track.Album)
 }
 func (i TrackItem) FilterValue() string { return i.Track.Title + " " + i.Track.Artist }
@@ -54,7 +53,8 @@ func (i QueueItem) Title() string {
 }
 
 func (i QueueItem) Description() string {
-	return fmt.Sprintf("%s - %s", i.Track.Artist, i.Track.Album)
+	// Return formatted track duration as description
+	return FormatTrackDuration(i.Track.Duration)
 }
 
 // Expose playing state so delegate can render appropriately

@@ -87,6 +87,22 @@ type LibraryPage struct {
 	showingTracks bool
 	// drawerOpen indicates whether an overlay drawer (for library/search/settings) is open
 	drawerOpen bool
+	// currentAlbumKey tracks which album is currently being viewed in the track list
+	currentAlbumKey string
+	// currentAlbumName tracks the name of the currently viewed album
+	currentAlbumName string
+	// currentPlaylistKey tracks which playlist is currently being viewed in the track list
+	currentPlaylistKey string
+	// currentPlaylistName tracks the name of the currently viewed playlist
+	currentPlaylistName string
+	// trackListSummary stores the summary text to display below the track list
+	trackListSummary string
+	// trackListArtist stores the artist name for the current track list
+	trackListArtist string
+	// trackListAlbum stores the album name for the current track list
+	trackListAlbum string
+	// isViewingPlaylist tracks whether the current track list is from a playlist/radio
+	isViewingPlaylist bool
 
 	// Loading state
 	hubsLoading bool

@@ -278,6 +278,20 @@ func (p *LibraryPage) renderQueue(width int) string {
 func (p *LibraryPage) renderTracks(width int) string {
 	p.trackComponent.SetWidth(width)
 	trackView := p.trackComponent.View()
+
+	// Add summary below the track list if available
+	if p.trackListSummary != "" {
+		theme := styles.CurrentTheme()
+		summaryStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(theme.TextColor)).
+			Background(lipgloss.Color(theme.BackgroundColor)).
+			Width(width).
+			Align(lipgloss.Left)
+		summary := summaryStyle.Render(p.trackListSummary)
+		// Try simple concatenation with minimal newline
+		return trackView.Content + "\n" + summary
+	}
+
 	return trackView.Content
 }
 

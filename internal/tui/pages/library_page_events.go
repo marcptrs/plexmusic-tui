@@ -120,6 +120,33 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			p.appCtx.Content.SetTracksTotal(len(msg.Tracks))
 		}
 		p.trackComponent.SetItems(items)
+
+		// Update track list title and summary
+		// Extract artist and album from first track
+		if len(msg.Tracks) > 0 {
+			artist := msg.Tracks[0].Artist
+			album := msg.Tracks[0].Album
+			p.trackListArtist = artist
+			p.trackListAlbum = album
+
+			// Set track list title to "Artist - Album" format
+			title := ""
+			if artist != "" && album != "" {
+				title = fmt.Sprintf("%s - %s", artist, album)
+			}
+			p.trackComponent.SetTitle(title)
+		}
+
+		// Update track list summary (displayed below list)
+		totalDuration := util.CalculateTotalDuration(msg.Tracks)
+		var summary string
+
+		// Build summary: "X tracks - HH:MM:SS"
+		summary = fmt.Sprintf("%d tracks - %s",
+			len(msg.Tracks),
+			util.FormatTotalDuration(totalDuration))
+
+		p.trackListSummary = summary
 		if len(msg.Tracks) > 0 {
 			p.appCtx.View.SetSelectedTrack(0)
 			p.trackComponent.Select(0)
@@ -143,6 +170,11 @@ func (p *LibraryPage) handleLibraryEvent(msg domain.LibraryEvent) (tea.Model, te
 			p.appCtx.Content.SetQueueIndex(0)
 			p.queueComponent.UpdateListFromCoordinator()
 			p.showingTracks = false
+			p.currentAlbumKey = ""
+			p.currentAlbumName = ""
+			p.currentPlaylistKey = ""
+			p.currentPlaylistName = ""
+			p.trackListSummary = ""
 			p.appCtx.View.SetActiveTab(app.QueueTab)
 			// Play first track asynchronously
 			if len(q) > 0 {

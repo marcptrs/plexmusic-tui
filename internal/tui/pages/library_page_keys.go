@@ -92,6 +92,12 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// Close left-pane tracklist if open instead of closing a drawer/modal.
 		if p.showingTracks {
 			p.showingTracks = false
+			p.currentAlbumKey = ""
+			p.currentAlbumName = ""
+			p.currentPlaylistKey = ""
+			p.currentPlaylistName = ""
+			p.trackListSummary = ""
+			p.isViewingPlaylist = false
 			return p, nil
 		}
 
@@ -201,6 +207,11 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					p.queueComponent.UpdateListFromCoordinator()
 					p.appCtx.View.SetSelectedTrack(selIdx)
 					p.showingTracks = false
+					p.currentAlbumKey = ""
+					p.currentAlbumName = ""
+					p.currentPlaylistKey = ""
+					p.currentPlaylistName = ""
+					p.trackListSummary = ""
 					p.appCtx.View.SetActiveTab(app.QueueTab)
 					if len(newQueue) > 0 {
 						return p, p.playTrack(&newQueue[0])
@@ -304,9 +315,14 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				p.appCtx.Content.SetQueueIndex(0)
 				p.queueComponent.UpdateListFromCoordinator()
 
-				// Make sure the underlying tracklist selection is reflected in coordinator
+				// Make sure that underlying tracklist selection is reflected in coordinator
 				p.appCtx.View.SetSelectedTrack(selIdx)
 				p.showingTracks = false
+				p.currentAlbumKey = ""
+				p.currentAlbumName = ""
+				p.currentPlaylistKey = ""
+				p.currentPlaylistName = ""
+				p.trackListSummary = ""
 				p.appCtx.View.SetActiveTab(app.QueueTab)
 
 				// Play the first track in the newly created queue (the selected track)
@@ -544,9 +560,14 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			p.drawerOpen = false
 		}
 		// Do not automatically change keyboard focus when switching tabs.
-		// Explicit 'o' keypress or the queue modal should be used to toggle focus.
+		// Explicit 'o' keypress or queue modal should be used to toggle focus.
 		if p.showingTracks {
 			p.showingTracks = false
+			p.currentAlbumKey = ""
+			p.currentAlbumName = ""
+			p.currentPlaylistKey = ""
+			p.currentPlaylistName = ""
+			p.trackListSummary = ""
 		}
 		return p, nil
 	}
@@ -609,8 +630,13 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if item := p.homeComponent.SelectedItem(); item != nil {
 					switch item.Type {
 					case "album":
-						// Fetch tracks for the album
+						// Fetch tracks for album
 						if p.libSvc != nil {
+							p.currentAlbumKey = item.Key
+							p.currentAlbumName = item.Title
+							p.currentPlaylistKey = ""
+							p.currentPlaylistName = ""
+							p.isViewingPlaylist = false
 							reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 							defer cancel()
 							_, _, _ = p.libSvc.FetchTracks(reqCtx, item.Key)
@@ -637,23 +663,35 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				newIdx := p.recentlyAddedComponent.Index()
 				if newIdx != p.lastSelectedAlbumIndex && p.libSvc != nil {
 					p.lastSelectedAlbumIndex = newIdx
+					p.currentAlbumKey = item.Album.Key
+					p.currentAlbumName = item.Album.Title
+					p.currentPlaylistKey = ""
+					p.currentPlaylistName = ""
+					p.isViewingPlaylist = false
 					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Album.Key))
 					// Note: We don't fetch cover art here as it would interfere with
-					// the currently playing track's art. Art is fetched on playback.started.
+					// currently playing track's art. Art is fetched on playback.started.
+				}
+			}
+
+			if key.Matches(msg, p.keys.Enter) {
+				if item, ok := p.recentlyAddedComponent.SelectedItem().(util.AlbumItem); ok {
+					if p.libSvc != nil {
+						p.currentAlbumKey = item.Album.Key
+						p.currentAlbumName = item.Album.Title
+						p.currentPlaylistKey = ""
+						p.currentPlaylistName = ""
+						p.isViewingPlaylist = false
+						reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
+						defer cancel()
+						_, _, _ = p.libSvc.FetchTracks(reqCtx, item.Album.Key)
+						p.showingTracks = true
+					}
 				}
 			}
 		}
 
-		if key.Matches(msg, p.keys.Enter) {
-			if item, ok := p.recentlyAddedComponent.SelectedItem().(util.AlbumItem); ok {
-				if p.libSvc != nil {
-					reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
-					defer cancel()
-					_, _, _ = p.libSvc.FetchTracks(reqCtx, item.Album.Key)
-					p.showingTracks = true
-				}
-			}
-		}
+		return p, cmd
 
 	case app.PlaylistsTab:
 		if !p.IsFocusedQueue() && !p.appCtx.View.ShowQueueModal() {
@@ -664,6 +702,11 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				newIdx := p.playlistComponent.Index()
 				if newIdx != p.lastSelectedPlaylistIndex && p.libSvc != nil {
 					p.lastSelectedPlaylistIndex = newIdx
+					p.currentPlaylistKey = item.Playlist.Key
+					p.currentPlaylistName = item.Playlist.Title
+					p.currentAlbumKey = ""
+					p.currentAlbumName = ""
+					p.isViewingPlaylist = true
 					cmd = tea.Batch(cmd, p.fetchTracksCmd(item.Playlist.Key))
 				}
 			}
@@ -672,6 +715,11 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key.Matches(msg, p.keys.Enter) {
 			if item, ok := p.playlistComponent.SelectedItem().(util.PlaylistItem); ok {
 				if p.libSvc != nil {
+					p.currentPlaylistKey = item.Playlist.Key
+					p.currentPlaylistName = item.Playlist.Title
+					p.currentAlbumKey = ""
+					p.currentAlbumName = ""
+					p.isViewingPlaylist = true
 					reqCtx, cancel := context.WithTimeout(p.ctx, 10*time.Second)
 					defer cancel()
 					_, _, _ = p.libSvc.FetchTracks(reqCtx, item.Playlist.Key)
@@ -679,6 +727,8 @@ func (p *LibraryPage) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
+
+		return p, cmd
 
 	case app.QueueTab:
 		p.queueComponent.SetFocused(true)
